@@ -35,6 +35,8 @@ from ..errors import (
 )
 from ..models import User
 from ..validation import Email, ZodModel
+from ..zod_coerce import js_trim
+from ..zod_types import zod_body
 
 logger = get_logger()
 
@@ -51,7 +53,7 @@ class SyncBody(ZodModel):
 
 
 def _trimmed_name(value: str) -> str:
-    value = value.strip()
+    value = js_trim(value)
     if not 1 <= len(value) <= 100:
         raise ValueError("must be 1 to 100 characters after trimming")
     return value
@@ -126,7 +128,7 @@ def _is_unique_violation(exc: IntegrityError, constraint: str) -> bool:
     },
 )
 async def sync(
-    body: SyncBody,
+    body: SyncBody = Depends(zod_body(SyncBody)),
     authorization: str | None = Header(default=None, alias="Authorization"),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -226,8 +228,8 @@ async def me(
     },
 )
 async def update_me(
-    body: UpdateProfileBody,
     caller: Caller = Depends(require_scope("deejaytools.profile.write")),
+    body: UpdateProfileBody = Depends(zod_body(UpdateProfileBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Update the caller's first and last name."""

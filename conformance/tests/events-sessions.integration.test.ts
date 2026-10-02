@@ -20,7 +20,15 @@ async function eventWithSession() {
 describe("events and sessions (integration)", () => {
   it("the health check and the operator's tick answer", async () => {
     expect((await request("GET", "/health")).status).toBe(200);
-    const tick = await request("GET", "/internal/tick");
+    // Adapted: this service's tick fails closed without TICK_SECRET
+    // (deejaytools-api ADR-007), so the operator sends the secret, as the
+    // harness's tick() does. Without it, the route refuses.
+    const secret = process.env.INTEGRATION_TICK_SECRET;
+    const refused = await request("GET", "/internal/tick");
+    expect(refused.status).toBe(403);
+    const tick = await request("GET", "/internal/tick", {
+      headers: secret === undefined ? undefined : { "x-tick-secret": secret },
+    });
     expect(tick.status).toBe(200);
     expect(tick.body.data).toEqual({ ticked: true });
   });

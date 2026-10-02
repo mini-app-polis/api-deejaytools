@@ -29,3 +29,30 @@ async def test_cors_preflight_matches_deejaytools_api() -> None:
         )
     assert res.status_code == 200
     assert res.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+async def test_head_health_and_routing_edges_match_hono() -> None:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        head = await c.head("/health")
+        slash = await c.get("/v1/events/")
+        options = await c.options("/v1/events")
+    assert head.status_code == 200
+    assert slash.status_code == 404  # no redirect to /v1/events
+    assert slash.json() == {"error": {"code": "NOT_FOUND", "message": "Not found"}}
+    assert options.status_code == 204
+
+
+async def test_unhandled_500_keeps_cors_headers(monkeypatch) -> None:
+    from api_deejaytools.routers import events
+
+    def broken_select(*_a: object, **_k: object) -> None:
+        raise RuntimeError("database fell over")
+
+    monkeypatch.setattr(events, "select", broken_select)
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        res = await c.get("/v1/events", headers={"Origin": "http://localhost:5173"})
+    assert res.status_code == 500
+    assert res.json()["error"]["code"] == "INTERNAL"
+    assert res.headers["access-control-allow-origin"] == "http://localhost:5173"

@@ -48,11 +48,34 @@ deejaytools-api's codes and shapes (`errors.py`).
   `role: "user"`.
 
 - **Request validation follows zod, not pydantic's defaults**
-  (`validation.py`): no type coercion, optional fields refuse `null` unless
-  zod said `.nullable()`, and email addresses use zod's own pattern
-  (pydantic's refuses reserved domains such as `.test`). Event timezones are
-  checked the way `Intl` checks them: any IANA name, case-insensitively,
-  stored as sent.
+  (`validation.py`, `zod_types.py`, `zod_coerce.py`): no type coercion,
+  optional fields refuse `null` unless zod said `.nullable()`, email
+  addresses use zod's own pattern (pydantic's refuses reserved domains such
+  as `.test`), and Infinity is not a number. Where Python and JavaScript
+  disagree on a primitive, the JavaScript behaviour is reproduced: `trim()`
+  and `\s` use JavaScript's whitespace set (`js_trim`), patterns are matched
+  whole with ASCII digits, `Number()` coerces query values, `localeCompare`
+  orders labels (`domain.locale_key`, checked against Node 22), and event
+  timezones are what `Intl` accepts: IANA names case-insensitively and
+  `+HH:MM` offsets, stored as sent.
+- **Bodies are parsed by a dependency** (`zod_types.zod_body`), declared
+  after the auth dependency: as with hono's middleware, a missing token wins
+  over a bad body, a body without a JSON content type is `{}`, and
+  malformed JSON answers `500 INTERNAL`, deejaytools-api's answer.
+  `document_zod_bodies` puts those bodies back into the OpenAPI schema.
+- **Durable song builds** (`services/song_builds.py`, migration 003). The
+  uploaded bytes wait in `song_uploads` until the Drive build finishes, so a
+  restart or a failure resumes the build instead of losing it. A build holds
+  a lease it renews every minute and identifies itself with a `claim_id`; a
+  build that stops renewing is taken over, and its later writes match
+  nothing. The tick starts due builds in the background, at most
+  `MAX_IN_FLIGHT` at once. This fixes DRIVE.md's known defects; the wire
+  behaviour (an unreferenced song vanishing when its build fails) is kept.
+- **Drive clients are per thread** (`services/drive.py`): Drive calls run in
+  worker threads, and googleapiclient's transport is not thread-safe.
+- **Deletes take Drive file ids from the rows they delete**
+  (`DELETE … RETURNING`, `UPDATE … RETURNING`), so a copy or build finishing
+  concurrently is never left behind in Drive.
 - **Request limits** (`middleware.py`) are deejaytools-api's, keyed the same
   way. The deadline does not cancel the handler, as Node could not: it runs
   on and its writes land, only its response is discarded.
@@ -66,5 +89,6 @@ Tests build a real Postgres database from `migrations/` with the runner, so
 the baseline is exercised on every run. `scripts/check_baseline.sh` checks
 the baseline against drizzle's result in CI. The conformance suite
 (deejaytools-api's integration suite, copied into `conformance/` with
-ADR-009's three harness changes) runs in CI against this service; it may
-fail until every route exists.
+ADR-009's three harness changes) runs in CI against this service. Its one
+further change: the tick test sends `x-tick-secret`, since `/internal/tick`
+fails closed here (see `conformance/README.md`).

@@ -59,23 +59,27 @@ from ..models import (
 )
 from ..services.drive_jobs import enqueue_trash_jobs
 from ..validation import NonEmptyStr, ZodModel
+from ..zod_coerce import js_trim
+from ..zod_types import zod_body
 
 logger = get_logger()
 
 router = APIRouter(prefix="/v1/events", tags=["events"])
 
-_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_YEAR = re.compile(r"^\d{4}$")
+# [0-9] and fullmatch, not \d and match: Python's \d takes any Unicode digit
+# and its $ matches before a trailing newline. JavaScript's do neither.
+_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_YEAR = re.compile(r"[0-9]{4}")
 
 
 def _date(value: str) -> str:
-    if not _DATE.match(value):
+    if not _DATE.fullmatch(value):
         raise ValueError("Must be YYYY-MM-DD")
     return value
 
 
 def _season_year(value: str) -> str:
-    if not _YEAR.match(value):
+    if not _YEAR.fullmatch(value):
         raise ValueError("Must be a 4-digit year")
     return value
 
@@ -341,7 +345,7 @@ async def event_entities(
     by_division: dict[str, dict[str, dict[str, Any]]] = {}
     for r in rows:
         # The per-event override wins, else the song's own division.
-        division = (r.submission_division or r.song_division or "").strip()
+        division = js_trim(r.submission_division or r.song_division or "")
         division = division or UNSPECIFIED_DIVISION
         key = song_entity_key(r.user_id, r.partner_id, r.managed_partnership_id)
         entities = by_division.setdefault(division, {})
@@ -392,8 +396,8 @@ async def event_entities(
     responses=ADMIN,
 )
 async def create_event(
-    body: CreateEventBody,
     caller: Caller = Depends(require_scope("deejaytools.events.write")),
+    body: CreateEventBody = Depends(zod_body(CreateEventBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Create an event."""
@@ -430,7 +434,7 @@ async def create_event(
 )
 async def patch_event(
     id: EventId,
-    body: PatchEventBody,
+    body: PatchEventBody = Depends(zod_body(PatchEventBody)),
     _caller: Caller = Depends(require_scope("deejaytools.events.write")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -478,21 +482,19 @@ async def delete_event(
                 delete(model).where(model.session_id.in_(session_ids))
             )
         await session.execute(delete(Session).where(Session.id.in_(session_ids)))
-    # Captured before the delete: afterwards the file ids are gone.
+    # Taken from the deleted rows themselves, so a copy recorded by a job
+    # finishing meanwhile is trashed too.
     orphaned_copies = [
         file_id
         for file_id in (
             await session.execute(
-                select(EventSongSubmission.drive_copy_file_id).where(
-                    EventSongSubmission.event_id == id
-                )
+                delete(EventSongSubmission)
+                .where(EventSongSubmission.event_id == id)
+                .returning(EventSongSubmission.drive_copy_file_id)
             )
         ).scalars()
         if file_id is not None
     ]
-    await session.execute(
-        delete(EventSongSubmission).where(EventSongSubmission.event_id == id)
-    )
     await session.execute(
         delete(event_division_run_limits).where(
             event_division_run_limits.c.event_id == id

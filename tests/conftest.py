@@ -225,3 +225,37 @@ def _empty_response_cache() -> None:
     from api_deejaytools.cache import response_cache
 
     response_cache.invalidate_prefix("")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_drive_clients() -> None:
+    """Worker threads outlive a test; drop the Drive clients they cached."""
+    from api_deejaytools.services import drive
+
+    drive.reset_drive_clients()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limit_window() -> None:
+    """Each test starts with an empty rate-limit window.
+
+    Every test request comes from one client address, so a full run passes
+    300 /v1 requests a minute and later tests would get 429s.
+    """
+    from api_deejaytools.middleware import RateLimitMiddleware
+
+    layer = app.middleware_stack
+    while layer is not None:
+        if isinstance(layer, RateLimitMiddleware):
+            layer.windows.clear()
+        layer = getattr(layer, "app", None)
+
+
+@pytest.fixture(autouse=True)
+async def _finish_background_builds() -> AsyncIterator[None]:
+    """Let song builds a test started finish before the next test empties
+    the database under them."""
+    yield
+    from api_deejaytools.services import song_builds
+
+    await song_builds.wait_for_builds()

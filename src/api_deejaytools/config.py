@@ -65,6 +65,64 @@ class Settings(BaseSettings):
         default=None, description="AWS secret access key for PutMetricData."
     )
 
+    # POST /v1/feedback emails through Brevo when a key is set; unset, the
+    # feedback is accepted and no email is sent (deejaytools-api feedback.ts).
+    # BREVO_API_KEY is the legacy name, read only when the prefixed one is
+    # unset or empty: in the shared Doppler config the unprefixed name is
+    # api-kaianolevine-com's, a different Brevo account.
+    DEEJAYTOOLS_BREVO_API_KEY: str | None = Field(
+        default=None, description="Brevo API key for feedback emails."
+    )
+    BREVO_API_KEY: str | None = Field(
+        default=None,
+        description="Legacy name for the Brevo key, read when the prefixed is unset.",
+    )
+
+    @property
+    def brevo_api_key(self) -> str | None:
+        """The Brevo key to use, as ``DEEJAYTOOLS_BREVO_API_KEY || BREVO_API_KEY``."""
+        return self.DEEJAYTOOLS_BREVO_API_KEY or self.BREVO_API_KEY or None
+
+    # Google Drive (deejaytools-api DRIVE.md, "Configuration"). Unprefixed:
+    # the names deejaytools-api reads. All three are required by every Drive
+    # call; an empty value counts as missing, as it does there.
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: str | None = Field(
+        default=None, description="Service account the Drive layer acts as."
+    )
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = Field(
+        default=None,
+        description="Its PEM private key; literal \\n sequences become newlines.",
+    )
+    GOOGLE_DRIVE_PARENT_FOLDER_ID: str | None = Field(
+        default=None, description="Root Drive folder every song file lives under."
+    )
+
+    # Scheduler and its operator route (deejaytools-api DRIVE.md "Processing",
+    # ADR-006 point 5, ADR-007). Unset TICK_SECRET makes GET /internal/tick
+    # refuse every call; an empty string is a set secret.
+    TICK_SECRET: str | None = Field(
+        default=None, description="Shared secret for GET /internal/tick."
+    )
+    TICK_INTERVAL_MS: int = Field(
+        default=30000, description="Milliseconds between scheduler passes."
+    )
+    DISABLE_SCHEDULER: bool = Field(
+        default=False,
+        description="'1' turns the in-process scheduler off (as deejaytools-api).",
+    )
+
+    @field_validator("DISABLE_SCHEDULER", mode="before")
+    @classmethod
+    def scheduler_flag(cls, v: object) -> object:
+        """Read the flag as deejaytools-api does: only the string '1' disables.
+
+        Any other string (including 'true' or '0') leaves the scheduler on,
+        rather than failing settings validation at boot.
+        """
+        if isinstance(v, str):
+            return v == "1"
+        return v
+
     @field_validator("DEEJAYTOOLS_CORS_ORIGINS", mode="before")
     @classmethod
     def split_origins(cls, v: object) -> object:

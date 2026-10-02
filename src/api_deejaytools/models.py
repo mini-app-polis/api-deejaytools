@@ -13,7 +13,16 @@ The identity tables have their own models in the ``identity`` library.
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Boolean, Column, Enum, Integer, Table, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    Enum,
+    Integer,
+    LargeBinary,
+    Table,
+    Text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -305,5 +314,31 @@ class DriveJob(Base):
     attempts: Mapped[int] = mapped_column(Integer, server_default="0")
     next_attempt_at: Mapped[int] = mapped_column(BigInteger)
     last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[int] = mapped_column(BigInteger)
+    updated_at: Mapped[int] = mapped_column(BigInteger)
+
+
+class SongUpload(Base):
+    """An uploaded song's bytes and build progress, until its build finishes.
+
+    This service's own table (migration 003), not deejaytools-api's: it makes
+    the background build durable. See services/song_builds.py.
+    """
+
+    __tablename__ = "song_uploads"
+
+    song_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    mime_type: Mapped[str] = mapped_column(Text)
+    original_filename: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    next_attempt_at: Mapped[int] = mapped_column(BigInteger)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    claim_id: Mapped[str | None] = mapped_column(Text)
+    season_year: Mapped[str | None] = mapped_column(Text)
+    processed_filename: Mapped[str | None] = mapped_column(Text)
+    drive_file_id: Mapped[str | None] = mapped_column(Text)
+    drive_folder_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(BigInteger)
     updated_at: Mapped[int] = mapped_column(BigInteger)

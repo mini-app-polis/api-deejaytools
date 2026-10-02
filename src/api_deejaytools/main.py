@@ -11,7 +11,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 import sentry_sdk
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from mini_app_polis.logger import LOG_START, LOG_WARNING, get_logger, with_log_prefix
 from mini_app_polis.request_metrics import RequestMetricsMiddleware
@@ -22,8 +22,31 @@ from . import __version__
 from .config import get_settings
 from .errors import install_error_handlers
 from .middleware import BodyLimitMiddleware, DeadlineMiddleware, RateLimitMiddleware
-from .routers import auth, events, sessions
+from .routers import (
+    admin_checkins,
+    admin_drive_jobs,
+    admin_event_submissions,
+    admin_songs,
+    admin_users,
+    auth,
+    checkins,
+    event_song_submissions,
+    events,
+    feedback,
+    internal,
+    managed_partnerships,
+    pairs,
+    partners,
+    queue,
+    runs,
+    sessions,
+    song_uploads,
+    songs,
+    teams,
+)
 from .services import cloudwatch
+from .services.scheduler import start_scheduler
+from .zod_types import document_zod_bodies
 
 logger = get_logger()
 
@@ -46,7 +69,11 @@ async def lifespan(_app: FastAPI):
             f"sentry={'on' if settings.SENTRY_DSN_API_DEEJAYTOOLS else 'off'})",
         )
     )
+    # Off under DISABLE_SCHEDULER=1 and ENVIRONMENT=test (services/scheduler.py).
+    scheduler = start_scheduler(settings)
     yield
+    if scheduler is not None:
+        await scheduler.stop()
     logger.info(with_log_prefix(LOG_WARNING, "api-deejaytools shutting down"))
 
 
@@ -62,7 +89,12 @@ def _build_app() -> FastAPI:
         title="api-deejaytools",
         version=__version__,
         lifespan=lifespan,
+        # Hono answers /v1/events/ with 404, not a redirect to /v1/events.
+        redirect_slashes=False,
     )
+
+    # First, so its 500 handling sits inside every middleware below.
+    install_error_handlers(app)
 
     # Starlette runs the last-added middleware first. Inside out: the
     # deadline, the rate limit (both /v1/* only), the body limit, then CORS
@@ -89,8 +121,7 @@ def _build_app() -> FastAPI:
         exclude_paths=["/health"],
     )
 
-    install_error_handlers(app)
-
+    @app.head("/health", include_in_schema=False)
     @app.get(
         "/health",
         tags=["meta"],
@@ -107,9 +138,37 @@ def _build_app() -> FastAPI:
         """Liveness probe. Intentionally public — no auth, no DB access."""
         return {"status": "ok"}
 
-    app.include_router(auth.router)
-    app.include_router(events.router)
-    app.include_router(sessions.router)
+    @app.options("/{path:path}", include_in_schema=False)
+    async def options(path: str) -> Response:
+        """Any OPTIONS request, preflight or not, answers 204 as Hono's cors
+        middleware does. Real preflights are answered by CORSMiddleware first."""
+        return Response(status_code=204)
+
+    routers = (
+        internal.router,
+        auth.router,
+        events.router,
+        sessions.router,
+        partners.router,
+        pairs.router,
+        teams.router,
+        managed_partnerships.router,
+        event_song_submissions.router,
+        song_uploads.router,
+        songs.router,
+        feedback.router,
+        admin_users.router,
+        admin_songs.router,
+        admin_event_submissions.router,
+        admin_drive_jobs.router,
+        checkins.router,
+        queue.router,
+        runs.router,
+        admin_checkins.router,
+    )
+    for router in routers:
+        app.include_router(router)
+    document_zod_bodies(app, routers)
     return app
 
 

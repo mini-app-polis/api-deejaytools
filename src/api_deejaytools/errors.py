@@ -30,6 +30,7 @@ from mini_app_polis.environment import is_production
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = get_logger()
 
@@ -173,18 +174,51 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code=exc.status_code, content=error_body(code, str(exc.detail))
         )
 
-    @app.exception_handler(Exception)
-    async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
-        sentry_sdk.capture_exception(exc)
-        logger.exception(
-            with_log_prefix(
-                LOG_FAILURE,
-                f"unhandled {type(exc).__name__} on {request.method} {request.url.path}",
+    # Not an exception handler: Starlette serves the catch-all handler from
+    # its outermost layer, outside CORS, so a 500 would go out without CORS
+    # headers and reach the browser as a network error. This middleware is
+    # added first, so it sits inside every other one (CORS included), as
+    # Hono's onError answer passes back through its cors middleware.
+    app.add_middleware(UnhandledErrorMiddleware)
+
+
+class UnhandledErrorMiddleware:
+    """Answer an unhandled exception with 500 INTERNAL in the error envelope.
+
+    Reported to Sentry and logged. As deejaytools-api: a generic message in
+    production, the exception's own message elsewhere. If the response had
+    already started there is nothing to answer with, and it re-raises.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception as exc:
+            if started:
+                raise
+            sentry_sdk.capture_exception(exc)
+            logger.exception(
+                with_log_prefix(
+                    LOG_FAILURE,
+                    f"unhandled {type(exc).__name__} on {scope['method']} {scope['path']}",
+                )
             )
-        )
-        # As deejaytools-api: a generic message in production, the
-        # exception's own message elsewhere.
-        message = "Internal server error" if is_production() else str(exc)
-        return JSONResponse(
-            status_code=500, content=error_body(ErrorCode.INTERNAL, message)
-        )
+            message = "Internal server error" if is_production() else str(exc)
+            response = JSONResponse(
+                status_code=500, content=error_body(ErrorCode.INTERNAL, message)
+            )
+            await response(scope, receive, send)

@@ -15,7 +15,7 @@ import time
 import uuid
 from typing import Annotated, Any, ClassVar, Literal
 
-from fastapi import APIRouter, Depends, Header, Path, Query
+from fastapi import APIRouter, Depends, Header, Path
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
@@ -49,6 +49,8 @@ from ..models import (
     SessionDivision,
 )
 from ..validation import JsInt, JsNumber, NonEmptyStr, NonNegativeJsInt, ZodModel
+from ..zod_coerce import js_trim
+from ..zod_types import QueryStr, zod_body, zod_query
 
 logger = get_logger()
 
@@ -363,7 +365,7 @@ def _bad_request(message: str) -> Exception:
 def _division_rows(session_id: str, items: list[DivisionItem]) -> list[dict[str, Any]]:
     rows = []
     for i, d in enumerate(items):
-        name = d.division_name.strip()
+        name = js_trim(d.division_name)
         if not name or name == "Other":
             continue
         rows.append(
@@ -391,6 +393,13 @@ ADMIN: dict[int | str, dict[str, Any]] = {
 WRITE_SCOPE = "deejaytools.sessions.write"
 
 
+class SessionListQuery(ZodModel):
+    """Query of ``GET /v1/sessions``. A repeated ``event_id`` is refused, as
+    zod refuses the array it arrives as."""
+
+    event_id: QueryStr | None = Field(None, description="Only this event's sessions.")
+
+
 @router.get(
     "",
     response_model=SessionListResponse,
@@ -403,13 +412,12 @@ WRITE_SCOPE = "deejaytools.sessions.write"
     ),
 )
 async def list_sessions(
-    event_id: Annotated[
-        str | None, Query(description="Only this event's sessions.")
-    ] = None,
+    query_params: SessionListQuery = Depends(zod_query(SessionListQuery)),
     authorization: Authorization = None,
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List sessions. Public, with an optional caller."""
+    event_id = query_params.event_id
     user_id = await optional_synced_user_id(authorization, db)
 
     cache_key = f"sessions:list:{event_id or 'all'}"
@@ -485,8 +493,8 @@ async def list_sessions(
     responses=ADMIN,
 )
 async def create_session(
-    body: CreateSessionBody,
     caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    body: CreateSessionBody = Depends(zod_body(CreateSessionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Create a session with its divisions."""
@@ -497,7 +505,7 @@ async def create_session(
         body.active_non_priority_max if body.active_non_priority_max is not None else 4
     )
     if (
-        not body.name.strip()
+        not js_trim(body.name)
         or body.checkin_opens_at <= 0
         or body.floor_trial_starts_at <= 0
         or body.floor_trial_ends_at <= 0
@@ -531,7 +539,7 @@ async def create_session(
         Session(
             id=session_id,
             event_id=body.event_id,
-            name=body.name.strip(),
+            name=js_trim(body.name),
             date=body.date,
             checkin_opens_at=body.checkin_opens_at,
             floor_trial_starts_at=body.floor_trial_starts_at,
@@ -563,7 +571,7 @@ async def create_session(
 )
 async def put_divisions(
     id: SessionId,
-    body: PutDivisionsBody,
+    body: PutDivisionsBody = Depends(zod_body(PutDivisionsBody)),
     _caller: Caller = Depends(require_scope(WRITE_SCOPE)),
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -621,7 +629,7 @@ async def put_divisions(
 )
 async def patch_status(
     id: SessionId,
-    body: StatusBody,
+    body: StatusBody = Depends(zod_body(StatusBody)),
     _caller: Caller = Depends(require_scope(WRITE_SCOPE)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -645,7 +653,7 @@ async def patch_status(
 )
 async def patch_session(
     id: SessionId,
-    body: PatchSessionBody,
+    body: PatchSessionBody = Depends(zod_body(PatchSessionBody)),
     _caller: Caller = Depends(require_scope(WRITE_SCOPE)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -679,7 +687,7 @@ async def patch_session(
 
     for field in sent:
         value = getattr(body, field)
-        setattr(row, field, value.strip() if field == "name" else value)
+        setattr(row, field, js_trim(value) if field == "name" else value)
     await db.commit()
     invalidate_session_cache(id)
     return success(await _full(db, id))

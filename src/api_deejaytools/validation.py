@@ -57,7 +57,8 @@ ZOD_EMAIL = re.compile(
 
 
 def _zod_email(value: str) -> str:
-    if not ZOD_EMAIL.match(value):
+    # fullmatch: Python's $ also matches before a trailing newline.
+    if not ZOD_EMAIL.fullmatch(value):
         raise ValueError("Invalid email address")
     return value
 
@@ -82,7 +83,14 @@ def _js_integer(value: float) -> int:
     return int(value)
 
 
-JsNumber = Annotated[float, AfterValidator(lambda v: int(v) if v == int(v) else v)]
+def _js_number(value: float) -> float:
+    # zod's z.number() refuses Infinity and NaN; JSON's 1e400 parses to inf.
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError("Invalid input: expected number, received Infinity")
+    return int(value) if value == int(value) else value
+
+
+JsNumber = Annotated[float, AfterValidator(_js_number)]
 """zod's ``z.number()``: any JSON number. Integral values come back as int,
 so epoch-millisecond fields store and serialize as integers."""
 

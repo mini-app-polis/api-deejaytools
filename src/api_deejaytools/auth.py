@@ -42,6 +42,7 @@ Clerk's, for the one issuer in settings.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Literal
@@ -167,24 +168,54 @@ async def provision_principal(
       existing principal, so admin access changes as a grant, not a column.
     - ``deejaytools-dancer`` is ensured on every call.
     """
+    await ensure_principal(
+        session,
+        issuer=subject.issuer,
+        subject=subject.subject,
+        email=str(subject.claims.get("email") or "") or None,
+        users_role=users_role,
+        granted_by="auth_sync",
+    )
+
+
+async def ensure_principal(
+    session: AsyncSession,
+    *,
+    issuer: str,
+    subject: str,
+    email: str | None,
+    users_role: str,
+    granted_by: str,
+) -> uuid.UUID:
+    """The principal for ``(issuer, subject)``, provisioned if missing.
+
+    ``provision_principal``'s rules, for a subject known by its ids rather
+    than by a verified credential: the issuer row is written if missing, a
+    new principal also gets ``deejaytools-admin`` when ``users_role`` says
+    admin, and ``deejaytools-dancer`` is ensured on every call, granted by
+    ``granted_by``. Idempotent, and does not commit. Returns the principal id.
+
+    Also used by ``PATCH /v1/admin/users/{id}/role`` for a target who signed
+    up through deejaytools-api while traffic was rolled back, so the grant
+    has a principal to go to.
+    """
     settings = get_settings()
     await session.execute(
         insert(Issuer)
         .values(
-            issuer=subject.issuer,
+            issuer=issuer,
             display_name="deejaytools (Clerk)",
             jwks_url=settings.DEEJAYTOOLS_CLERK_JWKS_URL,
         )
         .on_conflict_do_nothing(index_elements=[Issuer.issuer])
     )
-    email = str(subject.claims.get("email") or "") or None
     created = (
         await session.execute(
             insert(PrincipalRow)
             .values(
                 kind="human",
-                issuer=subject.issuer,
-                subject=subject.subject,
+                issuer=issuer,
+                subject=subject,
                 display_name=email or "",
                 email=email,
             )
@@ -194,13 +225,13 @@ async def provision_principal(
             .returning(PrincipalRow.id)
         )
     ).scalar_one_or_none()
-    principal_id = (
+    principal_id: uuid.UUID = (
         created
         or (
             await session.execute(
                 select(PrincipalRow.id).where(
-                    PrincipalRow.issuer == subject.issuer,
-                    PrincipalRow.subject == subject.subject,
+                    PrincipalRow.issuer == issuer,
+                    PrincipalRow.subject == subject,
                 )
             )
         ).scalar_one()
@@ -216,7 +247,7 @@ async def provision_principal(
                 {
                     "principal_id": principal_id,
                     "role_name": r,
-                    "granted_by": "auth_sync",
+                    "granted_by": granted_by,
                 }
                 for r in roles
             ]
@@ -227,10 +258,9 @@ async def provision_principal(
     )
     if created is not None:
         logger.info(
-            with_log_prefix(
-                LOG_START, f"provisioned principal {subject.subject} roles={roles}"
-            )
+            with_log_prefix(LOG_START, f"provisioned principal {subject} roles={roles}")
         )
+    return principal_id
 
 
 # ---------------------------------------------------------------------------
@@ -320,3 +350,40 @@ async def optional_synced_user_id(
         return None
     row = await session.get(User, subject.subject)
     return row.id if row is not None else None
+
+
+# ---------------------------------------------------------------------------
+# Acting for another user (ADR-007, "Acting on another user's behalf")
+# ---------------------------------------------------------------------------
+
+DELEGATION_SCOPE = "deejaytools.delegation.act"
+
+
+async def authorize_delegation(
+    caller: Caller, target_user_id: str, session: AsyncSession, request: Request
+) -> None:
+    """The second decision a handler makes when ``on_behalf_of_user_id`` is sent.
+
+    The route's own scope has already allowed the caller to act at all; this
+    decides whether they may act for someone else, through the same
+    authorize-and-audit path. The target is the subject of the action, never
+    the caller's identity: it is recorded as the audit event's resource. A
+    deny answers what deejaytools-api answers to a non-admin here, 403
+    FORBIDDEN "Admin access required". Call it before reading the target.
+    """
+    store = _store(session)
+    decision = decide(caller.principal, DELEGATION_SCOPE, await store.load_roles())
+    await SqlAlchemyAuditSink(session).emit_audit(
+        new_audit_event(
+            enforcement_point=ENFORCEMENT_POINT,
+            scope=DELEGATION_SCOPE,
+            allowed=decision.allowed,
+            reason=decision.reason,
+            principal=caller.principal,
+            subject=caller.subject,
+            resource=target_user_id,
+            request_id=request.headers.get("X-Request-Id"),
+        )
+    )
+    if not decision.allowed:
+        raise forbidden()

@@ -83,9 +83,8 @@ jobs:
         run: uv run pytest --cov=src --cov-report=term-missing
 
       # deejaytools-api ADR-009 Testing point 3: its integration suite,
-      # copied into conformance/, driving this service over HTTP. Allowed to
-      # fail until every route exists; remove continue-on-error then, and it
-      # gates like the rest. See conformance/README.md.
+      # copied into conformance/, driving this service over HTTP. It gates
+      # like the rest. See conformance/README.md.
       - name: Install pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -105,7 +104,6 @@ jobs:
           pnpm typecheck
 
       - name: Conformance
-        continue-on-error: true
         env:
           DEEJAYTOOLS_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/conformance_test
           DEEJAYTOOLS_CLERK_JWKS_URL: http://127.0.0.1:4455/.well-known/jwks.json
