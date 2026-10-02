@@ -96,6 +96,7 @@ def steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(song_builds, "process_song_uploads", step("builds"))
     monkeypatch.setattr(drive_jobs, "process_drive_jobs", step("drive"))
     monkeypatch.setattr(scheduler, "_session_factory", lambda: state["maker"])
+    monkeypatch.setattr(scheduler.drive, "drive_configured", lambda: True)
     state["logs"] = Logs()
     state["sentry"] = Sentry()
     monkeypatch.setattr(scheduler, "logger", state["logs"])
@@ -154,6 +155,24 @@ async def test_both_halves_failing_never_raises(steps: dict[str, Any]) -> None:
 
 
 # --- the loop -------------------------------------------------------------------
+
+
+async def test_drive_work_waits_when_drive_is_not_configured(
+    steps: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Failing them would burn the retries of jobs deejaytools-api can run.
+    monkeypatch.setattr(scheduler.drive, "drive_configured", lambda: False)
+    monkeypatch.setattr(scheduler, "_drive_skip_logged", False)
+    await scheduler.run_tick()
+    await scheduler.run_tick()
+    assert [name for name, _ in steps["calls"]] == [
+        "statuses",
+        "fill",
+        "statuses",
+        "fill",
+    ]
+    warnings = [m for level, m in steps["logs"].lines if level == "warning"]
+    assert len(warnings) == 1 and "drive_work_skipped" in warnings[0]  # once
 
 
 async def test_overlap_guard_skips_a_tick_while_one_runs() -> None:

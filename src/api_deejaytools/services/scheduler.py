@@ -35,13 +35,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..config import Settings, get_settings
 from ..database import get_sessionmaker
-from . import drive_jobs, session_tick, song_builds
+from . import drive, drive_jobs, session_tick, song_builds
 
 logger = get_logger()
 
 SHUTDOWN_GRACE_SECONDS = 5.0
 """How long shutdown waits for a pass in flight before cancelling it. A Drive
 job cut off here stays ``running`` until its lease is reclaimed."""
+
+
+_drive_skip_logged = False
 
 
 def _session_factory() -> async_sessionmaker[AsyncSession]:
@@ -54,7 +57,8 @@ async def run_tick() -> None:
 
     The parts fail independently, in separate try blocks: a persistent
     session-side failure must not stop the Drive queue draining, nor the
-    reverse. Each step gets its own fresh session.
+    reverse. Each step gets its own fresh session. Without Drive
+    credentials the Drive half is skipped, not failed.
     """
     maker = _session_factory()
     try:
@@ -64,6 +68,22 @@ async def run_tick() -> None:
             await session_tick.fill_running_sessions(db)
     except Exception as exc:  # noqa: BLE001 - logged; the pass goes on
         logger.error(with_log_prefix(LOG_FAILURE, f"tick_failed: {exc!r}"))
+
+    if not drive.drive_configured():
+        # Without Drive credentials every build and Drive job would fail and
+        # burn its retries; while deejaytools-api serves the same database,
+        # that would exhaust jobs it could still run. They wait instead.
+        global _drive_skip_logged
+        if not _drive_skip_logged:
+            _drive_skip_logged = True
+            logger.warning(
+                with_log_prefix(
+                    LOG_WARNING,
+                    "drive_work_skipped: Google Drive is not configured; song "
+                    "builds and Drive jobs stay queued",
+                )
+            )
+        return
 
     try:
         # Song builds first: a finished build queues its event copies,
