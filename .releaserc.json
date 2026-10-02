@@ -1,0 +1,33 @@
+{
+  "branches": [
+    "main"
+  ],
+  "repositoryUrl": "https://github.com/mini-app-polis/api-deejaytools",
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/changelog",
+      {
+        "changelogFile": "CHANGELOG.md"
+      }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "printf '__version__ = \"%s\"\\n' \"${nextRelease.version}\" > src/api_deejaytools/_version.py"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": [
+          "CHANGELOG.md",
+          "src/api_deejaytools/_version.py"
+        ],
+        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ],
+    "@semantic-release/github"
+  ]
+}

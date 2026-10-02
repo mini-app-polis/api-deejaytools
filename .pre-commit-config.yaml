@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.1
+    hooks:
+      - id: ruff
+        pass_filenames: false
+        entry: ruff check --fix src tests
+      - id: ruff-format
+        pass_filenames: false
+        entry: ruff format src tests
+  # SEC-001. Same gitleaks the shared security workflow runs in CI, so a
+  # secret is caught before it is committed rather than after it is pushed.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks

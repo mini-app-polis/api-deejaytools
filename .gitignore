@@ -1,0 +1,22 @@
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.DS_Store
+
+# Python build artifacts
+*.egg-info/
+dist/
+build/
+__pycache__/
+*.pyc
+
+# Local env files
+.env
+
+# Sentry artifacts
+.sentryclirc
+
+# semantic-release plugins are installed in CI with --no-save
+node_modules/

@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Delegates to the fleet's shared security workflow: gitleaks over
+  # full history, pip-audit against the resolved dependency set, semgrep,
+  # and a CycloneDX SBOM retained as a build artifact.
+  security:
+    uses: mini-app-polis/.github/.github/workflows/security.yml@v3
+    with:
+      language: python
+      package-manager: uv
+
+  test:
+    runs-on: ubuntu-latest
+    # Real Postgres, never SQLite (deejaytools-api ADR-009): the schema uses
+    # Postgres enums and check constraints, and the queue and the Drive job
+    # queue depend on row locks. The tests refuse any database that is not
+    # local and named *_test.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: deejaytools_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/deejaytools_test
+      ENVIRONMENT: test
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      # CD-020. `uv sync` without --locked silently re-resolves when the
+      # lockfile and pyproject.toml disagree; this refuses the drift here,
+      # where it is cheap to fix, rather than at deploy.
+      - name: Verify the lockfile matches pyproject
+        run: uv lock --check
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Lint
+        run: uv run ruff check src/ tests/ scripts/
+
+      - name: Type check
+        run: uv run mypy src/
+
+      # deejaytools-api ADR-008 point 2: the baseline must be the schema
+      # drizzle builds. pg_dump refuses a server newer than itself, so the
+      # one inside the service container is used.
+      - name: Baseline matches drizzle
+        env:
+          PGURL: postgres://postgres:postgres@localhost:5432
+          PG_DUMP: docker exec ${{ job.services.postgres.id }} pg_dump
+        run: bash scripts/check_baseline.sh
+
+      - name: Test
+        run: uv run pytest --cov=src --cov-report=term-missing
+
+  release:
+    needs: [test, security]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install semantic-release plugins
+        run: |
+          npm install --no-save \
+            semantic-release \
+            @semantic-release/changelog \
+            @semantic-release/exec \
+            @semantic-release/git \
+            @semantic-release/github \
+            @semantic-release/commit-analyzer \
+            @semantic-release/release-notes-generator
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+
+  # CD-031. Conformance is requested on each release; the evaluation runs
+  # after this job ends, so what it reports is whether the request landed.
+  evaluate:
+    needs: release
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: mini-app-polis/.github/.github/workflows/evaluate.yml@v3
+    secrets:
+      api-key: ${{ secrets.CI_VALIDATOR_API_KEY }}
