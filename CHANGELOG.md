@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.1.0...v1.1.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **scheduler:** leave Drive work queued when Drive is not configured ([812b280](https://github.com/mini-app-polis/api-deejaytools/commit/812b280b630af7d3bd44f1129f3d5ddaa4cd7260))
+
 # [1.1.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.0.0...v1.1.0) (2026-10-02)
 
 
