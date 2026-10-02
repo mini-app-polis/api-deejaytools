@@ -570,8 +570,8 @@ async def create_session(
 )
 async def put_divisions(
     id: SessionId,
-    body: PutDivisionsBody = Depends(zod_body(PutDivisionsBody)),
     _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
+    body: PutDivisionsBody = Depends(zod_body(PutDivisionsBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Upsert a session's divisions."""
@@ -628,8 +628,8 @@ async def put_divisions(
 )
 async def patch_status(
     id: SessionId,
-    body: StatusBody = Depends(zod_body(StatusBody)),
     _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
+    body: StatusBody = Depends(zod_body(StatusBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Set the stored status."""
@@ -652,8 +652,8 @@ async def patch_status(
 )
 async def patch_session(
     id: SessionId,
-    body: PatchSessionBody = Depends(zod_body(PatchSessionBody)),
     _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
+    body: PatchSessionBody = Depends(zod_body(PatchSessionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Update a session."""

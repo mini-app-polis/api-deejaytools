@@ -434,8 +434,8 @@ async def create_event(
 )
 async def patch_event(
     id: EventId,
-    body: PatchEventBody = Depends(zod_body(PatchEventBody)),
     _caller: Caller = Depends(require_scope("deejaytools.events.write")),
+    body: PatchEventBody = Depends(zod_body(PatchEventBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Update an event."""

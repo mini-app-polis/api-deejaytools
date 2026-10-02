@@ -212,3 +212,52 @@ def test_locale_key_matches_node_localecompare() -> None:
         "Jo and Al", "Mary Jo", "Mary-Jo", "MaryJo", "o neil", "O'Neil", "Oneil",
     ]  # fmt: skip
     assert sorted(reversed(node), key=locale_key) == node
+
+
+async def test_every_scoped_route_answers_401_before_validating(
+    client: httpx.AsyncClient,
+) -> None:
+    """Hono runs requireAuth before zValidator: no token is a 401 even when
+    the body or query is invalid. The contract suite checks this per route."""
+    import inspect
+
+    from fastapi.routing import APIRoute
+
+    def scoped(dependant: object) -> bool:
+        for dep in dependant.dependencies:  # type: ignore[attr-defined]
+            try:
+                if "scope" in inspect.getclosurevars(dep.call).nonlocals:
+                    return True
+            except TypeError:
+                pass
+            if scoped(dep):
+                return True
+        return False
+
+    import importlib
+    import pkgutil
+
+    import api_deejaytools.routers as routers_pkg
+
+    routes = [
+        route
+        for info in pkgutil.iter_modules(routers_pkg.__path__)
+        for route in importlib.import_module(
+            f"api_deejaytools.routers.{info.name}"
+        ).router.routes
+        if isinstance(route, APIRoute) and scoped(route.dependant)
+    ]
+    assert len(routes) > 50  # not vacuous: app.routes nests included routers
+    wrong = []
+    for route in routes:
+        path = route.path_format.replace("{", "").replace("}", "")
+        for method in route.methods:
+            res = await client.request(
+                method,
+                path + "?limit=nope&event_id=a&event_id=b",
+                content=b'{"status": 5, "divisions": "x"}',
+                headers=JSON,
+            )
+            if res.status_code != 401:
+                wrong.append(f"{method} {route.path}: {res.status_code}")
+    assert wrong == []
