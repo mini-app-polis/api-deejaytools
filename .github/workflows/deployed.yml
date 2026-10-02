@@ -40,8 +40,25 @@ name: deployed
 #
 # GitHub cannot filter deployment_status by state or environment, so the
 # statuses Railway posts before a deploy finishes start a run that skips.
+#
+# It can also be run by hand (Actions → deployed → Run workflow), choosing
+# the environment: the same checks against whatever is serving there now,
+# with no deploy to wait for, so the commit it reports is the one it found.
+# On development it then triggers the contract suite too, unless unticked.
 
-on: deployment_status
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Which deployed API to check
+        type: choice
+        options: [development, production]
+        default: development
+      contract:
+        description: Also run deejaytools-com's contract suite (development only)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -49,18 +66,27 @@ permissions:
 jobs:
   smoke:
     if: >-
-      github.event.deployment_status.state == 'success' &&
-      (endsWith(github.event.deployment.environment, '/ development') ||
-       endsWith(github.event.deployment.environment, '/ production'))
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       (endsWith(github.event.deployment.environment, '/ development') ||
+        endsWith(github.event.deployment.environment, '/ production')))
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.smoke.outputs.sha }}
     env:
-      API: ${{ endsWith(github.event.deployment.environment, '/ development') && vars.API_URL_DEVELOPMENT || vars.API_URL_PRODUCTION }}
+      TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (endsWith(github.event.deployment.environment, '/ development') && 'development' || 'production') }}
+      # Empty on a manual run: there is no deploy to wait for.
       SHA: ${{ github.event.deployment.sha }}
     steps:
       - name: Smoke-test the deployed API
+        id: smoke
+        env:
+          API_URL_DEVELOPMENT: ${{ vars.API_URL_DEVELOPMENT }}
+          API_URL_PRODUCTION: ${{ vars.API_URL_PRODUCTION }}
         run: |
           set -euo pipefail
           fail() { echo "::error::$1"; exit 1; }
+          if [ "$TARGET" = development ]; then API="$API_URL_DEVELOPMENT"; else API="$API_URL_PRODUCTION"; fi
           [ -n "$API" ] \
             || fail "Set the API_URL_DEVELOPMENT and API_URL_PRODUCTION repository variables."
           # A bare hostname would be fetched over http and get Railway's
@@ -68,13 +94,19 @@ jobs:
           case "$API" in http://*|https://*) ;; *) API="https://$API" ;; esac
           API="${API%/}"
           serving() { curl -fsS --max-time 10 "$API/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true; }
-          # Wait for the new deploy to be the one answering (up to 5 min).
-          deadline=$(( $(date +%s) + 300 ))
-          until [ "$(serving)" = "$SHA" ]; do
-            [ "$(date +%s)" -lt "$deadline" ] \
-              || fail "$API is still serving '$(serving)', not $SHA, 5 minutes after the deploy reported success."
-            sleep 10
-          done
+          if [ -z "$SHA" ]; then
+            # Manual run: check whatever is live, and name it.
+            SHA="$(serving)"
+            [ -n "$SHA" ] || fail "$API/version did not report a commit."
+          else
+            # Wait for the new deploy to be the one answering (up to 5 min).
+            deadline=$(( $(date +%s) + 300 ))
+            until [ "$(serving)" = "$SHA" ]; do
+              [ "$(date +%s)" -lt "$deadline" ] \
+                || fail "$API is still serving '$(serving)', not $SHA, 5 minutes after the deploy reported success."
+              sleep 10
+            done
+          fi
           curl -fsS -o /dev/null "$API/health" \
             || fail "$API/health did not answer after the deploy."
           # An authenticated route without a token must refuse with the
@@ -84,16 +116,20 @@ jobs:
           [ "$code" = 401 ] || fail "$API/v1/auth/me without a token answered $code, not 401."
           jq -e '.error.code | type == "string"' body.json >/dev/null \
             || fail "$API/v1/auth/me answered 401 without the error envelope."
-          # Still the new deploy — the probes above did not straddle a switch.
+          # Still the same deploy — the probes above did not straddle a switch.
           [ "$(serving)" = "$SHA" ] \
             || fail "$API switched away from $SHA during the smoke test (now '$(serving)')."
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "API OK at $API ($SHA)"
 
   contract:
     needs: smoke
     if: >-
-      endsWith(github.event.deployment.environment, '/ development') &&
-      contains(vars.API_URL_DEVELOPMENT, 'api-dev.deejaytools.com')
+      contains(vars.API_URL_DEVELOPMENT, 'api-dev.deejaytools.com') &&
+      ((github.event_name == 'workflow_dispatch' &&
+        inputs.environment == 'development' && inputs.contract) ||
+       (github.event_name != 'workflow_dispatch' &&
+        endsWith(github.event.deployment.environment, '/ development')))
     runs-on: ubuntu-latest
     steps:
       - name: Mint an App token for deejaytools-com
@@ -106,10 +142,10 @@ jobs:
           repositories: deejaytools-com
           permission-contents: write
 
-      - name: Run the contract suite against the new API
+      - name: Run the contract suite against the API
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          SHA: ${{ github.event.deployment.sha }}
+          SHA: ${{ needs.smoke.outputs.sha }}
         run: |
           gh api repos/mini-app-polis/deejaytools-com/dispatches \
             -f event_type=dev-api-deployed \
