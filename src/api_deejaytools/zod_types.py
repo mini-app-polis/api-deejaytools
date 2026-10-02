@@ -86,27 +86,36 @@ QueryStr = Annotated[str, BeforeValidator(_string_only)]
 M = TypeVar("M", bound=ZodModel)
 
 
+def parse_zod_query(request: Request, model: type[M]) -> M:
+    """Validate the query string against ``model``; a repeated key arrives
+    as a list, as ``@hono/zod-validator`` hands zod an array."""
+    raw: dict[str, Any] = {}
+    for key in request.query_params.keys():
+        values = request.query_params.getlist(key)
+        raw[key] = values[0] if len(values) == 1 else values
+    try:
+        return model.model_validate(raw)
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [
+                {**err, "loc": ("query", *err.get("loc", ()))}
+                for err in exc.errors(include_url=False)
+            ]
+        ) from exc
+
+
 def zod_query(model: type[M]) -> Callable[[Request], M]:
     """A dependency validating the query string against ``model``.
 
     Declare it after the auth dependency so a missing token wins over a bad
-    query, as Hono's middleware order has it.
+    query, as Hono's middleware order has it. A route with no auth
+    dependency calls ``parse_zod_query`` in its handler instead: a request
+    parser declared as a dependency reads, to a static audit of route
+    guards (AUTH-003), as a guard it cannot resolve.
     """
 
     def _dependency(request: Request) -> M:
-        raw: dict[str, Any] = {}
-        for key in request.query_params.keys():
-            values = request.query_params.getlist(key)
-            raw[key] = values[0] if len(values) == 1 else values
-        try:
-            return model.model_validate(raw)
-        except ValidationError as exc:
-            raise RequestValidationError(
-                [
-                    {**err, "loc": ("query", *err.get("loc", ()))}
-                    for err in exc.errors(include_url=False)
-                ]
-            ) from exc
+        return parse_zod_query(request, model)
 
     return _dependency
 
@@ -131,39 +140,63 @@ def _no_constants(name: str) -> Any:
     raise ValueError(f"Unexpected token {name}")
 
 
-def zod_body(model: type[M]) -> Callable[[Request], Any]:
-    """A dependency parsing and validating the JSON body against ``model``.
+async def parse_zod_body(request: Request, model: type[M]) -> M:
+    """Parse and validate the JSON body against ``model``, as hono's
+    ``zValidator("json", ...)`` does: without a JSON content type the body
+    is ``{}`` (so an all-optional PATCH with no body changes nothing), and
+    malformed JSON is a 500 (``MalformedJsonError``)."""
+    value: Any = {}
+    content_type = request.headers.get("content-type")
+    if content_type and _JSON_CONTENT_TYPE.fullmatch(content_type):
+        text = (await request.body()).decode("utf-8", errors="replace")
+        try:
+            value = json.loads(
+                text.removeprefix("\ufeff"), parse_constant=_no_constants
+            )
+        except ValueError as exc:
+            raise MalformedJsonError("Malformed JSON in request body") from exc
+    try:
+        return model.model_validate(value)
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [
+                {**err, "loc": ("body", *err.get("loc", ()))}
+                for err in exc.errors(include_url=False)
+            ]
+        ) from exc
 
-    As hono's ``zValidator("json", ...)``: without a JSON content type the
-    body is ``{}`` (so an all-optional PATCH with no body changes nothing);
-    malformed JSON is a 500 (``MalformedJsonError``). Declare it after the
-    auth dependency, which then runs first, as hono's middleware order has
-    it: FastAPI parses a plain body parameter before any dependency.
+
+def zod_body(model: type[M]) -> Callable[[Request], Any]:
+    """A dependency parsing and validating the JSON body against ``model``
+    (``parse_zod_body``).
+
+    Declare it after the auth dependency, which then runs first, as hono's
+    middleware order has it: FastAPI parses a plain body parameter before
+    any dependency. A route with no auth dependency calls ``parse_zod_body``
+    in its handler and is marked with ``documents_zod_body`` instead (see
+    ``zod_query`` for why).
     """
 
     async def _dependency(request: Request) -> M:
-        value: Any = {}
-        content_type = request.headers.get("content-type")
-        if content_type and _JSON_CONTENT_TYPE.fullmatch(content_type):
-            text = (await request.body()).decode("utf-8", errors="replace")
-            try:
-                value = json.loads(
-                    text.removeprefix("\ufeff"), parse_constant=_no_constants
-                )
-            except ValueError as exc:
-                raise MalformedJsonError("Malformed JSON in request body") from exc
-        try:
-            return model.model_validate(value)
-        except ValidationError as exc:
-            raise RequestValidationError(
-                [
-                    {**err, "loc": ("body", *err.get("loc", ()))}
-                    for err in exc.errors(include_url=False)
-                ]
-            ) from exc
+        return await parse_zod_body(request, model)
 
     _dependency.__zod_body__ = model  # type: ignore[attr-defined]
     return _dependency
+
+
+E = TypeVar("E", bound=Callable[..., Any])
+
+
+def documents_zod_body(model: type[ZodModel]) -> Callable[[E], E]:
+    """Mark a handler that calls ``parse_zod_body(request, model)`` itself,
+    so ``document_zod_bodies`` documents its body. Apply it below the route
+    decorator."""
+
+    def mark(endpoint: E) -> E:
+        endpoint.__zod_body__ = model  # type: ignore[attr-defined]
+        return endpoint
+
+    return mark
 
 
 def document_zod_bodies(app: FastAPI, routers: Iterable[APIRouter]) -> None:
@@ -196,7 +229,11 @@ def document_zod_bodies(app: FastAPI, routers: Iterable[APIRouter]) -> None:
         for route in (r for router in routers for r in router.routes):
             if not isinstance(route, APIRoute) or not route.include_in_schema:
                 continue
-            for model in _models(route.dependant):
+            models = _models(route.dependant)
+            marked = getattr(route.endpoint, "__zod_body__", None)
+            if marked is not None:
+                models.append(marked)
+            for model in models:
                 model_schema = model.model_json_schema(
                     ref_template="#/components/schemas/{model}"
                 )

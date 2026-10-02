@@ -55,7 +55,7 @@ def test_timezones() -> None:
 
 
 class Body(ZodModel):
-    NULLABLE: ClassVar[frozenset[str]] = frozenset({"note"})
+    _NULLABLE: ClassVar[frozenset[str]] = frozenset({"note"})
 
     email: Email
     count: JsInt | None = None

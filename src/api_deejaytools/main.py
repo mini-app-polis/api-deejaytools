@@ -8,15 +8,13 @@ identity (DOC-009): the repository is api-deejaytools, the distribution is
 
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 
 import sentry_sdk
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mini_app_polis.logger import LOG_START, LOG_WARNING, get_logger, with_log_prefix
 from mini_app_polis.request_metrics import RequestMetricsMiddleware
-from pydantic import BaseModel, Field
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 from . import __version__
@@ -36,6 +34,7 @@ from .routers import (
     feedback,
     internal,
     managed_partnerships,
+    meta,
     pairs,
     partners,
     queue,
@@ -78,21 +77,6 @@ async def lifespan(_app: FastAPI):
     logger.info(with_log_prefix(LOG_WARNING, "api-deejaytools shutting down"))
 
 
-class HealthResponse(BaseModel):
-    """Liveness answer. Not wrapped in the envelope, as in deejaytools-api."""
-
-    status: str = Field("ok", description="Always 'ok' while the process serves.")
-
-
-class VersionResponse(BaseModel):
-    """The running build. Not wrapped in the envelope, like /health."""
-
-    version: str = Field(..., description="Package version.")
-    commit: str | None = Field(
-        None, description="Git commit Railway built from; null outside Railway."
-    )
-
-
 def _build_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
@@ -131,50 +115,8 @@ def _build_app() -> FastAPI:
         exclude_paths=["/health", "/version"],
     )
 
-    @app.head("/health", include_in_schema=False)
-    @app.get(
-        "/health",
-        tags=["meta"],
-        summary="Liveness probe",
-        description=(
-            "Always 200 {'status': 'ok'} while the process serves: no auth and "
-            "no database query (API-010). Intentionally public. Unlike "
-            "deejaytools-api it does not answer 503 when the database is down "
-            "(ADR-009)."
-        ),
-        response_model=HealthResponse,
-    )
-    async def health() -> dict[str, str]:
-        """Liveness probe. Intentionally public — no auth, no DB access."""
-        return {"status": "ok"}
-
-    @app.get(
-        "/version",
-        tags=["meta"],
-        summary="Deployed version",
-        description=(
-            "The package version and the commit this deploy was built from. "
-            "Intentionally public and unversioned: the post-deploy smoke test "
-            "(.github/workflows/deployed.yml) waits for `commit` to be the "
-            "deploy it was triggered by. Not a deejaytools-api route; the web "
-            "app never calls it."
-        ),
-        response_model=VersionResponse,
-    )
-    async def version() -> dict[str, str | None]:
-        """The deployed version and commit. Intentionally public."""
-        return {
-            "version": __version__,
-            "commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA"),
-        }
-
-    @app.options("/{path:path}", include_in_schema=False)
-    async def options(path: str) -> Response:
-        """Any OPTIONS request, preflight or not, answers 204 as Hono's cors
-        middleware does. Real preflights are answered by CORSMiddleware first."""
-        return Response(status_code=204)
-
     routers = (
+        meta.router,
         internal.router,
         auth.router,
         events.router,

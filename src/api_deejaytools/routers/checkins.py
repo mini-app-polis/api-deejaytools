@@ -64,8 +64,6 @@ logger = get_logger()
 
 router = APIRouter(prefix="/v1/checkins", tags=["checkins"])
 
-READ_SCOPE = "deejaytools.checkins.read"
-WRITE_SCOPE = "deejaytools.checkins.write"
 
 NO_ATTACHABLE_ENTITY_MSG = (
     "This song has no partner or managed partnership. "
@@ -86,7 +84,7 @@ class CreateCheckinBody(ZodModel):
     the entity from the song.
     """
 
-    NULLABLE: ClassVar[frozenset[str]] = frozenset(
+    _NULLABLE: ClassVar[frozenset[str]] = frozenset(
         {"entityPairId", "entityManagedPartnershipId", "on_behalf_of_user_id", "notes"}
     )
 
@@ -238,7 +236,7 @@ AUTH: dict[int | str, dict[str, Any]] = {
 )
 async def create_checkin(
     request: Request,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.checkins.write")),
     body: CreateCheckinBody = Depends(zod_body(CreateCheckinBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -466,7 +464,7 @@ async def create_checkin(
     responses=AUTH,
 )
 async def my_checkins(
-    caller: Caller = Depends(require_scope(READ_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.checkins.read")),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the caller's live check-ins."""
@@ -666,7 +664,7 @@ async def my_checkins(
 )
 async def withdraw_my_checkin(
     id: Annotated[str, Path(description="Check-in id.")],
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.checkins.write")),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Withdraw one of the caller's own check-ins."""

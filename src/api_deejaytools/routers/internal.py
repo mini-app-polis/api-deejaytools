@@ -20,9 +20,10 @@ with the same 403, where deejaytools-api left it open.
 from __future__ import annotations
 
 import hmac
+from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 
 from ..config import get_settings
@@ -41,8 +42,8 @@ class Ticked(BaseModel):
 class TickResponse(BaseModel):
     """The success envelope around ``Ticked``."""
 
-    data: Ticked
-    meta: Meta
+    data: Ticked = Field(..., description="The pass's result.")
+    meta: Meta = Field(..., description="Envelope metadata.")
 
 
 def _secret_matches(given: str | None) -> bool:
@@ -50,6 +51,20 @@ def _secret_matches(given: str | None) -> bool:
     if secret is None or given is None:
         return False
     return hmac.compare_digest(given.encode(), secret.encode())
+
+
+def require_tick_secret() -> Callable[[str | None], None]:
+    """The route's gate as a dependency: 403 unless ``x-tick-secret`` matches
+    ``TICK_SECRET``. Declared at the registration so the guard is readable
+    where the route is (AUTH-003)."""
+
+    def _dependency(
+        x_tick_secret: Annotated[str | None, Header()] = None,
+    ) -> None:
+        if not _secret_matches(x_tick_secret):
+            raise forbidden()
+
+    return _dependency
 
 
 @router.get(
@@ -65,10 +80,8 @@ def _secret_matches(given: str | None) -> bool:
     responses={403: {"model": ErrorResponse, "description": "Bad or no secret."}},
 )
 async def tick(
-    x_tick_secret: Annotated[str | None, Header()] = None,
+    _gate: None = Depends(require_tick_secret()),
 ) -> dict[str, object]:
     """Run ``run_tick()`` for a caller holding the tick secret."""
-    if not _secret_matches(x_tick_secret):
-        raise forbidden()
     await scheduler.run_tick()
     return success({"ticked": True})

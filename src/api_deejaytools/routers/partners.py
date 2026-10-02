@@ -34,8 +34,6 @@ from ..zod_types import zod_body
 
 router = APIRouter(prefix="/v1/partners", tags=["partners"])
 
-READ_SCOPE = "deejaytools.partners.read"
-WRITE_SCOPE = "deejaytools.partners.write"
 
 PartnerRole = Literal["leader", "follower"]
 
@@ -52,7 +50,7 @@ class CreatePartnerBody(ZodModel):
 class PatchPartnerBody(ZodModel):
     """Body of ``PATCH /v1/partners/{id}``. ``email`` may be null to clear it."""
 
-    NULLABLE: ClassVar[frozenset[str]] = frozenset({"email"})
+    _NULLABLE: ClassVar[frozenset[str]] = frozenset({"email"})
 
     first_name: NonEmptyStr | None = Field(None, description="First name.")
     last_name: NonEmptyStr | None = Field(None, description="Last name.")
@@ -195,7 +193,7 @@ NOT_FOUND: dict[int | str, dict[str, Any]] = {
     responses=AUTH,
 )
 async def leading_pairs(
-    caller: Caller = Depends(require_scope(READ_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partners.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the caller's leading pairs."""
@@ -237,7 +235,7 @@ async def leading_pairs(
     responses=AUTH,
 )
 async def list_partners(
-    caller: Caller = Depends(require_scope(READ_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partners.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the caller's partners."""
@@ -267,7 +265,7 @@ async def list_partners(
     responses=AUTH,
 )
 async def create_partner(
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partners.write")),
     body: CreatePartnerBody = Depends(zod_body(CreatePartnerBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -304,7 +302,7 @@ async def create_partner(
 )
 async def partner_associations(
     id: PartnerId,
-    caller: Caller = Depends(require_scope(READ_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partners.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Count what uses a partner."""
@@ -343,7 +341,7 @@ async def partner_associations(
 )
 async def get_partner(
     id: PartnerId,
-    caller: Caller = Depends(require_scope(READ_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partners.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Get one partner."""
@@ -367,7 +365,7 @@ async def get_partner(
 )
 async def patch_partner(
     id: PartnerId,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partners.write")),
     body: PatchPartnerBody = Depends(zod_body(PatchPartnerBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -396,6 +394,7 @@ async def patch_partner(
 
 @router.delete(
     "/{id}",
+    response_model=None,  # 204: no body
     status_code=204,
     response_class=Response,
     summary="Delete a partner",
@@ -413,7 +412,7 @@ async def patch_partner(
 )
 async def delete_partner(
     id: PartnerId,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partners.write")),
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     """Delete a partner."""

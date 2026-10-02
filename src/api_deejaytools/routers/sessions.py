@@ -15,7 +15,7 @@ import time
 import uuid
 from typing import Annotated, Any, ClassVar, Literal
 
-from fastapi import APIRouter, Depends, Header, Path
+from fastapi import APIRouter, Depends, Header, Path, Request
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
@@ -50,7 +50,7 @@ from ..models import (
 )
 from ..validation import JsInt, JsNumber, NonEmptyStr, NonNegativeJsInt, ZodModel
 from ..zod_coerce import js_trim
-from ..zod_types import QueryStr, zod_body, zod_query
+from ..zod_types import QueryStr, parse_zod_query, zod_body
 
 logger = get_logger()
 
@@ -105,7 +105,7 @@ class CreateSessionBody(ZodModel):
 class PatchSessionBody(ZodModel):
     """Body of ``PATCH /v1/sessions/{id}``. ``date`` and ``event_id`` may be null."""
 
-    NULLABLE: ClassVar[frozenset[str]] = frozenset({"date", "event_id"})
+    _NULLABLE: ClassVar[frozenset[str]] = frozenset({"date", "event_id"})
 
     name: NonEmptyStr | None = Field(None, description="Session name.")
     date: str | None = Field(None, description="Display date; null clears it.")
@@ -390,7 +390,6 @@ ADMIN: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse, "description": "Missing or invalid token."},
     403: {"model": ErrorResponse, "description": "Lacks deejaytools.sessions.write."},
 }
-WRITE_SCOPE = "deejaytools.sessions.write"
 
 
 class SessionListQuery(ZodModel):
@@ -412,12 +411,12 @@ class SessionListQuery(ZodModel):
     ),
 )
 async def list_sessions(
-    query_params: SessionListQuery = Depends(zod_query(SessionListQuery)),
+    request: Request,
     authorization: Authorization = None,
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List sessions. Public, with an optional caller."""
-    event_id = query_params.event_id
+    event_id = parse_zod_query(request, SessionListQuery).event_id
     user_id = await optional_synced_user_id(authorization, db)
 
     cache_key = f"sessions:list:{event_id or 'all'}"
@@ -493,7 +492,7 @@ async def list_sessions(
     responses=ADMIN,
 )
 async def create_session(
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
     body: CreateSessionBody = Depends(zod_body(CreateSessionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -572,7 +571,7 @@ async def create_session(
 async def put_divisions(
     id: SessionId,
     body: PutDivisionsBody = Depends(zod_body(PutDivisionsBody)),
-    _caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Upsert a session's divisions."""
@@ -630,7 +629,7 @@ async def put_divisions(
 async def patch_status(
     id: SessionId,
     body: StatusBody = Depends(zod_body(StatusBody)),
-    _caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Set the stored status."""
@@ -654,7 +653,7 @@ async def patch_status(
 async def patch_session(
     id: SessionId,
     body: PatchSessionBody = Depends(zod_body(PatchSessionBody)),
-    _caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Update a session."""
@@ -705,7 +704,7 @@ async def patch_session(
 )
 async def delete_session(
     id: SessionId,
-    _caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Delete a session and everything hanging off it."""

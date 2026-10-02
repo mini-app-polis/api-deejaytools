@@ -7,7 +7,7 @@ where they do, the zod behaviour is reproduced here and used instead:
   ``"true"`` is not a boolean. Pydantic's lax mode would accept both.
 - Absent is not null. zod's ``.optional()`` accepts a missing key and
   refuses ``null``; only ``.nullable()`` accepts null. ``ZodModel`` refuses
-  null for every field not listed in ``NULLABLE``.
+  null for every field not listed in ``_NULLABLE``.
 - Email addresses follow zod's own pattern, not email-validator's.
 """
 
@@ -23,14 +23,14 @@ class ZodModel(BaseModel):
     """A request body or query validated the way its zod schema validated it.
 
     Fields that zod declared ``.optional()`` are typed ``X | None = None``
-    here; ``null`` for them is refused unless the field is in ``NULLABLE``.
+    here; ``null`` for them is refused unless the field is in ``_NULLABLE``.
     Use ``model_fields_set`` to tell an absent field from one sent as null.
     Unknown keys are dropped, as zod's ``z.object`` drops them.
     """
 
     model_config = ConfigDict(strict=True, extra="ignore")
 
-    NULLABLE: ClassVar[frozenset[str]] = frozenset()
+    _NULLABLE: ClassVar[frozenset[str]] = frozenset()
 
     @model_validator(mode="before")
     @classmethod
@@ -39,7 +39,7 @@ class ZodModel(BaseModel):
             nulls = [
                 k
                 for k, v in data.items()
-                if v is None and k in cls.model_fields and k not in cls.NULLABLE
+                if v is None and k in cls.model_fields and k not in cls._NULLABLE
             ]
             if nulls:
                 raise ValueError(f"{', '.join(nulls)}: expected a value, received null")

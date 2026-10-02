@@ -58,8 +58,6 @@ logger = get_logger()
 
 router = APIRouter(prefix="/v1/admin/users", tags=["admin-users"])
 
-READ_SCOPE = "deejaytools.users.read"
-WRITE_SCOPE = "deejaytools.users.write"
 
 Role = Literal["user", "admin"]
 
@@ -198,7 +196,7 @@ async def _user_exists(session: AsyncSession, user_id: str) -> bool:
     },
 )
 async def list_users(
-    _caller: Caller = Depends(require_scope(READ_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.users.read")),
     query: ListQuery = Depends(zod_query(ListQuery)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -243,7 +241,7 @@ async def list_users(
 )
 async def update_role(
     id: UserId,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.users.write")),
     body: UpdateRoleBody = Depends(zod_body(UpdateRoleBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -327,7 +325,7 @@ async def update_role(
 )
 async def list_user_partners(
     id: UserId,
-    _caller: Caller = Depends(require_scope(READ_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.users.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """A user's partners."""
@@ -363,7 +361,7 @@ async def list_user_partners(
 )
 async def list_user_submissions(
     id: UserId,
-    _caller: Caller = Depends(require_scope(READ_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.users.read")),
     query: SubmissionsQuery = Depends(zod_query(SubmissionsQuery)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:

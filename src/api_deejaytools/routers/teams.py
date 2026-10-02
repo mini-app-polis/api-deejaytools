@@ -42,8 +42,6 @@ logger = get_logger()
 
 router = APIRouter(prefix="/v1/teams", tags=["teams"])
 
-READ_SCOPE = "deejaytools.teams.read"
-WRITE_SCOPE = "deejaytools.teams.write"
 
 TeamIdentifier = Annotated[
     str,
@@ -139,7 +137,7 @@ CONFLICT: dict[int | str, dict[str, Any]] = {
     responses=AUTH,
 )
 async def list_teams(
-    caller: Caller = Depends(require_scope(READ_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.teams.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the caller's teams."""
@@ -166,7 +164,7 @@ async def list_teams(
     responses={**AUTH, **CONFLICT},
 )
 async def create_team(
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.teams.write")),
     body: TeamBody = Depends(zod_body(TeamBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -214,7 +212,7 @@ async def create_team(
 )
 async def patch_team(
     id: TeamId,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.teams.write")),
     body: TeamBody = Depends(zod_body(TeamBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -240,6 +238,7 @@ async def patch_team(
 
 @router.delete(
     "/{id}",
+    response_model=None,  # 204: no body
     status_code=204,
     response_class=Response,
     summary="Delete a team",
@@ -248,7 +247,7 @@ async def patch_team(
 )
 async def delete_team(
     id: TeamId,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.teams.write")),
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     """Delete a team."""

@@ -55,8 +55,6 @@ logger = get_logger()
 
 router = APIRouter(prefix="/v1/songs", tags=["songs"])
 
-READ_SCOPE = "deejaytools.songs.read"
-WRITE_SCOPE = "deejaytools.songs.write"
 
 PARTNER_NOT_OWNED = "Partner not found or does not belong to you"
 
@@ -70,7 +68,7 @@ class ListQuery(ZodModel):
 class CreateSongBody(ZodModel):
     """Body of ``POST /v1/songs``: a metadata row with no file (legacy path)."""
 
-    NULLABLE: ClassVar[frozenset[str]] = frozenset(
+    _NULLABLE: ClassVar[frozenset[str]] = frozenset(
         {"routine_name", "personal_descriptor"}
     )
 
@@ -87,7 +85,7 @@ class PatchSongBody(ZodModel):
     """Body of ``PATCH /v1/songs/{id}``. Fields other than display_name may be
     null; values other than partner_id and display_name are stored as sent."""
 
-    NULLABLE: ClassVar[frozenset[str]] = frozenset(
+    _NULLABLE: ClassVar[frozenset[str]] = frozenset(
         {
             "partner_id",
             "original_filename",
@@ -172,7 +170,7 @@ BAD_PARTNER: dict[int | str, dict[str, Any]] = {
     responses=AUTH,
 )
 async def list_songs(
-    caller: Caller = Depends(require_scope(READ_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.songs.read")),
     query: ListQuery = Depends(zod_query(ListQuery)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -232,7 +230,7 @@ async def list_songs(
     responses={**AUTH, **BAD_PARTNER},
 )
 async def create_song(
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.songs.write")),
     body: CreateSongBody = Depends(zod_body(CreateSongBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -285,7 +283,7 @@ async def create_song(
 )
 async def get_song(
     id: SongId,
-    caller: Caller = Depends(require_scope(READ_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.songs.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Get one song."""
@@ -308,7 +306,7 @@ async def get_song(
 )
 async def patch_song(
     id: SongId,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.songs.write")),
     body: PatchSongBody = Depends(zod_body(PatchSongBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -343,6 +341,7 @@ async def patch_song(
 
 @router.delete(
     "/{id}",
+    response_model=None,  # 204: no body
     status_code=204,
     response_class=Response,
     summary="Delete a song",
@@ -362,7 +361,7 @@ async def patch_song(
 )
 async def delete_song(
     id: SongId,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.songs.write")),
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     """Soft-delete a song."""

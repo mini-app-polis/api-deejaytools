@@ -218,13 +218,17 @@ async def test_status_patch_and_cache_invalidation(
     ] == "in_progress"  # cached now
 
     res = await client.patch(
-        f"{url}/status", json={"status": "cancelled"}, headers=admin.headers
+        f"/v1/sessions/{session['id']}/status",
+        json={"status": "cancelled"},
+        headers=admin.headers,
     )
     assert res.json()["data"]["status"] == "cancelled"
     assert (await client.get(url)).json()["data"]["status"] == "cancelled"
 
     bad = await client.patch(
-        f"{url}/status", json={"status": "paused"}, headers=admin.headers
+        f"/v1/sessions/{session['id']}/status",
+        json={"status": "paused"},
+        headers=admin.headers,
     )
     assert bad.json()["error"]["code"] == "VALIDATION_ERROR"
 

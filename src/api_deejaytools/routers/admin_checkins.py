@@ -64,8 +64,6 @@ logger = get_logger()
 
 router = APIRouter(prefix="/v1/admin/checkins", tags=["admin"])
 
-READ_SCOPE = "deejaytools.testdata.read"
-WRITE_SCOPE = "deejaytools.testdata.write"
 
 # Every synthetic user's email matches this.
 STUB_EMAIL_PATTERN = "admin-injected-%@test.local"
@@ -74,7 +72,7 @@ STUB_EMAIL_PATTERN = "admin-injected-%@test.local"
 class InjectBody(ZodModel):
     """Body of ``POST /v1/admin/checkins``. Names are trimmed when stored."""
 
-    NULLABLE: ClassVar[frozenset[str]] = frozenset({"notes"})
+    _NULLABLE: ClassVar[frozenset[str]] = frozenset({"notes"})
 
     sessionId: NonEmptyStr = Field(..., description="Session to inject into.")
     divisionName: NonEmptyStr = Field(..., description="Division.")
@@ -175,7 +173,7 @@ AUTH: dict[int | str, dict[str, Any]] = {
     },
 )
 async def inject_checkin(
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.testdata.write")),
     body: InjectBody = Depends(zod_body(InjectBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -361,7 +359,7 @@ def _join_names(*parts: str | None) -> str:
     responses=AUTH,
 )
 async def list_test_injections(
-    _caller: Caller = Depends(require_scope(READ_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.testdata.read")),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List synthetic injections."""
@@ -425,7 +423,7 @@ async def list_test_injections(
     responses=AUTH,
 )
 async def delete_test_injections(
-    _caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.testdata.write")),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Delete every synthetic injection."""

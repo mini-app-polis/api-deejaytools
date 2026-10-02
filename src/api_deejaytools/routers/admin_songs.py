@@ -27,8 +27,6 @@ from ..zod_types import QueryStr, zod_query
 
 router = APIRouter(prefix="/v1/admin/songs", tags=["admin-songs"])
 
-READ_SCOPE = "deejaytools.library.read"
-
 
 class ListQuery(ZodModel):
     """Query of ``GET /v1/admin/songs``."""
@@ -101,7 +99,7 @@ class AdminSongListResponse(BaseModel):
     },
 )
 async def list_songs(
-    _caller: Caller = Depends(require_scope(READ_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.library.read")),
     query: ListQuery = Depends(zod_query(ListQuery)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:

@@ -38,6 +38,10 @@ whole list; a route added to it needs a reason of the same shape:
 
 There are no machine callers (CD-030 is exempt), so the only verifier is
 Clerk's, for the one issuer in settings.
+
+Header parity (AUTH-002): callers send ``Authorization: Bearer <token>``, the
+header common-python-utils' ``CommonPythonApiClient`` sends. Today the only
+caller is the web app; a cog calling this API would use that client.
 """
 
 from __future__ import annotations
@@ -91,11 +95,10 @@ def _verifier(issuer: str, jwks_url: str) -> ClerkVerifier:
 def get_verifier() -> ClerkVerifier | None:
     """The verifier for the configured issuer, or None when none is configured."""
     settings = get_settings()
-    if not (settings.DEEJAYTOOLS_CLERK_ISSUER and settings.DEEJAYTOOLS_CLERK_JWKS_URL):
+    issuer, jwks_url = settings.clerk_issuer, settings.clerk_jwks_url
+    if not (issuer and jwks_url):
         return None
-    return _verifier(
-        settings.DEEJAYTOOLS_CLERK_ISSUER, settings.DEEJAYTOOLS_CLERK_JWKS_URL
-    )
+    return _verifier(issuer, jwks_url)
 
 
 async def verify_bearer(authorization: str | None) -> VerifiedSubject:
@@ -205,7 +208,7 @@ async def ensure_principal(
         .values(
             issuer=issuer,
             display_name="deejaytools (Clerk)",
-            jwks_url=settings.DEEJAYTOOLS_CLERK_JWKS_URL,
+            jwks_url=settings.clerk_jwks_url,
         )
         .on_conflict_do_nothing(index_elements=[Issuer.issuer])
     )

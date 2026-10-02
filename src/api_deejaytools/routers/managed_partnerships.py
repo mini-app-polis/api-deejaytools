@@ -49,8 +49,6 @@ logger = get_logger()
 
 router = APIRouter(prefix="/v1/managed-partnerships", tags=["managed-partnerships"])
 
-READ_SCOPE = "deejaytools.partnerships.read"
-WRITE_SCOPE = "deejaytools.partnerships.write"
 
 Name = Annotated[str, trimmed(min_length=1, max_length=100)]
 
@@ -170,7 +168,7 @@ INTERNAL: dict[int | str, dict[str, Any]] = {
     responses=AUTH,
 )
 async def list_managed_partnerships(
-    caller: Caller = Depends(require_scope(READ_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partnerships.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the caller's managed partnerships."""
@@ -203,7 +201,7 @@ async def list_managed_partnerships(
     responses={**AUTH, **INTERNAL},
 )
 async def create_managed_partnership(
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partnerships.write")),
     body: PartnershipBody = Depends(zod_body(PartnershipBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -247,7 +245,7 @@ async def create_managed_partnership(
 )
 async def patch_managed_partnership(
     id: PartnershipId,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partnerships.write")),
     body: PartnershipBody = Depends(zod_body(PartnershipBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -280,6 +278,7 @@ async def patch_managed_partnership(
 
 @router.delete(
     "/{id}",
+    response_model=None,  # 204: no body
     status_code=204,
     response_class=Response,
     summary="Delete a managed partnership",
@@ -299,7 +298,7 @@ async def patch_managed_partnership(
 )
 async def delete_managed_partnership(
     id: PartnershipId,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.partnerships.write")),
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     """Soft-delete a managed partnership and its songs."""
