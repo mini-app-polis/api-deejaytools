@@ -22,11 +22,21 @@ name: deployed
 #   API_URL_PRODUCTION    e.g. https://api.deejaytools.com
 # (https:// is assumed when the value is a bare hostname).
 #
-# No contract-suite dispatch yet. deejaytools-com's live contract suite runs
-# against api-dev.deejaytools.com, which is deejaytools-api until the
-# cutover; triggering it from here would test the other service. Until then
-# the same contract is checked in CI by the conformance suite. At the
-# cutover, add deejaytools-api's `contract` job here and remove it there.
+# After a dev deploy it also asks deejaytools-com to run the live contract
+# suite against it — the suite lives there, next to the schemas it checks.
+# Triggering on the deploy rather than on the push means the suite meets the
+# new API, not the one it replaced. Production only gets the read-only smoke
+# test: the contract suite writes data and never runs there.
+#
+# That suite calls deejaytools-com's CONTRACT_API_URL and refuses any host
+# but api-dev.deejaytools.com, which is deejaytools-api until the cutover.
+# So the dispatch only fires once API_URL_DEVELOPMENT names that host, that
+# is, once the dev domain points here; before that it would test the other
+# service. At the cutover, remove the same job from deejaytools-api.
+#
+# The cross-repository trigger uses the promote GitHub App (the same org
+# secrets as promote and automerge): a repository_dispatch needs a token
+# with Contents: write on deejaytools-com, which GITHUB_TOKEN never has.
 #
 # GitHub cannot filter deployment_status by state or environment, so the
 # statuses Railway posts before a deploy finishes start a run that skips.
@@ -78,3 +88,30 @@ jobs:
           [ "$(serving)" = "$SHA" ] \
             || fail "$API switched away from $SHA during the smoke test (now '$(serving)')."
           echo "API OK at $API ($SHA)"
+
+  contract:
+    needs: smoke
+    if: >-
+      endsWith(github.event.deployment.environment, '/ development') &&
+      contains(vars.API_URL_DEVELOPMENT, 'api-dev.deejaytools.com')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint an App token for deejaytools-com
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.PROMOTE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PROMOTE_APP_PRIVATE_KEY }}
+          owner: mini-app-polis
+          repositories: deejaytools-com
+          permission-contents: write
+
+      - name: Run the contract suite against the new API
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SHA: ${{ github.event.deployment.sha }}
+        run: |
+          gh api repos/mini-app-polis/deejaytools-com/dispatches \
+            -f event_type=dev-api-deployed \
+            -f "client_payload[api_sha]=$SHA"
+          echo "Asked deejaytools-com to run the contract suite against $SHA."
