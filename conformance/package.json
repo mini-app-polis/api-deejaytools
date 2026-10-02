@@ -1,0 +1,21 @@
+{
+  "name": "api-deejaytools-conformance",
+  "private": true,
+  "description": "deejaytools-api's integration suite, driving api-deejaytools over HTTP (deejaytools-api ADR-009).",
+  "type": "module",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "drizzle-orm": "^0.45.3",
+    "postgres": "^3.4.9",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.1"
+  }
+}

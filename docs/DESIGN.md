@@ -27,6 +27,13 @@ deejaytools-api's codes and shapes (`errors.py`).
 - **First provision mirrors a stored admin.** A principal created by sync
   for a `users` row that already says `admin` also gets `deejaytools-admin`,
   the backfill's rule. Never re-applied to an existing principal.
+- **`users.role` decides admin at each deploy.** The backfill grants
+  `deejaytools-admin` where `users.role = 'admin'` and removes it elsewhere,
+  so a promotion or demotion made through deejaytools-api during a rollback
+  carries over. Through this service both always move together.
+- **`/internal/tick` fails closed** with `403 FORBIDDEN` "Admin access
+  required" when `TICK_SECRET` is unset, the answer deejaytools-api gives
+  for a wrong secret (ADR-007 leaves the status open).
 - **Bootstrap needs an exclude list.** The runner has no default
   `BOOTSTRAP_EXCLUDE` (ADR-008) and refuses a bootstrap without one when
   there is more than one migration, which would otherwise mark the identity
@@ -40,10 +47,48 @@ deejaytools-api's codes and shapes (`errors.py`).
   row, as today. A `users` row with no principal yet answers with
   `role: "user"`.
 
+- **Request validation follows zod, not pydantic's defaults**
+  (`validation.py`, `zod_types.py`, `zod_coerce.py`): no type coercion,
+  optional fields refuse `null` unless zod said `.nullable()`, email
+  addresses use zod's own pattern (pydantic's refuses reserved domains such
+  as `.test`), and Infinity is not a number. Where Python and JavaScript
+  disagree on a primitive, the JavaScript behaviour is reproduced: `trim()`
+  and `\s` use JavaScript's whitespace set (`js_trim`), patterns are matched
+  whole with ASCII digits, `Number()` coerces query values, `localeCompare`
+  orders labels (`domain.locale_key`, checked against Node 22), and event
+  timezones are what `Intl` accepts: IANA names case-insensitively and
+  `+HH:MM` offsets, stored as sent.
+- **Bodies are parsed by a dependency** (`zod_types.zod_body`), declared
+  after the auth dependency: as with hono's middleware, a missing token wins
+  over a bad body, a body without a JSON content type is `{}`, and
+  malformed JSON answers `500 INTERNAL`, deejaytools-api's answer.
+  `document_zod_bodies` puts those bodies back into the OpenAPI schema.
+- **Durable song builds** (`services/song_builds.py`, migration 003). The
+  uploaded bytes wait in `song_uploads` until the Drive build finishes, so a
+  restart or a failure resumes the build instead of losing it. A build holds
+  a lease it renews every minute and identifies itself with a `claim_id`; a
+  build that stops renewing is taken over, and its later writes match
+  nothing. The tick starts due builds in the background, at most
+  `MAX_IN_FLIGHT` at once. This fixes DRIVE.md's known defects; the wire
+  behaviour (an unreferenced song vanishing when its build fails) is kept.
+- **Drive clients are per thread** (`services/drive.py`): Drive calls run in
+  worker threads, and googleapiclient's transport is not thread-safe.
+- **Deletes take Drive file ids from the rows they delete**
+  (`DELETE … RETURNING`, `UPDATE … RETURNING`), so a copy or build finishing
+  concurrently is never left behind in Drive.
+- **Request limits** (`middleware.py`) are deejaytools-api's, keyed the same
+  way. The deadline does not cancel the handler, as Node could not: it runs
+  on and its writes land, only its response is discarded.
+- **No prepared-statement caching** (`database.py`): the service survives
+  its schema being rebuilt underneath it, which deejaytools-api's
+  CONFORMANCE.md requires of a target, for one extra round trip per query.
+
 ## Testing
 
 Tests build a real Postgres database from `migrations/` with the runner, so
 the baseline is exercised on every run. `scripts/check_baseline.sh` checks
 the baseline against drizzle's result in CI. The conformance suite
 (deejaytools-api's integration suite, copied into `conformance/` with
-ADR-009's three harness changes) comes in a later milestone.
+ADR-009's three harness changes) runs in CI against this service. Its one
+further change: the tick test sends `x-tick-secret`, since `/internal/tick`
+fails closed here (see `conformance/README.md`).

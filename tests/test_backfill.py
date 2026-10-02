@@ -38,7 +38,7 @@ async def test_backfill_provisions_every_user(db: asyncpg.Connection) -> None:
 
     counts = await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL)
 
-    assert counts == {"principals": 2, "grants": 3}
+    assert counts == {"principals": 2, "grants": 3, "revoked": 0}
     assert await _grants(db) == {
         "user_dancer": {"deejaytools-dancer"},
         "user_admin": {"deejaytools-dancer", "deejaytools-admin"},
@@ -62,6 +62,7 @@ async def test_backfill_is_idempotent(db: asyncpg.Connection) -> None:
     assert await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL) == {
         "principals": 0,
         "grants": 0,
+        "revoked": 0,
     }
 
 
@@ -73,8 +74,22 @@ async def test_backfill_picks_up_users_added_later(db: asyncpg.Connection) -> No
 
     counts = await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL)
 
-    assert counts == {"principals": 1, "grants": 1}
+    assert counts == {"principals": 1, "grants": 1, "revoked": 0}
     assert "user_during_rollback" in await _grants(db)
+
+
+async def test_backfill_revokes_admin_demoted_in_users_role(
+    db: asyncpg.Connection,
+) -> None:
+    """The rollback case: someone demoted through deejaytools-api meanwhile."""
+    await _add_user(db, "user_was_admin", role="admin")
+    await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL)
+    await db.execute("UPDATE users SET role = 'user' WHERE id = 'user_was_admin'")
+
+    counts = await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL)
+
+    assert counts == {"principals": 0, "grants": 0, "revoked": 1}
+    assert await _grants(db) == {"user_was_admin": {"deejaytools-dancer"}}
 
 
 def test_main_refuses_without_issuer(monkeypatch: pytest.MonkeyPatch) -> None:

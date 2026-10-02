@@ -8,10 +8,11 @@ identity (DOC-009): the repository is api-deejaytools, the distribution is
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 import sentry_sdk
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from mini_app_polis.logger import LOG_START, LOG_WARNING, get_logger, with_log_prefix
 from mini_app_polis.request_metrics import RequestMetricsMiddleware
@@ -21,8 +22,32 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from . import __version__
 from .config import get_settings
 from .errors import install_error_handlers
-from .routers import auth
+from .middleware import BodyLimitMiddleware, DeadlineMiddleware, RateLimitMiddleware
+from .routers import (
+    admin_checkins,
+    admin_drive_jobs,
+    admin_event_submissions,
+    admin_songs,
+    admin_users,
+    auth,
+    checkins,
+    event_song_submissions,
+    events,
+    feedback,
+    internal,
+    managed_partnerships,
+    pairs,
+    partners,
+    queue,
+    runs,
+    sessions,
+    song_uploads,
+    songs,
+    teams,
+)
 from .services import cloudwatch
+from .services.scheduler import start_scheduler
+from .zod_types import document_zod_bodies
 
 logger = get_logger()
 
@@ -45,7 +70,11 @@ async def lifespan(_app: FastAPI):
             f"sentry={'on' if settings.SENTRY_DSN_API_DEEJAYTOOLS else 'off'})",
         )
     )
+    # Off under DISABLE_SCHEDULER=1 and ENVIRONMENT=test (services/scheduler.py).
+    scheduler = start_scheduler(settings)
     yield
+    if scheduler is not None:
+        await scheduler.stop()
     logger.info(with_log_prefix(LOG_WARNING, "api-deejaytools shutting down"))
 
 
@@ -55,13 +84,35 @@ class HealthResponse(BaseModel):
     status: str = Field("ok", description="Always 'ok' while the process serves.")
 
 
+class VersionResponse(BaseModel):
+    """The running build. Not wrapped in the envelope, like /health."""
+
+    version: str = Field(..., description="Package version.")
+    commit: str | None = Field(
+        None, description="Git commit Railway built from; null outside Railway."
+    )
+
+
 def _build_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title="api-deejaytools",
         version=__version__,
         lifespan=lifespan,
+        # Hono answers /v1/events/ with 404, not a redirect to /v1/events.
+        redirect_slashes=False,
     )
+
+    # First, so its 500 handling sits inside every middleware below.
+    install_error_handlers(app)
+
+    # Starlette runs the last-added middleware first. Inside out: the
+    # deadline, the rate limit (both /v1/* only), the body limit, then CORS
+    # around all of them so its headers reach every answer, as in
+    # deejaytools-api (cors, bodyLimit, rateLimit, timeout).
+    app.add_middleware(DeadlineMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(BodyLimitMiddleware)
 
     # As deejaytools-api: origins from DEEJAYTOOLS_CORS_ORIGINS, these
     # methods and headers, no credentials (the web app sends a bearer token).
@@ -77,11 +128,10 @@ def _build_app() -> FastAPI:
         RequestMetricsMiddleware,
         service="api-deejaytools",
         client_factory=lambda: cloudwatch.client_factory(settings),
-        exclude_paths=["/health"],
+        exclude_paths=["/health", "/version"],
     )
 
-    install_error_handlers(app)
-
+    @app.head("/health", include_in_schema=False)
     @app.get(
         "/health",
         tags=["meta"],
@@ -98,7 +148,57 @@ def _build_app() -> FastAPI:
         """Liveness probe. Intentionally public — no auth, no DB access."""
         return {"status": "ok"}
 
-    app.include_router(auth.router)
+    @app.get(
+        "/version",
+        tags=["meta"],
+        summary="Deployed version",
+        description=(
+            "The package version and the commit this deploy was built from. "
+            "Intentionally public and unversioned: the post-deploy smoke test "
+            "(.github/workflows/deployed.yml) waits for `commit` to be the "
+            "deploy it was triggered by. Not a deejaytools-api route; the web "
+            "app never calls it."
+        ),
+        response_model=VersionResponse,
+    )
+    async def version() -> dict[str, str | None]:
+        """The deployed version and commit. Intentionally public."""
+        return {
+            "version": __version__,
+            "commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA"),
+        }
+
+    @app.options("/{path:path}", include_in_schema=False)
+    async def options(path: str) -> Response:
+        """Any OPTIONS request, preflight or not, answers 204 as Hono's cors
+        middleware does. Real preflights are answered by CORSMiddleware first."""
+        return Response(status_code=204)
+
+    routers = (
+        internal.router,
+        auth.router,
+        events.router,
+        sessions.router,
+        partners.router,
+        pairs.router,
+        teams.router,
+        managed_partnerships.router,
+        event_song_submissions.router,
+        song_uploads.router,
+        songs.router,
+        feedback.router,
+        admin_users.router,
+        admin_songs.router,
+        admin_event_submissions.router,
+        admin_drive_jobs.router,
+        checkins.router,
+        queue.router,
+        runs.router,
+        admin_checkins.router,
+    )
+    for router in routers:
+        app.include_router(router)
+    document_zod_bodies(app, routers)
     return app
 
 

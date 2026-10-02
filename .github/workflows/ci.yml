@@ -82,6 +82,44 @@ jobs:
       - name: Test
         run: uv run pytest --cov=src --cov-report=term-missing
 
+      # deejaytools-api ADR-009 Testing point 3: its integration suite,
+      # copied into conformance/, driving this service over HTTP. It gates
+      # like the rest. See conformance/README.md.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: conformance/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: conformance/pnpm-lock.yaml
+
+      - name: Install conformance suite
+        working-directory: conformance
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+
+      - name: Conformance
+        env:
+          DEEJAYTOOLS_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/conformance_test
+          DEEJAYTOOLS_CLERK_JWKS_URL: http://127.0.0.1:4455/.well-known/jwks.json
+          DEEJAYTOOLS_CLERK_ISSUER: https://clerk.integration.test
+          TICK_SECRET: conformance-tick
+        run: |
+          psql postgres://postgres:postgres@localhost:5432/postgres -c "CREATE DATABASE conformance_test"
+          uv run uvicorn src.api_deejaytools.main:app --port 3999 > target.log 2>&1 &
+          for _ in $(seq 1 60); do curl -sf http://localhost:3999/health > /dev/null && break; sleep 1; done
+          cd conformance
+          INTEGRATION_BASE_URL=http://localhost:3999 \
+          DATABASE_URL="$DEEJAYTOOLS_DATABASE_URL" \
+          INTEGRATION_EXTRA_MIGRATIONS=../migrations \
+          INTEGRATION_TICK_SECRET="$TICK_SECRET" \
+            pnpm test
+
   release:
     needs: [test, security]
     runs-on: ubuntu-latest

@@ -179,3 +179,83 @@ def bearer(token: str) -> dict[str, str]:
 def new_user_id() -> Callable[[], str]:
     """Clerk-shaped user ids, unique per call."""
     return lambda: f"user_{uuid.uuid4().hex[:24]}"
+
+
+class Person:
+    """A synced caller: their users.id and a ready Authorization header."""
+
+    def __init__(self, user_id: str, token: str) -> None:
+        self.id = user_id
+        self.headers = bearer(token)
+
+
+@pytest.fixture
+def person(
+    client: httpx.AsyncClient,
+    clerk: Clerk,
+    db: asyncpg.Connection,
+    new_user_id: Callable[[], str],
+) -> Callable[..., Any]:
+    """Make a synced person, optionally an admin (granted in the store)."""
+
+    async def make(name: str = "ada", *, admin: bool = False) -> Person:
+        uid = new_user_id()
+        token = clerk.token(uid)
+        res = await client.post(
+            "/v1/auth/sync",
+            json={"email": f"{name}.{uid}@example.test", "firstName": name.title()},
+            headers=bearer(token),
+        )
+        assert res.status_code == 200, res.text
+        if admin:
+            await db.execute(
+                "INSERT INTO identity_principal_roles (principal_id, role_name) "
+                "SELECT id, 'deejaytools-admin' FROM identity_principals "
+                "WHERE subject = $1",
+                uid,
+            )
+        return Person(uid, token)
+
+    return make
+
+
+@pytest.fixture(autouse=True)
+def _empty_response_cache() -> None:
+    """Each test starts with no cached session or queue reads."""
+    from api_deejaytools.cache import response_cache
+
+    response_cache.invalidate_prefix("")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_drive_clients() -> None:
+    """Worker threads outlive a test; drop the Drive clients they cached."""
+    from api_deejaytools.services import drive
+
+    drive.reset_drive_clients()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limit_window() -> None:
+    """Each test starts with an empty rate-limit window.
+
+    Every test request comes from one client address, so a full run passes
+    300 /v1 requests a minute and later tests would get 429s.
+    """
+    from api_deejaytools.middleware import RateLimitMiddleware
+
+    layer = app.middleware_stack
+    while layer is not None:
+        if isinstance(layer, RateLimitMiddleware):
+            layer.windows.clear()
+        layer = getattr(layer, "app", None)
+
+
+@pytest.fixture(autouse=True)
+async def _finish_background_builds() -> AsyncIterator[None]:
+    """Let song builds a test started finish before the next test empties
+    the database under them."""
+    yield
+    from api_deejaytools.services import song_builds
+
+    await song_builds.wait_for_builds()
