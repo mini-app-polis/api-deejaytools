@@ -29,7 +29,6 @@ from ..zod_types import QueryStr, zod_query
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
 
-READ_SCOPE = "deejaytools.runs.read"
 DEFAULT_LIMIT = 200
 
 
@@ -108,7 +107,7 @@ def _entity_key(r: Any) -> str:
     },
 )
 async def list_runs(
-    _caller: Caller = Depends(require_scope(READ_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.runs.read")),
     query: ListRunsQuery = Depends(zod_query(ListRunsQuery)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:

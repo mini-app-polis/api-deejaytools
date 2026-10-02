@@ -312,6 +312,7 @@ class _Atom:
         self.children = children
 
     def render(self) -> bytes:
+        """The atom as bytes: header, then its children or its payload."""
         body = (
             b"".join(c.render() for c in self.children)
             if self.children is not None
@@ -324,6 +325,7 @@ class _Atom:
         return struct.pack(">I4s", size, self.name) + flags + body
 
     def child(self, name: bytes) -> _Atom | None:
+        """The first direct child named ``name``, or None."""
         return next((c for c in self.children or [] if c.name == name), None)
 
 

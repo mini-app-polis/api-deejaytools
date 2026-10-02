@@ -20,6 +20,7 @@ name: deployed
 # deejaytools-api. At the cutover only the variables change.
 #   API_URL_DEVELOPMENT   e.g. https://api-dev.deejaytools.com
 #   API_URL_PRODUCTION    e.g. https://api.deejaytools.com
+# (https:// is assumed when the value is a bare hostname).
 #
 # No contract-suite dispatch yet. deejaytools-com's live contract suite runs
 # against api-dev.deejaytools.com, which is deejaytools-api until the
@@ -52,6 +53,10 @@ jobs:
           fail() { echo "::error::$1"; exit 1; }
           [ -n "$API" ] \
             || fail "Set the API_URL_DEVELOPMENT and API_URL_PRODUCTION repository variables."
+          # A bare hostname would be fetched over http and get Railway's
+          # redirect instead of the API.
+          case "$API" in http://*|https://*) ;; *) API="https://$API" ;; esac
+          API="${API%/}"
           serving() { curl -fsS --max-time 10 "$API/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true; }
           # Wait for the new deploy to be the one answering (up to 5 min).
           deadline=$(( $(date +%s) + 300 ))

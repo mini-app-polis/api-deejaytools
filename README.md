@@ -98,6 +98,7 @@ Tests run against a real local Postgres database whose name ends in `_test`
 createdb deejaytools_test
 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/deejaytools_test \
   uv run pytest --cov=src
+uv run pre-commit run --all-files
 uv run ruff check src tests scripts && uv run ruff format src tests scripts
 uv run mypy src/
 PGURL=postgres://postgres:postgres@localhost:5432 bash scripts/check_baseline.sh

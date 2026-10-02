@@ -79,6 +79,18 @@ class Settings(BaseSettings):
     )
 
     @property
+    def clerk_issuer(self) -> str | None:
+        """The trusted Clerk issuer (CLERK_ISSUER), read from
+        ``DEEJAYTOOLS_CLERK_ISSUER``; the bare name is another tenant's."""
+        return self.DEEJAYTOOLS_CLERK_ISSUER or None
+
+    @property
+    def clerk_jwks_url(self) -> str | None:
+        """That issuer's JWKS (CLERK_JWKS_URL), read from
+        ``DEEJAYTOOLS_CLERK_JWKS_URL``."""
+        return self.DEEJAYTOOLS_CLERK_JWKS_URL or None
+
+    @property
     def brevo_api_key(self) -> str | None:
         """The Brevo key to use, as ``DEEJAYTOOLS_BREVO_API_KEY || BREVO_API_KEY``."""
         return self.DEEJAYTOOLS_BREVO_API_KEY or self.BREVO_API_KEY or None

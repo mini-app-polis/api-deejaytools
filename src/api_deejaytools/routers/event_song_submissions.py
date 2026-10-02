@@ -55,9 +55,6 @@ logger = get_logger()
 
 router = APIRouter(prefix="/v1/event-song-submissions", tags=["event-song-submissions"])
 
-READ_SCOPE = "deejaytools.submissions.read"
-WRITE_SCOPE = "deejaytools.submissions.write"
-
 
 class ListQuery(ZodModel):
     """Query of ``GET /v1/event-song-submissions``."""
@@ -138,7 +135,7 @@ AUTH: dict[int | str, dict[str, Any]] = {
     },
 )
 async def list_submissions(
-    caller: Caller = Depends(require_scope(READ_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.submissions.read")),
     query: ListQuery = Depends(zod_query(ListQuery)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -183,7 +180,7 @@ async def list_submissions(
     },
 )
 async def create_submission(
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.submissions.write")),
     body: CreateSubmissionBody = Depends(zod_body(CreateSubmissionBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -323,6 +320,7 @@ async def create_submission(
 
 @router.delete(
     "/{id}",
+    response_model=None,  # 204: no body
     status_code=204,
     response_class=Response,
     summary="Withdraw a submission",
@@ -339,7 +337,7 @@ async def create_submission(
 )
 async def delete_submission(
     id: SubmissionId,
-    caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.submissions.write")),
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     """Withdraw a submission."""

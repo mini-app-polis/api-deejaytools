@@ -42,8 +42,6 @@ logger = get_logger()
 
 router = APIRouter(prefix="/v1/admin/drive-jobs", tags=["admin-drive-jobs"])
 
-READ_SCOPE = "deejaytools.drivejobs.read"
-WRITE_SCOPE = "deejaytools.drivejobs.write"
 
 JobStatus = Literal["pending", "running", "done", "failed"]
 
@@ -199,7 +197,7 @@ def _now_ms() -> int:
     responses={**AUTH, **INTERNAL},
 )
 async def summary(
-    _caller: Caller = Depends(require_scope(READ_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.drivejobs.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Queue health."""
@@ -245,7 +243,7 @@ async def summary(
     },
 )
 async def list_jobs(
-    _caller: Caller = Depends(require_scope(READ_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.drivejobs.read")),
     query: ListQuery = Depends(zod_query(ListQuery)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -297,7 +295,7 @@ async def list_jobs(
     responses={**AUTH, **INTERNAL},
 )
 async def backfill_renames(
-    _caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.drivejobs.write")),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Queue a rename for every copied submission."""
@@ -345,7 +343,7 @@ async def backfill_renames(
 )
 async def retry_job(
     id: Annotated[str, Path(description="Job id.")],
-    _caller: Caller = Depends(require_scope(WRITE_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.drivejobs.write")),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Retry an exhausted job."""

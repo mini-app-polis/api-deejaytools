@@ -1,7 +1,8 @@
 """``/v1/auth`` — sync and the caller's own record (deejaytools-api docs/API.md).
 
 Both routes here are authenticated-only (see ``auth``'s module docstring):
-they verify the credential and require no scope.
+they verify the credential and require no scope. The credential is the
+``Authorization: Bearer`` header common-python-utils' client sends (AUTH-002).
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 import time
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from mini_app_polis.logger import LOG_WARNING, get_logger, with_log_prefix
 from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy.dialects.postgresql import insert
@@ -36,7 +37,7 @@ from ..errors import (
 from ..models import User
 from ..validation import Email, ZodModel
 from ..zod_coerce import js_trim
-from ..zod_types import zod_body
+from ..zod_types import documents_zod_body, parse_zod_body, zod_body
 
 logger = get_logger()
 
@@ -127,8 +128,9 @@ def _is_unique_violation(exc: IntegrityError, constraint: str) -> bool:
         },
     },
 )
+@documents_zod_body(SyncBody)
 async def sync(
-    body: SyncBody = Depends(zod_body(SyncBody)),
+    request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -137,6 +139,7 @@ async def sync(
     The body is validated before the token is checked, so a bad body answers
     400 even without a token — the order deejaytools-api has.
     """
+    body = await parse_zod_body(request, SyncBody)
     subject = await verify_bearer(authorization)
     now = int(time.time() * 1000)
     try:

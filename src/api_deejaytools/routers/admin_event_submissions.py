@@ -31,8 +31,6 @@ router = APIRouter(
     prefix="/v1/admin/event-song-submissions", tags=["admin-event-submissions"]
 )
 
-READ_SCOPE = "deejaytools.entries.read"
-
 
 class ListQuery(ZodModel):
     """Query of ``GET /v1/admin/event-song-submissions``."""
@@ -79,7 +77,7 @@ class AdminSubmissionListResponse(BaseModel):
     },
 )
 async def list_event_submissions(
-    _caller: Caller = Depends(require_scope(READ_SCOPE)),
+    _caller: Caller = Depends(require_scope("deejaytools.entries.read")),
     query: ListQuery = Depends(zod_query(ListQuery)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:

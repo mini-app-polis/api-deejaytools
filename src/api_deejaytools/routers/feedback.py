@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, ClassVar, Literal
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, LOG_WARNING, get_logger, with_log_prefix
 from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, model_validator
@@ -20,7 +20,7 @@ from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, model_va
 from ..config import get_settings
 from ..errors import ErrorResponse, Meta, error_body, success
 from ..validation import Email, ZodModel
-from ..zod_types import zod_body
+from ..zod_types import documents_zod_body, parse_zod_body
 
 logger = get_logger()
 
@@ -69,7 +69,7 @@ class FeedbackBody(ZodModel):
     """Body of ``POST /v1/feedback``. Field names are the web app's (camelCase)."""
 
     # The preprocess turns null into "not sent" for these two.
-    NULLABLE: ClassVar[frozenset[str]] = frozenset({"contactName", "contactEmail"})
+    _NULLABLE: ClassVar[frozenset[str]] = frozenset({"contactName", "contactEmail"})
 
     type: Literal["bug", "feature", "general"] = Field(
         ..., description="bug, feature or general."
@@ -134,7 +134,7 @@ def _email_body(body: FeedbackBody, submitted_at: str) -> str:
     response_model=FeedbackResponse,
     summary="Send site feedback",
     description=(
-        "Public. Emails the feedback through Brevo when a key is configured, "
+        "Intentionally public. Emails the feedback through Brevo when a key is configured, "
         "with the screenshot attached; accepted without email otherwise."
     ),
     responses={
@@ -142,10 +142,10 @@ def _email_body(body: FeedbackBody, submitted_at: str) -> str:
         502: {"model": ErrorResponse, "description": "Brevo refused the email."},
     },
 )
-async def send_feedback(
-    body: FeedbackBody = Depends(zod_body(FeedbackBody)),
-) -> Any:
-    """Send site feedback."""
+@documents_zod_body(FeedbackBody)
+async def send_feedback(request: Request) -> Any:
+    """Send site feedback. Intentionally public, as in deejaytools-api."""
+    body = await parse_zod_body(request, FeedbackBody)
     screenshot = body.screenshot or None
     screenshot_base64 = (
         screenshot.split(",")[1] if screenshot and "," in screenshot else None
