@@ -1,3 +1,11 @@
+## [1.1.3](https://github.com/mini-app-polis/api-deejaytools/compare/v1.1.2...v1.1.3) (2026-10-02)
+
+
+### Bug Fixes
+
+* deploy run on command ([8a5c0e5](https://github.com/mini-app-polis/api-deejaytools/commit/8a5c0e5094a6d985829ed4dfb8db28b0991be945))
+* **sessions,events:** check the token before validating the body ([0103ca5](https://github.com/mini-app-polis/api-deejaytools/commit/0103ca54edfd542ff45206245337566258e38633))
+
 ## [1.1.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.1.1...v1.1.2) (2026-10-02)
 
 
