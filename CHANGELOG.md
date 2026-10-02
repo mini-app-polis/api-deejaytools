@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.1.1...v1.1.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* resolve evaluator findings (literal scopes, public routes, docs, ADR) ([3679d20](https://github.com/mini-app-polis/api-deejaytools/commit/3679d20ced1b046bbf9f2d9154131bf7527efb72))
+
 ## [1.1.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.1.0...v1.1.1) (2026-10-02)
 
 
