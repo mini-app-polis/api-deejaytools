@@ -56,3 +56,14 @@ async def test_unhandled_500_keeps_cors_headers(monkeypatch) -> None:
     assert res.status_code == 500
     assert res.json()["error"]["code"] == "INTERNAL"
     assert res.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+async def test_version_reports_the_railway_commit(monkeypatch) -> None:
+    from api_deejaytools import __version__
+
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "abc123")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        res = await c.get("/version")
+    assert res.status_code == 200
+    assert res.json() == {"version": __version__, "commit": "abc123"}

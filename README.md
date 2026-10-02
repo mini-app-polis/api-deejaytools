@@ -29,6 +29,7 @@ scope ADR-007 maps it to (`require_scope(...)` in
 | Route | Auth |
 |-------|------|
 | `GET /health` | public — always `200 {"status":"ok"}`, liveness only |
+| `GET /version` | public — package version and deployed commit, for the post-deploy smoke test (not a deejaytools-api route) |
 | `GET /internal/tick` | `x-tick-secret` header matching `TICK_SECRET`; `403` when unset |
 | `POST /v1/auth/sync` | authenticated-only — upserts the `users` row and provisions the principal |
 | `GET /v1/auth/me` | authenticated-only — the caller's record, `role` derived from their grants |

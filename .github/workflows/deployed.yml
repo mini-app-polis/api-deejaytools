@@ -1,0 +1,75 @@
+name: deployed
+
+# Runs when Railway reports a deploy (Railway posts GitHub deployments; the
+# environments are named "<project> / development" and "<project> /
+# production", after the Railway environments — not "dev")
+# and smoke-tests the API that just went live, in either environment
+# (CD-032).
+#
+# "Just went live" is checked, not assumed. A deployment_status of success
+# can arrive while the public hostname still routes to the deploy being
+# replaced, and /health or a 401 answer the same from either. So the job
+# first waits until /version reports the deployment's own commit, and
+# confirms it again after the checks, so every probe in between is known to
+# have met the new deploy. Railway only switches traffic once /health
+# answers (healthcheckPath in railway.json), which keeps that wait short.
+#
+# The hostnames are repository variables, not literals: until the cutover
+# (deejaytools-api ADR-006) this service answers on its own Railway domains,
+# and api-dev.deejaytools.com / api.deejaytools.com still point at
+# deejaytools-api. At the cutover only the variables change.
+#   API_URL_DEVELOPMENT   e.g. https://api-dev.deejaytools.com
+#   API_URL_PRODUCTION    e.g. https://api.deejaytools.com
+#
+# No contract-suite dispatch yet. deejaytools-com's live contract suite runs
+# against api-dev.deejaytools.com, which is deejaytools-api until the
+# cutover; triggering it from here would test the other service. Until then
+# the same contract is checked in CI by the conformance suite. At the
+# cutover, add deejaytools-api's `contract` job here and remove it there.
+#
+# GitHub cannot filter deployment_status by state or environment, so the
+# statuses Railway posts before a deploy finishes start a run that skips.
+
+on: deployment_status
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: >-
+      github.event.deployment_status.state == 'success' &&
+      (endsWith(github.event.deployment.environment, '/ development') ||
+       endsWith(github.event.deployment.environment, '/ production'))
+    runs-on: ubuntu-latest
+    env:
+      API: ${{ endsWith(github.event.deployment.environment, '/ development') && vars.API_URL_DEVELOPMENT || vars.API_URL_PRODUCTION }}
+      SHA: ${{ github.event.deployment.sha }}
+    steps:
+      - name: Smoke-test the deployed API
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          [ -n "$API" ] \
+            || fail "Set the API_URL_DEVELOPMENT and API_URL_PRODUCTION repository variables."
+          serving() { curl -fsS --max-time 10 "$API/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true; }
+          # Wait for the new deploy to be the one answering (up to 5 min).
+          deadline=$(( $(date +%s) + 300 ))
+          until [ "$(serving)" = "$SHA" ]; do
+            [ "$(date +%s)" -lt "$deadline" ] \
+              || fail "$API is still serving '$(serving)', not $SHA, 5 minutes after the deploy reported success."
+            sleep 10
+          done
+          curl -fsS -o /dev/null "$API/health" \
+            || fail "$API/health did not answer after the deploy."
+          # An authenticated route without a token must refuse with the
+          # error envelope — a 500 here means the app is up but broken.
+          # Authentication runs before the handler, so this touches no data.
+          code=$(curl -sS -o body.json -w '%{http_code}' "$API/v1/auth/me")
+          [ "$code" = 401 ] || fail "$API/v1/auth/me without a token answered $code, not 401."
+          jq -e '.error.code | type == "string"' body.json >/dev/null \
+            || fail "$API/v1/auth/me answered 401 without the error envelope."
+          # Still the new deploy — the probes above did not straddle a switch.
+          [ "$(serving)" = "$SHA" ] \
+            || fail "$API switched away from $SHA during the smoke test (now '$(serving)')."
+          echo "API OK at $API ($SHA)"

@@ -8,6 +8,7 @@ identity (DOC-009): the repository is api-deejaytools, the distribution is
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 import sentry_sdk
@@ -83,6 +84,15 @@ class HealthResponse(BaseModel):
     status: str = Field("ok", description="Always 'ok' while the process serves.")
 
 
+class VersionResponse(BaseModel):
+    """The running build. Not wrapped in the envelope, like /health."""
+
+    version: str = Field(..., description="Package version.")
+    commit: str | None = Field(
+        None, description="Git commit Railway built from; null outside Railway."
+    )
+
+
 def _build_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
@@ -118,7 +128,7 @@ def _build_app() -> FastAPI:
         RequestMetricsMiddleware,
         service="api-deejaytools",
         client_factory=lambda: cloudwatch.client_factory(settings),
-        exclude_paths=["/health"],
+        exclude_paths=["/health", "/version"],
     )
 
     @app.head("/health", include_in_schema=False)
@@ -137,6 +147,26 @@ def _build_app() -> FastAPI:
     async def health() -> dict[str, str]:
         """Liveness probe. Intentionally public — no auth, no DB access."""
         return {"status": "ok"}
+
+    @app.get(
+        "/version",
+        tags=["meta"],
+        summary="Deployed version",
+        description=(
+            "The package version and the commit this deploy was built from. "
+            "Intentionally public and unversioned: the post-deploy smoke test "
+            "(.github/workflows/deployed.yml) waits for `commit` to be the "
+            "deploy it was triggered by. Not a deejaytools-api route; the web "
+            "app never calls it."
+        ),
+        response_model=VersionResponse,
+    )
+    async def version() -> dict[str, str | None]:
+        """The deployed version and commit. Intentionally public."""
+        return {
+            "version": __version__,
+            "commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA"),
+        }
 
     @app.options("/{path:path}", include_in_schema=False)
     async def options(path: str) -> Response:
