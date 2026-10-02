@@ -464,3 +464,38 @@ async def test_unconfigured_issuer_rejects_every_token(
     res = await client.get("/v1/auth/me", headers=bearer(clerk.token("user_x")))
     assert res.status_code == 401
     assert res.json() == UNAUTHORIZED
+
+
+async def test_patch_me_trims_and_saves_names(
+    client: httpx.AsyncClient, person: Callable
+) -> None:
+    ada = await person("ada")
+
+    res = await client.patch(
+        "/v1/auth/me",
+        json={"firstName": "  Augusta ", "lastName": "King"},
+        headers=ada.headers,
+    )
+
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert (data["first_name"], data["last_name"], data["role"]) == (
+        "Augusta",
+        "King",
+        "user",
+    )
+    for body in ({"firstName": "   ", "lastName": "K"}, {"firstName": "A"}):
+        bad = await client.patch("/v1/auth/me", json=body, headers=ada.headers)
+        assert bad.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+async def test_patch_me_needs_a_principal(
+    client: httpx.AsyncClient, clerk: Clerk
+) -> None:
+    res = await client.patch(
+        "/v1/auth/me",
+        json={"firstName": "A", "lastName": "B"},
+        headers=bearer(clerk.token("user_never_synced")),
+    )
+    assert res.status_code == 401
+    assert res.json() == NOT_SYNCED

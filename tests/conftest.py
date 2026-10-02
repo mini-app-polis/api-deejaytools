@@ -179,3 +179,49 @@ def bearer(token: str) -> dict[str, str]:
 def new_user_id() -> Callable[[], str]:
     """Clerk-shaped user ids, unique per call."""
     return lambda: f"user_{uuid.uuid4().hex[:24]}"
+
+
+class Person:
+    """A synced caller: their users.id and a ready Authorization header."""
+
+    def __init__(self, user_id: str, token: str) -> None:
+        self.id = user_id
+        self.headers = bearer(token)
+
+
+@pytest.fixture
+def person(
+    client: httpx.AsyncClient,
+    clerk: Clerk,
+    db: asyncpg.Connection,
+    new_user_id: Callable[[], str],
+) -> Callable[..., Any]:
+    """Make a synced person, optionally an admin (granted in the store)."""
+
+    async def make(name: str = "ada", *, admin: bool = False) -> Person:
+        uid = new_user_id()
+        token = clerk.token(uid)
+        res = await client.post(
+            "/v1/auth/sync",
+            json={"email": f"{name}.{uid}@example.test", "firstName": name.title()},
+            headers=bearer(token),
+        )
+        assert res.status_code == 200, res.text
+        if admin:
+            await db.execute(
+                "INSERT INTO identity_principal_roles (principal_id, role_name) "
+                "SELECT id, 'deejaytools-admin' FROM identity_principals "
+                "WHERE subject = $1",
+                uid,
+            )
+        return Person(uid, token)
+
+    return make
+
+
+@pytest.fixture(autouse=True)
+def _empty_response_cache() -> None:
+    """Each test starts with no cached session or queue reads."""
+    from api_deejaytools.cache import response_cache
+
+    response_cache.invalidate_prefix("")

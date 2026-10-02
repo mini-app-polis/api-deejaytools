@@ -66,6 +66,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .config import get_settings
 from .database import get_db_session
 from .errors import forbidden, unauthorized, user_not_synced
+from .models import User
 
 logger = get_logger()
 
@@ -289,3 +290,33 @@ def require_scope(scope: str):
         return Caller(principal=principal, subject=subject)
 
     return _dependency
+
+
+# ---------------------------------------------------------------------------
+# Optional caller, for the two public session reads
+# ---------------------------------------------------------------------------
+
+
+async def optional_synced_user_id(
+    authorization: str | None, session: AsyncSession
+) -> str | None:
+    """The caller's users.id when they send a valid token and have synced.
+
+    Used only by GET /v1/sessions and GET /v1/sessions/{id}, which are
+    public: a credential is read, never required. No token, a bad token or
+    an unsynced caller all mean anonymous, with no error (deejaytools-api
+    lib/optional-user.ts). No scope is checked and no decision is audited:
+    nothing is authorized here, the caller only learns about their own
+    check-ins.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    verifier = get_verifier()
+    if verifier is None:
+        return None
+    try:
+        subject = await verifier.verify(authorization[len("Bearer ") :])
+    except Exception:  # noqa: BLE001 - anonymous on any failure, as today
+        return None
+    row = await session.get(User, subject.subject)
+    return row.id if row is not None else None

@@ -27,9 +27,21 @@ ADR-009 (wire contract and testing). The behavior spec is deejaytools-api's
 | `GET /health` | public — always `200 {"status":"ok"}`, liveness only |
 | `POST /v1/auth/sync` | authenticated-only — upserts the `users` row and provisions the principal |
 | `GET /v1/auth/me` | authenticated-only — the caller's record, `role` derived from their grants |
+| `PATCH /v1/auth/me` | `deejaytools.profile.write` |
+| `GET /v1/events`, `GET /v1/events/{id}` | public |
+| `GET /v1/events/{id}/entities` | `deejaytools.entities.read` |
+| `POST`, `PATCH`, `DELETE /v1/events[/{id}]` | `deejaytools.events.write` |
+| `GET /v1/sessions`, `GET /v1/sessions/{id}` | public; a valid synced caller also gets their check-in fields |
+| `POST`, `PATCH`, `DELETE /v1/sessions[/{id}]`, `PUT /v1/sessions/{id}/divisions`, `PATCH /v1/sessions/{id}/status` | `deejaytools.sessions.write` |
 
 Every other route requires a scope from the table in deejaytools-api
 ADR-007, through `require_scope(...)` in `src/api_deejaytools/auth.py`.
+Requests are limited as deejaytools-api limits them
+(`src/api_deejaytools/middleware.py`): 11 MiB bodies, 300 requests a minute
+per client address on `/v1/*`, and a 30 s deadline (300 s for uploads).
+
+Progress against the full contract is the conformance suite
+([conformance/README.md](conformance/README.md)).
 
 ## Running locally
 
@@ -75,8 +87,8 @@ traffic can be switched back to it at any time.
 - `scripts/apply_migrations.py` applies pending files on every deploy,
   tracked in `schema_migrations`, before the app starts.
 - `scripts/backfill_principals.py` runs next, on every deploy: it writes this
-  environment's issuer row and makes every `users` row a principal. Grants
-  only, idempotent.
+  environment's issuer row, makes every `users` row a principal, and keeps
+  `deejaytools-admin` in step with `users.role`. Idempotent.
 
 **First deploy against an existing database** (once per environment): set
 `BOOTSTRAP_MIGRATIONS=true` and `BOOTSTRAP_EXCLUDE` to every migration after

@@ -7,16 +7,23 @@ they verify the credential and require no scope.
 from __future__ import annotations
 
 import time
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header
 from mini_app_polis.logger import LOG_WARNING, get_logger, with_log_prefix
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import provision_principal, resolve_principal, verify_bearer, wire_role
+from ..auth import (
+    Caller,
+    provision_principal,
+    require_scope,
+    resolve_principal,
+    verify_bearer,
+    wire_role,
+)
 from ..database import get_db_session
 from ..errors import (
     ErrorCode,
@@ -27,33 +34,37 @@ from ..errors import (
     user_not_synced,
 )
 from ..models import User
+from ..validation import Email, ZodModel
 
 logger = get_logger()
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
 
-class SyncBody(BaseModel):
+class SyncBody(ZodModel):
     """Body of ``POST /v1/auth/sync``. Field names are the web app's (camelCase)."""
 
-    email: EmailStr = Field(..., description="The caller's email address.")
+    email: Email = Field(..., description="The caller's email address.")
     firstName: str | None = Field(None, description="First name, at creation only.")
     lastName: str | None = Field(None, description="Last name, at creation only.")
     displayName: str | None = Field(None, description="Display name, at creation only.")
 
-    @model_validator(mode="before")
-    @classmethod
-    def reject_nulls(cls, data: Any) -> Any:
-        """Optional means absent, not null, as zod's ``.optional()`` had it."""
-        if isinstance(data, dict):
-            nulls = [
-                k
-                for k in ("firstName", "lastName", "displayName")
-                if k in data and data[k] is None
-            ]
-            if nulls:
-                raise ValueError(f"{', '.join(nulls)} must be a string when present")
-        return data
+
+def _trimmed_name(value: str) -> str:
+    value = value.strip()
+    if not 1 <= len(value) <= 100:
+        raise ValueError("must be 1 to 100 characters after trimming")
+    return value
+
+
+TrimmedName = Annotated[str, AfterValidator(_trimmed_name)]
+
+
+class UpdateProfileBody(ZodModel):
+    """Body of ``PATCH /v1/auth/me``: zod's ``string().trim().min(1).max(100)``."""
+
+    firstName: TrimmedName = Field(..., description="First name, trimmed.")
+    lastName: TrimmedName = Field(..., description="Last name, trimmed.")
 
 
 class UserData(BaseModel):
@@ -202,3 +213,29 @@ async def me(
         raise user_not_synced()
     principal = await resolve_principal(subject, session)
     return success(_user_data(row, wire_role(principal)))
+
+
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    summary="Update the caller's name",
+    description="Sets first and last name. Requires deejaytools.profile.write.",
+    responses={
+        401: {"model": ErrorResponse, "description": "Missing token, or not synced."},
+        404: {"model": ErrorResponse, "description": "The users row is gone."},
+    },
+)
+async def update_me(
+    body: UpdateProfileBody,
+    caller: Caller = Depends(require_scope("deejaytools.profile.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Update the caller's first and last name."""
+    row = await session.get(User, caller.user_id)
+    if row is None:
+        raise api_error(404, ErrorCode.NOT_FOUND, "User not found")
+    row.first_name = body.firstName
+    row.last_name = body.lastName
+    row.updated_at = int(time.time() * 1000)
+    await session.commit()
+    return success(_user_data(row, wire_role(caller.principal)))

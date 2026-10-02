@@ -21,7 +21,8 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from . import __version__
 from .config import get_settings
 from .errors import install_error_handlers
-from .routers import auth
+from .middleware import BodyLimitMiddleware, DeadlineMiddleware, RateLimitMiddleware
+from .routers import auth, events, sessions
 from .services import cloudwatch
 
 logger = get_logger()
@@ -63,6 +64,14 @@ def _build_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Starlette runs the last-added middleware first. Inside out: the
+    # deadline, the rate limit (both /v1/* only), the body limit, then CORS
+    # around all of them so its headers reach every answer, as in
+    # deejaytools-api (cors, bodyLimit, rateLimit, timeout).
+    app.add_middleware(DeadlineMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(BodyLimitMiddleware)
+
     # As deejaytools-api: origins from DEEJAYTOOLS_CORS_ORIGINS, these
     # methods and headers, no credentials (the web app sends a bearer token).
     app.add_middleware(
@@ -99,6 +108,8 @@ def _build_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(auth.router)
+    app.include_router(events.router)
+    app.include_router(sessions.router)
     return app
 
 

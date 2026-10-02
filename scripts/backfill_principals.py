@@ -10,10 +10,16 @@ For the configured issuer it:
   - creates a `human` principal for every `users` row that has none
     (subject = users.id, already the Clerk `sub`);
   - grants `deejaytools-dancer` to all of them, and `deejaytools-admin`
-    to rows with role = 'admin' (granted_by = 'migration_backfill').
+    to rows with role = 'admin' (granted_by = 'migration_backfill');
+  - removes `deejaytools-admin` from principals whose users row says
+    anything but 'admin'.
 
-Grants only, never revokes. Idempotent (ON CONFLICT DO NOTHING), so it runs
-on every deploy, after scripts/apply_migrations.py and before the app. That
+So users.role decides admin access at every deploy. Through this service
+the two never disagree (PATCH /v1/admin/users/{id}/role writes both); the
+revoke is for changes made through deejaytools-api while traffic was rolled
+back, where only users.role moves, so a demotion there is not lost.
+
+Idempotent, so it runs on every deploy, after scripts/apply_migrations.py and before the app. That
 is also the re-run ADR-007 asks for after a rollback window: anyone who
 signed up through deejaytools-api meanwhile is picked up by the next deploy
 (and by their own next sync).
@@ -63,6 +69,17 @@ ON CONFLICT (principal_id, role_name) DO NOTHING
 """
 
 
+REVOKE_SQL = """
+DELETE FROM identity_principal_roles r
+USING identity_principals p, users u
+WHERE r.principal_id = p.id
+  AND p.issuer = $1
+  AND p.subject = u.id
+  AND r.role_name = 'deejaytools-admin'
+  AND u.role <> 'admin'
+"""
+
+
 def _normalize_database_url(raw_url: str) -> str:
     """Strip a SQLAlchemy driver suffix asyncpg does not accept."""
     if raw_url.startswith("postgresql+asyncpg://"):
@@ -78,10 +95,12 @@ async def backfill(
         await conn.execute(ISSUER_SQL, issuer, jwks_url)
         principals = await conn.execute(PRINCIPALS_SQL, issuer)
         grants = await conn.execute(GRANTS_SQL, issuer, GRANTED_BY)
-    # asyncpg returns the command tag, e.g. "INSERT 0 12".
+        revoked = await conn.execute(REVOKE_SQL, issuer)
+    # asyncpg returns the command tag, e.g. "INSERT 0 12" or "DELETE 1".
     return {
         "principals": int(principals.split()[-1]),
         "grants": int(grants.split()[-1]),
+        "revoked": int(revoked.split()[-1]),
     }
 
 
@@ -92,10 +111,11 @@ async def _run(database_url: str, issuer: str, jwks_url: str) -> None:
     finally:
         await conn.close()
     logger.info(
-        "Backfill for %s: %d principal(s), %d grant(s) added.",
+        "Backfill for %s: %d principal(s), %d grant(s) added, %d admin grant(s) revoked.",
         issuer,
         counts["principals"],
         counts["grants"],
+        counts["revoked"],
     )
 
 

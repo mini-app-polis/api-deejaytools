@@ -27,6 +27,13 @@ deejaytools-api's codes and shapes (`errors.py`).
 - **First provision mirrors a stored admin.** A principal created by sync
   for a `users` row that already says `admin` also gets `deejaytools-admin`,
   the backfill's rule. Never re-applied to an existing principal.
+- **`users.role` decides admin at each deploy.** The backfill grants
+  `deejaytools-admin` where `users.role = 'admin'` and removes it elsewhere,
+  so a promotion or demotion made through deejaytools-api during a rollback
+  carries over. Through this service both always move together.
+- **`/internal/tick` fails closed** with `403 FORBIDDEN` "Admin access
+  required" when `TICK_SECRET` is unset, the answer deejaytools-api gives
+  for a wrong secret (ADR-007 leaves the status open).
 - **Bootstrap needs an exclude list.** The runner has no default
   `BOOTSTRAP_EXCLUDE` (ADR-008) and refuses a bootstrap without one when
   there is more than one migration, which would otherwise mark the identity
@@ -40,10 +47,24 @@ deejaytools-api's codes and shapes (`errors.py`).
   row, as today. A `users` row with no principal yet answers with
   `role: "user"`.
 
+- **Request validation follows zod, not pydantic's defaults**
+  (`validation.py`): no type coercion, optional fields refuse `null` unless
+  zod said `.nullable()`, and email addresses use zod's own pattern
+  (pydantic's refuses reserved domains such as `.test`). Event timezones are
+  checked the way `Intl` checks them: any IANA name, case-insensitively,
+  stored as sent.
+- **Request limits** (`middleware.py`) are deejaytools-api's, keyed the same
+  way. The deadline does not cancel the handler, as Node could not: it runs
+  on and its writes land, only its response is discarded.
+- **No prepared-statement caching** (`database.py`): the service survives
+  its schema being rebuilt underneath it, which deejaytools-api's
+  CONFORMANCE.md requires of a target, for one extra round trip per query.
+
 ## Testing
 
 Tests build a real Postgres database from `migrations/` with the runner, so
 the baseline is exercised on every run. `scripts/check_baseline.sh` checks
 the baseline against drizzle's result in CI. The conformance suite
 (deejaytools-api's integration suite, copied into `conformance/` with
-ADR-009's three harness changes) comes in a later milestone.
+ADR-009's three harness changes) runs in CI against this service; it may
+fail until every route exists.
