@@ -28,6 +28,7 @@ scope ADR-007 maps it to (`require_scope(...)` in
 
 | Route | Auth |
 |-------|------|
+| `GET /` | public — redirects to `/docs` (Swagger UI); the OpenAPI schema is at `/openapi.json` |
 | `GET /health` | public — always `200 {"status":"ok"}`, liveness only |
 | `GET /version` | public — package version and deployed commit, for the post-deploy smoke test (not a deejaytools-api route) |
 | `GET /internal/tick` | `x-tick-secret` header matching `TICK_SECRET`; `403` when unset |
