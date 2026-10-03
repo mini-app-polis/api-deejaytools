@@ -67,3 +67,13 @@ async def test_version_reports_the_railway_commit(monkeypatch) -> None:
         res = await c.get("/version")
     assert res.status_code == 200
     assert res.json() == {"version": __version__, "commit": "abc123"}
+
+
+async def test_root_redirects_to_the_docs() -> None:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        res = await c.get("/")
+        docs = await c.get("/docs")
+    assert res.status_code == 307
+    assert res.headers["location"] == "/docs"
+    assert docs.status_code == 200

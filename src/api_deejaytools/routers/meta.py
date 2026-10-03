@@ -1,5 +1,5 @@
-"""Routes outside the API proper: liveness, the deployed version, and the
-catch-all OPTIONS answer.
+"""Routes outside the API proper: the root redirect to the docs, liveness,
+the deployed version, and the catch-all OPTIONS answer.
 
 All intentionally public and unversioned. They are on a module-level router
 rather than registered inside ``main._build_app`` so a static audit of route
@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from .. import __version__
@@ -31,6 +32,23 @@ class VersionResponse(BaseModel):
     commit: str | None = Field(
         None, description="Git commit Railway built from; null outside Railway."
     )
+
+
+@router.get(
+    "/",
+    include_in_schema=False,
+    summary="Root redirect to interactive docs",
+    description=(
+        "Redirects to /docs (Swagger UI), as api-kaianolevine-com does. "
+        "Intentionally public — the redirect target is itself publicly "
+        "browsable documentation. deejaytools-api answered 404 here; the web "
+        "app never calls it."
+    ),
+    response_model=None,
+)
+async def root() -> RedirectResponse:
+    """Redirect to the Swagger UI at /docs. Intentionally public."""
+    return RedirectResponse(url="/docs")
 
 
 @router.head("/health", include_in_schema=False)
