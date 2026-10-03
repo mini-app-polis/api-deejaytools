@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/mini-app-polis/api-deejaytools/compare/v1.1.3...v1.1.4) (2026-10-03)
+
+
+### Bug Fixes
+
+* **metrics:** publish request metrics with the shared API credentials ([785c137](https://github.com/mini-app-polis/api-deejaytools/commit/785c137f1b9a05738d287f8ae1d59564aadd31be))
+
 ## [1.1.3](https://github.com/mini-app-polis/api-deejaytools/compare/v1.1.2...v1.1.3) (2026-10-02)
 
 
