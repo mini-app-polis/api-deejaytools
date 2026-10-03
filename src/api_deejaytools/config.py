@@ -55,13 +55,16 @@ class Settings(BaseSettings):
     )
 
     # CD-036. Credentials the request-metrics middleware publishes to
-    # CloudWatch with. Unset falls back to boto3's default chain. Only read
-    # in production, where the middleware records anything at all.
+    # CloudWatch with: the fleet's API identity, the same key pair
+    # api-kaianolevine-com publishes its metrics with (the EVALUATION_ prefix
+    # is historical; that IAM user holds cloudwatch:PutMetricData). Unset
+    # falls back to boto3's default chain. Only read in production, where
+    # the middleware records anything at all.
     AWS_REGION: str = Field(default="us-east-1", description="AWS region.")
-    DEEJAYTOOLS_METRICS_KEY_ID: str | None = Field(
+    EVALUATION_QUEUE_PRODUCER_KEY_ID: str | None = Field(
         default=None, description="AWS access key id for PutMetricData."
     )
-    DEEJAYTOOLS_METRICS_SECRET: str | None = Field(
+    EVALUATION_QUEUE_PRODUCER_SECRET: str | None = Field(
         default=None, description="AWS secret access key for PutMetricData."
     )
 

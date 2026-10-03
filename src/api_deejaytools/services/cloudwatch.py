@@ -15,14 +15,19 @@ from ..config import Settings
 
 
 def client_factory(settings: Settings) -> Any:
-    """A CloudWatch client for this API's region and metrics credentials.
+    """A CloudWatch client for this API's region, publishing as the fleet's
+    API identity (``EVALUATION_QUEUE_PRODUCER_*``), as api-kaianolevine-com
+    does.
 
     With no key configured, boto3's default credential chain applies.
     """
     credentials: dict[str, str] = {}
-    if settings.DEEJAYTOOLS_METRICS_KEY_ID and settings.DEEJAYTOOLS_METRICS_SECRET:
+    if (
+        settings.EVALUATION_QUEUE_PRODUCER_KEY_ID
+        and settings.EVALUATION_QUEUE_PRODUCER_SECRET
+    ):
         credentials = {
-            "aws_access_key_id": settings.DEEJAYTOOLS_METRICS_KEY_ID,
-            "aws_secret_access_key": settings.DEEJAYTOOLS_METRICS_SECRET,
+            "aws_access_key_id": settings.EVALUATION_QUEUE_PRODUCER_KEY_ID,
+            "aws_secret_access_key": settings.EVALUATION_QUEUE_PRODUCER_SECRET,
         }
     return boto3.client("cloudwatch", region_name=settings.AWS_REGION, **credentials)
