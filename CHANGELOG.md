@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.1.4...v1.2.0) (2026-10-03)
+
+
+### Features
+
+* redirect / to the interactive API docs ([760a94b](https://github.com/mini-app-polis/api-deejaytools/commit/760a94befabb899e9807351e2b9bc20c6b0cd342))
+
 ## [1.1.4](https://github.com/mini-app-polis/api-deejaytools/compare/v1.1.3...v1.1.4) (2026-10-03)
 
 
