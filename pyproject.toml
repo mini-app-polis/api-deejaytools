@@ -75,3 +75,7 @@ testpaths = ["tests/unit", "tests/integration"]
 # SQLAlchemy's async layer runs ORM code inside greenlets, which coverage
 # does not follow by default: provisioning would read as never executed.
 concurrency = ["thread", "greenlet"]
+
+[tool.coverage.report]
+# TEST-019: CI fails below this floor. Raise it as coverage rises; lowering it is a reviewed edit.
+fail_under = 50
