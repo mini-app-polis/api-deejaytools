@@ -24,8 +24,8 @@ from api_deejaytools.database import _get_sessionmaker
 from api_deejaytools.services import drive, drive_jobs
 from api_deejaytools.services.drive import EventCopyResult
 
+from ..drive_fakes import FakeDriveService, fake_facade
 from .conftest import TEST_DATABASE_URL
-from .drive_fakes import FakeDriveService, fake_facade
 
 MINUTE = 60_000
 

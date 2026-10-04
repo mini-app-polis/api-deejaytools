@@ -1,4 +1,4 @@
-"""Test fixtures: real Postgres, a stand-in Clerk, and an HTTP client on the app.
+"""Integration fixtures: real Postgres, a stand-in Clerk, and an HTTP client on the app.
 
 Tests run against Postgres, never SQLite (deejaytools-api ADR-009): the
 schema relies on Postgres enums and check constraints, and the queue and job
@@ -29,7 +29,7 @@ import pytest
 import respx
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",

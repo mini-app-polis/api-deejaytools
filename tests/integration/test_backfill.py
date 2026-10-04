@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncpg
 import pytest
 
-from tests.conftest import TEST_ISSUER, TEST_JWKS_URL, load_script
+from tests.integration.conftest import TEST_ISSUER, TEST_JWKS_URL, load_script
 
 backfill_mod = load_script("backfill_principals")
 
