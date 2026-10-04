@@ -16,7 +16,7 @@ from mini_app_polis.google import drive as facade_module
 from api_deejaytools.config import get_settings
 from api_deejaytools.services import drive
 
-from .drive_fakes import FakeDriveService, fake_facade
+from ..drive_fakes import FakeDriveService, fake_facade
 
 ROOT = "root"
 NOT_CONFIGURED = "Google Drive environment variables are not configured"

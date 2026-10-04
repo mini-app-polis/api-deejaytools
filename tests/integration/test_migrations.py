@@ -9,7 +9,7 @@ from urllib.parse import urlparse, urlunparse
 import asyncpg
 import pytest
 
-from tests.conftest import ROOT, TEST_DATABASE_URL, load_script
+from tests.integration.conftest import ROOT, TEST_DATABASE_URL, load_script
 
 runner = load_script("apply_migrations")
 

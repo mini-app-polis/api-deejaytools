@@ -13,7 +13,13 @@ from fastapi import Depends, FastAPI
 
 from api_deejaytools.auth import Caller, require_scope
 from api_deejaytools.errors import install_error_handlers, success
-from tests.conftest import STAND_IN_CLERK, TEST_ISSUER, TEST_JWKS_URL, Clerk, bearer
+from tests.integration.conftest import (
+    STAND_IN_CLERK,
+    TEST_ISSUER,
+    TEST_JWKS_URL,
+    Clerk,
+    bearer,
+)
 
 UNAUTHORIZED = {"error": {"code": "UNAUTHORIZED", "message": "Authentication required"}}
 NOT_SYNCED = {
