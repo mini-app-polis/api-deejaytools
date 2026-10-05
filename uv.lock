@@ -1287,7 +1287,7 @@ wheels = [
 
 [[package]]
 name = "miniapppolis-common-utils"
-version = "5.18.0"
+version = "5.20.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-python-client" },
@@ -1305,9 +1305,9 @@ dependencies = [
     { name = "spotipy" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e3/c0/a6b6ded0225a407f95814b37d3f3644fe257a1761b1c88c32dc255c228c2/miniapppolis_common_utils-5.18.0.tar.gz", hash = "sha256:f9d0f6dac36054cdfb50f2f31e9d8171fafa304abba8ab43e39b80167d2d6a8d", size = 317581, upload-time = "2026-10-02T18:34:59.037Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/b7/539bdb0f4c9fd331e81bf190bf5d78d836dfd3e221d634f66c5f78e242b3/miniapppolis_common_utils-5.20.0.tar.gz", hash = "sha256:6346794e29969aae0060d20f06d3a1034100a25ae365ac15ae5a18e20a030f0e", size = 319415, upload-time = "2026-10-05T18:56:50.681Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/67/527e9425cbaf85d2e5cebca9b88d22cb04989913fbbf9fe326ed352aaf2c/miniapppolis_common_utils-5.18.0-py3-none-any.whl", hash = "sha256:9389915eb2e9b12e5d0ba34d3fef8ca5a6a09c76828a3fad474f6d8083a56e23", size = 135603, upload-time = "2026-10-02T18:34:57.864Z" },
+    { url = "https://files.pythonhosted.org/packages/29/80/1fa667f7413cf4f976652836d4c208cb79b42a8caaa502960a89120ed142/miniapppolis_common_utils-5.20.0-py3-none-any.whl", hash = "sha256:84c0d9bf4dec2d46c65319a3bcf1c6468edf8cf96effa5ecf871f363db1a6847", size = 136544, upload-time = "2026-10-05T18:56:49.419Z" },
 ]
 
 [[package]]
@@ -2238,8 +2238,8 @@ name = "standard-aifc"
 version = "3.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "audioop-lts", marker = "python_full_version >= '3.13'" },
-    { name = "standard-chunk", marker = "python_full_version >= '3.13'" },
+    { name = "audioop-lts" },
+    { name = "standard-chunk" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c4/53/6050dc3dde1671eb3db592c13b55a8005e5040131f7509cef0215212cb84/standard_aifc-3.13.0.tar.gz", hash = "sha256:64e249c7cb4b3daf2fdba4e95721f811bde8bdfc43ad9f936589b7bb2fae2e43", size = 15240, upload-time = "2024-10-30T16:01:31.772Z" }
 wheels = [
@@ -2260,7 +2260,7 @@ name = "standard-sunau"
 version = "3.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "audioop-lts", marker = "python_full_version >= '3.13'" },
+    { name = "audioop-lts" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/66/e3/ce8d38cb2d70e05ffeddc28bb09bad77cfef979eb0a299c9117f7ed4e6a9/standard_sunau-3.13.0.tar.gz", hash = "sha256:b319a1ac95a09a2378a8442f403c66f4fd4b36616d6df6ae82b8e536ee790908", size = 9368, upload-time = "2024-10-30T16:01:41.626Z" }
 wheels = [
