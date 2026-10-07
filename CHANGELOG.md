@@ -1,3 +1,15 @@
+# [1.3.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.2.2...v1.3.0) (2026-10-07)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils ([a55dbe8](https://github.com/mini-app-polis/api-deejaytools/commit/a55dbe84b1e6fb46d8eac0d48cf37680bc824510))
+
+
+### Features
+
+* Discord notifications for songs added, data changes and server errors ([eb75b48](https://github.com/mini-app-polis/api-deejaytools/commit/eb75b485003c4a562b63adcd786c45f15f0f8840))
+
 ## [1.2.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.2.1...v1.2.2) (2026-10-07)
 
 
