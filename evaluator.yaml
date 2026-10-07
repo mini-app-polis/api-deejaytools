@@ -17,6 +17,3 @@ exemptions:
 
   - rule: CD-030
     reason: "Not applicable: this API has no machine callers. Its one caller is the deejaytools.com web app, which sends Clerk session JWTs; there is no machine-key set to configure, and the only verifier is Clerk's for the one trusted issuer. CD-029 still applies and is graded. See deejaytools-api ADR-003 and ADR-007. If a machine caller is ever planned, remove this exemption and add a named-key verifier in src/api_deejaytools/auth.py."
-
-  - rule: API-002
-    reason: "boto3 is not a data store: it is the CloudWatch client the request-metrics middleware publishes through (CD-036, src/api_deejaytools/services/cloudwatch.py), as in api-kaianolevine-com. PostgreSQL via asyncpg is the only data store."
