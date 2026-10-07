@@ -51,7 +51,7 @@ from ..models import (
 )
 from ..submissions import is_follower_am_division
 from ..zod_coerce import js_trim, js_words
-from . import drive
+from . import drive, notifications
 from .drive_jobs import MAX_ATTEMPTS, backoff_ms, enqueue_drive_job
 from .tagging import tag_song_bytes
 
@@ -467,6 +467,11 @@ async def _build(
         if song is None or upload is None:
             return False  # deleted meanwhile; the cascade took the upload with it
         user, partner, managed = await _load_people(db, song)
+        uploader = (
+            await db.get(User, upload.uploaded_by_user_id)
+            if upload.uploaded_by_user_id
+            else None
+        )
         season = upload.season_year or season_year_now()
         processed_filename = upload.processed_filename
         drive_file_id, drive_folder_id = upload.drive_file_id, upload.drive_folder_id
@@ -535,12 +540,89 @@ async def _build(
         maker,
         song.id,
         claim,
+        announcement=_compose_announcement(song, user, partner, managed, uploader),
         original_filename=original_filename,
         processed_filename=processed_filename,
         season=season,
         drive_file_id=drive_file_id,
         drive_folder_id=drive_folder_id,
     )
+
+
+def song_added_text(
+    song: Song,
+    user: User,
+    partner: Partner | None,
+    managed: ManagedPartnership | None,
+    uploader: User | None,
+) -> str:
+    """The "song added" sentence: who added it, and its details.
+
+    ``uploader`` is set when someone uploaded the song for its owner ("Upload
+    For"); the sentence then names both.
+    """
+
+    def name(person: User) -> str:
+        return notifications.person_name(
+            person.first_name, person.last_name, person.display_name, person.id
+        )
+
+    return notifications.song_added_text(
+        owner=name(user),
+        uploader=name(uploader) if uploader is not None else None,
+        routine=song.routine_name or song.display_name,
+        division=song.division,
+        partner=_name(partner.first_name, partner.last_name) if partner else None,
+        partner_kind=partner.kind if partner else None,
+        managed=(
+            f"{_name(managed.leader_first_name, managed.leader_last_name)} & "
+            f"{_name(managed.follower_first_name, managed.follower_last_name)}"
+            if managed is not None
+            else None
+        ),
+    )
+
+
+def _compose_announcement(
+    song: Song,
+    user: User,
+    partner: Partner | None,
+    managed: ManagedPartnership | None,
+    uploader: User | None,
+) -> str | None:
+    """``song_added_text``, or None (logged) if it cannot be composed.
+
+    By the time it runs the file is in Drive: a bug in a notification must
+    not be treated as the build failing, which would delete or retry a song
+    whose upload succeeded. It goes unannounced instead.
+    """
+    try:
+        return song_added_text(song, user, partner, managed, uploader)
+    except Exception as exc:  # noqa: BLE001 - a notification never fails a build
+        logger.error(
+            with_log_prefix(
+                LOG_FAILURE, f"song_added_announcement_failed song={song.id}: {exc!r}"
+            )
+        )
+        return None
+
+
+def _announce(
+    db: AsyncSession, song_id: str, sentence: str, drive_file_id: str
+) -> None:
+    """Register "song added" on ``db``'s transaction; never raises.
+
+    Inside ``_finish``'s transaction, where a raise would roll back the
+    commit that adds the song and send it down the failure path.
+    """
+    try:
+        notifications.announce_song_added(db, sentence, drive_file_id=drive_file_id)
+    except Exception as exc:  # noqa: BLE001 - a notification never fails a build
+        logger.error(
+            with_log_prefix(
+                LOG_FAILURE, f"song_added_announcement_failed song={song_id}: {exc!r}"
+            )
+        )
 
 
 async def _share(song: Song, user: User, partner: Partner | None, file_id: str) -> None:
@@ -575,13 +657,20 @@ async def _finish(
     song_id: str,
     claim: str,
     *,
+    announcement: str | None,
     original_filename: str,
     processed_filename: str,
     season: str,
     drive_file_id: str,
     drive_folder_id: str,
 ) -> bool:
-    """Record the file on the song and drop the staged bytes, in one transaction."""
+    """Record the file on the song and drop the staged bytes, in one transaction.
+
+    That commit is when the song is added for good, so "song added" rides on
+    it: posted if it commits, never if it rolls back or the song was deleted
+    while it built. ``announcement`` is None when it could not be composed;
+    the song is added unannounced.
+    """
     async with maker() as db:
         song = (
             await db.execute(select(Song).where(Song.id == song_id).with_for_update())
@@ -608,6 +697,8 @@ async def _finish(
         if dropped is None:
             await db.rollback()
             raise LostClaim(song_id)
+        if announcement is not None and not deleted_meanwhile:
+            _announce(db, song_id, announcement, drive_file_id)
         await db.commit()
 
     if deleted_meanwhile:
@@ -696,13 +787,25 @@ async def _on_failure(
             if owned is None:
                 return  # taken over, or the song is gone already
             uploaded = owned[0]
-            await db.execute(
-                delete(Song).where(
-                    Song.id == song_id,
-                    exists().where(*_mine(song_id, claim)),
+            removed = (
+                await db.execute(
+                    delete(Song)
+                    .where(
+                        Song.id == song_id,
+                        exists().where(*_mine(song_id, claim)),
+                    )
+                    .returning(Song.id)
                 )
-            )
+            ).first()
             await db.commit()
+        if removed is None:
+            # The claim was lost between the read and the delete: the run
+            # that took it over owns the song, its file and its report.
+            return
+        # Final for this song: the uploader sees it vanish and must upload
+        # again. Not a Sentry event, as before; the log line has the error.
+        # A song kept for a retry (below) is reported only when it gives up.
+        notifications.report_fault(f"song build {song_id} · failed, song removed", exc)
         if uploaded:
             await _discard_file(maker, uploaded, song_id)
         return
@@ -740,18 +843,21 @@ async def _schedule_retry(
             attempts = row[0] + 1
             now = _now_ms()
             exhausted = attempts >= MAX_ATTEMPTS
-            await db.execute(
-                update(SongUpload)
-                .where(*_mine(song_id, claim))
-                .values(
-                    status="failed" if exhausted else "pending",
-                    claim_id=None,
-                    attempts=attempts,
-                    last_error=str(exc)[:2000],
-                    next_attempt_at=now + backoff_ms(attempts),
-                    updated_at=now,
+            recorded = (
+                await db.execute(
+                    update(SongUpload)
+                    .where(*_mine(song_id, claim))
+                    .values(
+                        status="failed" if exhausted else "pending",
+                        claim_id=None,
+                        attempts=attempts,
+                        last_error=str(exc)[:2000],
+                        next_attempt_at=now + backoff_ms(attempts),
+                        updated_at=now,
+                    )
+                    .returning(SongUpload.song_id)
                 )
-            )
+            ).first()
             await db.commit()
     except Exception as update_exc:  # noqa: BLE001 - the lease reclaims it
         logger.error(
@@ -760,6 +866,10 @@ async def _schedule_retry(
                 f"song_build_retry_update_failed song={song_id}: {update_exc!r}",
             )
         )
+        return
+    if recorded is None:
+        # The claim was lost after the read: the run that took it over
+        # records (and, at the last attempt, reports) its own outcome.
         return
     if exhausted:
         logger.error(
@@ -770,7 +880,12 @@ async def _schedule_retry(
         with sentry_sdk.new_scope() as scope:
             scope.set_tag("subsystem", "song_builds")
             scope.set_context("song_build", {"song_id": song_id, "attempts": attempts})
-            sentry_sdk.capture_exception(exc)
+            event_id = sentry_sdk.capture_exception(exc)
+        notifications.report_fault(
+            f"song build {song_id} · gave up after {attempts} attempts",
+            exc,
+            event_id=event_id,
+        )
     else:
         logger.warning(
             with_log_prefix(

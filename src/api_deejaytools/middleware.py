@@ -22,6 +22,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from mini_app_polis import activity
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -246,6 +247,8 @@ class DeadlineMiddleware:
         self._background.add(task)
         task.add_done_callback(self._finished)
         ms = int(seconds * 1000)
+        # For the Discord fault report of this 503.
+        activity.record_fault_detail(scope, f"deadline exceeded after {ms}ms")
         await _send_json(
             send, 503, error_body("request_timeout", f"Request timed out after {ms}ms")
         )

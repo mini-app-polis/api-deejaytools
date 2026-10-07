@@ -342,3 +342,6 @@ class SongUpload(Base):
     drive_folder_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(BigInteger)
     updated_at: Mapped[int] = mapped_column(BigInteger)
+    # Migration 004: the caller who uploaded it, when not the song's owner
+    # ("Upload For"); named in the "song added" notification.
+    uploaded_by_user_id: Mapped[str | None] = mapped_column(Text)

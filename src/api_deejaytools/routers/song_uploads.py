@@ -365,6 +365,10 @@ async def upload_chunk(
             next_attempt_at=now,
             created_at=now,
             updated_at=now,
+            # For the "song added" notification, which the build posts.
+            uploaded_by_user_id=(
+                caller.user_id if effective_user_id != caller.user_id else None
+            ),
         )
     )
     await db.commit()

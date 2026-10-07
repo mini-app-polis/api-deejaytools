@@ -59,6 +59,14 @@ os.environ["DEEJAYTOOLS_CLERK_JWKS_URL"] = TEST_JWKS_URL
 os.environ["DEEJAYTOOLS_CORS_ORIGINS"] = "http://localhost:5173"
 os.environ["ENVIRONMENT"] = "test"
 os.environ.pop("SENTRY_DSN_API_DEEJAYTOOLS", None)
+# Discord is off unless a test turns it on (discord_posts); set empty so a
+# developer's .env cannot point the suite at a real webhook.
+for _name in (
+    "DISCORD_WEBHOOK_URL",
+    "DISCORD_WEBHOOK_URL_ERRORS",
+    "DISCORD_WEBHOOK_URL_ACTIVITY",
+):
+    os.environ[_name] = ""
 
 from api_deejaytools.main import app  # noqa: E402
 
@@ -259,3 +267,34 @@ async def _finish_background_builds() -> AsyncIterator[None]:
     from api_deejaytools.services import song_builds
 
     await song_builds.wait_for_builds()
+
+
+@pytest.fixture(autouse=True)
+async def _no_discord_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[None]:
+    """Discord is never reached: any post that gets past a test's own capture
+    lands here and fails the test. Notification state starts fresh."""
+    from mini_app_polis import activity, discord
+
+    from api_deejaytools.services import notifications
+
+    leaked: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        leaked.append(request)
+        return httpx.Response(204)
+
+    monkeypatch.setattr(
+        discord,
+        "_client",
+        lambda timeout: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    notifications.reset()
+    discord.reset_cooldowns()
+    yield
+    from api_deejaytools.services import song_builds
+
+    await song_builds.wait_for_builds()
+    await activity.wait_for_deliveries()
+    assert leaked == [], "a test posted to Discord"

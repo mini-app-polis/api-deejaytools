@@ -79,6 +79,13 @@ deejaytools-api's codes and shapes (`errors.py`).
 - **Request limits** (`middleware.py`) are deejaytools-api's, keyed the same
   way. The deadline does not cancel the handler, as Node could not: it runs
   on and its writes land, only its response is discarded.
+- **Discord notifications** (`services/notifications.py`, on
+  common-python-utils' `activity`): the change feed and request faults as
+  api-kaianolevine-com has them, plus "song added" posted on the commit of
+  a successful Drive build. The build can run long after the upload (a
+  retry, a restart), so whoever uploaded a song for someone else is staged
+  with the bytes (`song_uploads.uploaded_by_user_id`, migration 004)
+  rather than kept in memory. What posts where: docs/OPERATIONS.md.
 - **No prepared-statement caching** (`database.py`): the service survives
   its schema being rebuilt underneath it, which deejaytools-api's
   CONFORMANCE.md requires of a target, for one extra round trip per query.

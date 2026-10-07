@@ -141,6 +141,10 @@ async def sync(
     """
     body = await parse_zod_body(request, SyncBody)
     subject = await verify_bearer(authorization)
+    # Names the caller in a Discord fault report (its changes are not fed):
+    # the verified Clerk subject, never the body's email — unverified text
+    # the caller chose, and personal data in a shared channel.
+    request.state.caller = subject.subject
     now = int(time.time() * 1000)
     try:
         await session.execute(

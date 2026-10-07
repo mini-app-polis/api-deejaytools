@@ -318,11 +318,25 @@ def require_scope(scope: str):
         if principal is None:
             # deejaytools-api's answer for a valid token with no users row.
             raise user_not_synced()
+        # The actor the Discord change feed names (services/notifications):
+        # what the principal already holds, so no extra query.
+        request.state.caller = caller_name(principal)
         if not decision.allowed:
             raise forbidden()
         return Caller(principal=principal, subject=subject)
 
     return _dependency
+
+
+def caller_name(principal: Principal) -> str:
+    """Who the caller is, for the Discord feed (``request.state.caller``).
+
+    The principal's subject — the Clerk user id, their ``users.id`` — and
+    never its display name or email: provisioning sets the display name to
+    the email, and the feed's channels are shared with the whole fleet. An
+    operator who needs the person looks the id up behind auth.
+    """
+    return principal.subject
 
 
 # ---------------------------------------------------------------------------

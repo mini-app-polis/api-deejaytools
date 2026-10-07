@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..config import Settings, get_settings
 from ..database import get_sessionmaker
-from . import drive, drive_jobs, session_tick, song_builds
+from . import drive, drive_jobs, notifications, session_tick, song_builds
 
 logger = get_logger()
 
@@ -68,6 +68,14 @@ async def run_tick() -> None:
             await session_tick.fill_running_sessions(db)
     except Exception as exc:  # noqa: BLE001 - logged; the pass goes on
         logger.error(with_log_prefix(LOG_FAILURE, f"tick_failed: {exc!r}"))
+        # Each step fails on every tick while its cause lasts, so Discord
+        # hears once per run of failures (report_fault_once). Not a Sentry
+        # capture here, as before: the error log line is the record.
+        notifications.report_fault_once(
+            "scheduler.sessions", "scheduler · sessions", exc
+        )
+    else:
+        notifications.clear_fault("scheduler.sessions")
 
     if not drive.drive_configured():
         # Without Drive credentials every build and Drive job would fail and
@@ -95,7 +103,12 @@ async def run_tick() -> None:
         with sentry_sdk.new_scope() as scope:
             scope.set_level("error")
             scope.set_tag("subsystem", "song_builds")
-            sentry_sdk.capture_exception(exc)
+            event_id = sentry_sdk.capture_exception(exc)
+        notifications.report_fault_once(
+            "scheduler.song_builds", "scheduler · song builds", exc, event_id=event_id
+        )
+    else:
+        notifications.clear_fault("scheduler.song_builds")
 
     try:
         async with maker() as db:
@@ -105,7 +118,12 @@ async def run_tick() -> None:
         with sentry_sdk.new_scope() as scope:
             scope.set_level("error")
             scope.set_tag("subsystem", "drive_jobs")
-            sentry_sdk.capture_exception(exc)
+            event_id = sentry_sdk.capture_exception(exc)
+        notifications.report_fault_once(
+            "scheduler.drive_jobs", "scheduler · drive jobs", exc, event_id=event_id
+        )
+    else:
+        notifications.clear_fault("scheduler.drive_jobs")
 
 
 def scheduler_enabled(settings: Settings) -> bool:

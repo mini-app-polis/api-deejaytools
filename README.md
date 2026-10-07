@@ -119,6 +119,9 @@ traffic can be switched back to it at any time.
   scopes. It changes no existing table.
 - `migrations/003_song_uploads.sql` adds `song_uploads`, where an uploaded
   song waits until its Drive build finishes. deejaytools-api never reads it.
+- `migrations/004_song_upload_uploader.sql` adds a nullable
+  `song_uploads.uploaded_by_user_id`, so the "song added" notification can
+  name both people when a song was uploaded on someone's behalf.
 - `scripts/apply_migrations.py` applies pending files on every deploy,
   tracked in `schema_migrations`, before the app starts.
 - `scripts/backfill_principals.py` runs next, on every deploy: it writes this
@@ -127,8 +130,10 @@ traffic can be switched back to it at any time.
 
 **First deploy against an existing database** (once per environment): set
 `BOOTSTRAP_MIGRATIONS=true` and `BOOTSTRAP_EXCLUDE` to every migration after
-the baseline (today: `002_identity_store.sql,003_song_uploads.sql`). The runner records
-`001_baseline.sql` as applied without running it and runs the rest. Remove
+the baseline (today:
+`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql`).
+The runner records `001_baseline.sql` as applied without running it and
+runs the rest. Remove
 both variables after that deploy. A bootstrap without `BOOTSTRAP_EXCLUDE` is
 refused.
 
@@ -137,8 +142,10 @@ refused.
 Railway, from `railway.json`: migrations, then the principal backfill, then
 uvicorn. Configuration comes from the shared Doppler config under the
 `DEEJAYTOOLS_` names deejaytools-api also reads; see `.env.example`.
-Switching traffic back to deejaytools-api, and retrying failed song builds,
-are in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Discord notifications (`DISCORD_WEBHOOK_URL`, optionally
+`DISCORD_WEBHOOK_URL_ERRORS` and `DISCORD_WEBHOOK_URL_ACTIVITY`; off when
+unset) are described in [docs/OPERATIONS.md](docs/OPERATIONS.md), with
+switching traffic back to deejaytools-api and retrying failed song builds.
 
 ## Versioning
 
