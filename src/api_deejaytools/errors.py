@@ -26,6 +26,7 @@ import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from mini_app_polis import activity
 from mini_app_polis.environment import is_production
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
@@ -147,7 +148,11 @@ def install_error_handlers(app: FastAPI) -> None:
     """Render every failure in the error envelope with deejaytools-api's codes."""
 
     @app.exception_handler(ApiError)
-    async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
+    async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
+        if exc.status_code >= 500:
+            # The fault message names the code (CHUNK_ERROR, INTERNAL); the
+            # message is the caller's, and may echo what they sent.
+            activity.record_fault_detail(request, f"ApiError {exc.code}")
         return JSONResponse(
             status_code=exc.status_code, content=error_body(exc.code, exc.message)
         )
@@ -188,6 +193,11 @@ class UnhandledErrorMiddleware:
     Reported to Sentry and logged. As deejaytools-api: a generic message in
     production, the exception's own message elsewhere. If the response had
     already started there is nothing to answer with, and it re-raises.
+
+    The 500 it answers is what the Discord fault report outside it sees, so
+    it records the exception's type and Sentry event id on the scope for
+    that report — never the exception's text, which for a DBAPI error is
+    the statement.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -210,7 +220,10 @@ class UnhandledErrorMiddleware:
         except Exception as exc:
             if started:
                 raise
-            sentry_sdk.capture_exception(exc)
+            event_id = sentry_sdk.capture_exception(exc)
+            activity.record_fault_detail(
+                scope, activity.fault_detail(exc, event_id=event_id, capture=None)
+            )
             logger.exception(
                 with_log_prefix(
                     LOG_FAILURE,

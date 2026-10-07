@@ -8,11 +8,13 @@ identity (DOC-009): the repository is api-deejaytools, the distribution is
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 
 import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from mini_app_polis import activity
 from mini_app_polis.logger import LOG_START, LOG_WARNING, get_logger, with_log_prefix
 from mini_app_polis.request_metrics import RequestMetricsMiddleware
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -44,11 +46,14 @@ from .routers import (
     songs,
     teams,
 )
-from .services import cloudwatch
+from .services import cloudwatch, notifications
 from .services.scheduler import start_scheduler
 from .zod_types import document_zod_bodies
 
 logger = get_logger()
+
+NOTIFICATION_DRAIN_SECONDS = 5.0
+"""How long shutdown waits for Discord messages still in flight."""
 
 
 @asynccontextmanager
@@ -74,6 +79,12 @@ async def lifespan(_app: FastAPI):
     yield
     if scheduler is not None:
         await scheduler.stop()
+    # Let Discord messages already dispatched (a last fault, a song added)
+    # go out, briefly: a deploy must not wait on Discord.
+    with suppress(TimeoutError):
+        await asyncio.wait_for(
+            activity.wait_for_deliveries(), NOTIFICATION_DRAIN_SECONDS
+        )
     logger.info(with_log_prefix(LOG_WARNING, "api-deejaytools shutting down"))
 
 
@@ -106,6 +117,13 @@ def _build_app() -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
+
+    # Discord: the request's committed changes to activity, a 5xx or an
+    # unhandled exception to errors. Added after CORS so it wraps every
+    # layer above, and sees the status that went on the wire (a deadline's
+    # 503 included) with the fault detail the error middleware recorded.
+    # Importing notifications registered the listeners that do the tally.
+    app.middleware("http")(notifications.activity_middleware)
 
     # Outermost, so its clock covers everything the client waits for.
     app.add_middleware(

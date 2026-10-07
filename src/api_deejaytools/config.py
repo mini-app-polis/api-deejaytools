@@ -98,6 +98,23 @@ class Settings(BaseSettings):
         """The Brevo key to use, as ``DEEJAYTOOLS_BREVO_API_KEY || BREVO_API_KEY``."""
         return self.DEEJAYTOOLS_BREVO_API_KEY or self.BREVO_API_KEY or None
 
+    # Discord notifications (services/notifications.py): the fleet's shared
+    # channels, so unprefixed, the names mini_app_polis.discord reads. Each
+    # channel reads its own variable and falls back to DISCORD_WEBHOOK_URL;
+    # with neither set, that channel's notifications are off (logged once).
+    # Declared here because Settings also reads .env, and the webhooks must
+    # resolve from the same place as everything else. Only errors and
+    # activity are posted to.
+    DISCORD_WEBHOOK_URL: str | None = Field(
+        default=None, description="Fallback webhook for every channel."
+    )
+    DISCORD_WEBHOOK_URL_ERRORS: str | None = Field(
+        default=None, description="Webhook for 5xx, unhandled and background faults."
+    )
+    DISCORD_WEBHOOK_URL_ACTIVITY: str | None = Field(
+        default=None, description="Webhook for data changes and songs added."
+    )
+
     # Google Drive (deejaytools-api DRIVE.md, "Configuration"). Unprefixed:
     # the names deejaytools-api reads. All three are required by every Drive
     # call; an empty value counts as missing, as it does there.

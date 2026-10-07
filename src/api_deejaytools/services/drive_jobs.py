@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..domain import season_year_from_date_string
 from ..models import DriveJob, Event, EventSongSubmission, Song
 from ..zod_coerce import js_trim
-from . import drive
+from . import drive, notifications
 
 logger = get_logger()
 
@@ -461,12 +461,16 @@ async def _record_failure(db: AsyncSession, job: _Job, exc: Exception) -> None:
     message = str(exc) or type(exc).__name__
     now = _now_ms()
     next_attempt_at = now + backoff_ms(attempts)
+    # recorded: this run's outcome is the job's. superseded: the guard matched
+    # no row — the lease ran out and the job was reclaimed, so another run
+    # owns it now and will report its own outcome (as ``_mark_done``).
+    recorded = superseded = False
     try:
-        await db.execute(
+        result = await db.execute(
             text(
                 "UPDATE drive_jobs SET status = :status, attempts = :attempts, "
                 "next_attempt_at = :next, last_error = :error, updated_at = :now "
-                "WHERE id = :id AND status = 'running'"
+                "WHERE id = :id AND status = 'running' RETURNING id"
             ),
             {
                 "status": "failed" if exhausted else "pending",
@@ -477,7 +481,9 @@ async def _record_failure(db: AsyncSession, job: _Job, exc: Exception) -> None:
                 "id": job.id,
             },
         )
+        recorded = result.first() is not None
         await db.commit()
+        superseded = not recorded
     except Exception as update_exc:  # noqa: BLE001 - see docstring
         await _safe_rollback(db)
         logger.error(
@@ -503,13 +509,17 @@ async def _record_failure(db: AsyncSession, job: _Job, exc: Exception) -> None:
         f"file={job.file_id} attempts={attempts} max_attempts={MAX_ATTEMPTS} "
         f"error_message={message!r} next_attempt_at={next_at}"
     )
+    if superseded:
+        line += " superseded=true"
     if exhausted or attempts == 1:
         logger.error(with_log_prefix(LOG_FAILURE, line))
     else:
         logger.warning(with_log_prefix(LOG_WARNING, line))
 
-    # Only giving up is reported; every retry would bury real failures.
-    if exhausted:
+    # Only giving up is reported; every retry would bury real failures. A
+    # superseded run reports nothing: the run that owns the job does, and two
+    # runners at the last attempt must not make two Sentry events.
+    if exhausted and not superseded:
         with sentry_sdk.new_scope() as scope:
             scope.set_level("error")
             scope.set_tag("subsystem", "drive_jobs")
@@ -524,7 +534,16 @@ async def _record_failure(db: AsyncSession, job: _Job, exc: Exception) -> None:
                     "attempts": attempts,
                 },
             )
-            sentry_sdk.capture_exception(exc)
+            event_id = sentry_sdk.capture_exception(exc)
+        # Discord hears only of giving up, and only once the job is recorded
+        # as failed: a job whose update failed stays running, is reclaimed
+        # and fails again, and would otherwise be announced twice.
+        if recorded:
+            notifications.report_fault(
+                f"drive job {job.id} ({job.kind}) · gave up after {attempts} attempts",
+                exc,
+                event_id=event_id,
+            )
 
 
 async def _safe_rollback(db: AsyncSession) -> None:
@@ -566,8 +585,14 @@ async def process_drive_jobs(
         with sentry_sdk.new_scope() as scope:
             scope.set_level("error")
             scope.set_tag("subsystem", "drive_jobs")
-            sentry_sdk.capture_exception(exc)
+            event_id = sentry_sdk.capture_exception(exc)
+        # Fails every tick while the cause lasts: posted once per run of
+        # failures, re-armed by the next successful claim.
+        notifications.report_fault_once(
+            "drive_jobs.claim", "drive jobs · claim failed", exc, event_id=event_id
+        )
         return {"claimed": 0, "succeeded": 0, "failed": 0}
+    notifications.clear_fault("drive_jobs.claim")
 
     done = 0
     for job in jobs:
