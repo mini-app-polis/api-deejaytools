@@ -50,7 +50,7 @@ class Settings(BaseSettings):
         default_factory=lambda: current_environment().value,
         description="Deployment environment, from the shared fleet resolver.",
     )
-    SENTRY_DSN_API_DEEJAYTOOLS: str | None = Field(
+    SENTRY_DSN_APIS: str | None = Field(
         default=None, description="Sentry DSN. Unset turns Sentry off."
     )
 
