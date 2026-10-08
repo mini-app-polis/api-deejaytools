@@ -60,18 +60,19 @@ NOTIFICATION_DRAIN_SECONDS = 5.0
 async def lifespan(_app: FastAPI):
     """Initialize and tear down process-level app resources."""
     settings = get_settings()
-    if settings.SENTRY_DSN_API_DEEJAYTOOLS:
+    if settings.SENTRY_DSN_APIS:
         sentry_sdk.init(
-            dsn=settings.SENTRY_DSN_API_DEEJAYTOOLS,
+            dsn=settings.SENTRY_DSN_APIS,
             integrations=[FastApiIntegration()],
             environment=settings.ENVIRONMENT,
             traces_sample_rate=1.0,
         )
+        sentry_sdk.get_global_scope().set_tag("service", "api-deejaytools")
     logger.info(
         with_log_prefix(
             LOG_START,
             f"api-deejaytools starting (env={settings.ENVIRONMENT}, "
-            f"sentry={'on' if settings.SENTRY_DSN_API_DEEJAYTOOLS else 'off'})",
+            f"sentry={'on' if settings.SENTRY_DSN_APIS else 'off'})",
         )
     )
     # Off under DISABLE_SCHEDULER=1 and ENVIRONMENT=test (services/scheduler.py).

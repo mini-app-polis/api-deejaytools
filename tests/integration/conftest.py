@@ -58,7 +58,7 @@ os.environ["DEEJAYTOOLS_CLERK_ISSUER"] = TEST_ISSUER
 os.environ["DEEJAYTOOLS_CLERK_JWKS_URL"] = TEST_JWKS_URL
 os.environ["DEEJAYTOOLS_CORS_ORIGINS"] = "http://localhost:5173"
 os.environ["ENVIRONMENT"] = "test"
-os.environ.pop("SENTRY_DSN_API_DEEJAYTOOLS", None)
+os.environ.pop("SENTRY_DSN_APIS", None)
 # Discord is off unless a test turns it on (discord_posts); set empty so a
 # developer's .env cannot point the suite at a real webhook.
 for _name in (
