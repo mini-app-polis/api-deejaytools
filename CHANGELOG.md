@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.3.1...v1.3.2) (2026-10-08)
+
+
+### Bug Fixes
+
+* **observability:** read Sentry DSN from SENTRY_DSN_APIS and tag service ([7d98391](https://github.com/mini-app-polis/api-deejaytools/commit/7d98391760b7001ce398384e0aba6e2ab9cac280))
+
 ## [1.3.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.3.0...v1.3.1) (2026-10-08)
 
 
