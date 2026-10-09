@@ -26,8 +26,8 @@ What stays here is this service's policy:
   api-kaianolevine-com; faults and "song added" are unaffected.
 - **No machine callers.** The only caller is the web app, so a 4xx is a
   person meeting a guard and is never reported (``is_machine`` is None).
-- **Webhooks resolve from ``Settings``**, which also reads a ``.env``
-  file, rather than straight from the environment. With none set,
+- **Webhooks resolve from ``Settings``**, like every other setting,
+  rather than straight from the environment. With none set,
   notifications are off: the first message dropped on each channel is
   logged, the rest silently, and nothing is posted.
 - **Song added** (``announce_song_added``): one message per song, posted
@@ -136,7 +136,7 @@ _unconfigured_logged: set[str] = set()
 
 
 def webhook_source(settings: Settings) -> dict[str, str | None]:
-    """The webhook variables as ``Settings`` resolved them (``.env`` included)."""
+    """The webhook variables as ``Settings`` resolved them."""
     names = (discord.FALLBACK_ENV, *discord.CHANNEL_ENV.values())
     return {name: getattr(settings, name, None) for name in names}
 

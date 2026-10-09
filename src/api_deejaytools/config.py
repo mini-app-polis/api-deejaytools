@@ -102,8 +102,8 @@ class Settings(BaseSettings):
     # channels, so unprefixed, the names mini_app_polis.discord reads. Each
     # channel reads its own variable and falls back to DISCORD_WEBHOOK_URL;
     # with neither set, that channel's notifications are off (logged once).
-    # Declared here because Settings also reads .env, and the webhooks must
-    # resolve from the same place as everything else. Only errors and
+    # Declared here so the webhooks resolve from the same place as
+    # everything else. Only errors and
     # activity are posted to.
     DISCORD_WEBHOOK_URL: str | None = Field(
         default=None, description="Fallback webhook for every channel."
@@ -171,7 +171,9 @@ class Settings(BaseSettings):
             return [s.strip() for s in v.split(",") if s.strip()]
         return v
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # The process environment only: Doppler supplies it (`doppler run`
+    # locally, the Railway sync deployed). No .env file is read.
+    model_config = SettingsConfigDict(extra="ignore")
 
 
 @lru_cache(maxsize=1)
