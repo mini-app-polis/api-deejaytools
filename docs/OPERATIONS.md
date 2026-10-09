@@ -88,8 +88,12 @@ named by Clerk user id, never by email.
 A channel without its own variable uses `DISCORD_WEBHOOK_URL`. With neither
 set, that channel is off: nothing is sent, nothing fails, and the log says
 `discord notifications off: no webhook for channel=…` once per channel. A
-webhook pasted with GitHub's `/github` suffix works too. A Discord rate limit
-holds every post until it lifts (logged, and reported to Sentry once).
+webhook pasted with GitHub's `/github` suffix works too. Discord's rate
+limits are waited out: posts to a webhook go one at a time, paced by the
+limit Discord reports, and a refused post is sent again when the limit
+lifts. A post that would wait more than 10 s — the tail of a burst, or
+anything sent during a minute-long Cloudflare block — is dropped and
+logged, and the first drop of an episode is reported to Sentry.
 
 ### What posts where
 
@@ -190,6 +194,6 @@ channel shows their songs, labelled `[DEVELOPMENT]`.
   runs on, but the feed has already been posted.
 - An exception after a response has started streaming (Sentry still has
   it), and a 5xx answered by the server before the app (a crash).
-- Anything when Discord is down or rate-limiting: delivery is
-  fire-and-forget, never retried, logged and reported to Sentry when it
-  fails. The channel is not a record; the database and Sentry are.
+- Anything when Discord is down, and anything a rate limit holds for
+  more than 10 s: delivery is fire-and-forget, logged and reported to
+  Sentry when it fails. A short rate limit is waited out, not lost. The channel is not a record; the database and Sentry are.

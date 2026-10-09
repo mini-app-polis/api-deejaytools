@@ -77,19 +77,25 @@ scheduler every `TICK_INTERVAL_MS`, or once per `GET /internal/tick`.
 
 ## Running locally
 
-Prerequisites: Python 3.11, [uv](https://docs.astral.sh/uv/), Postgres 16.
+Prerequisites: Python 3.11, [uv](https://docs.astral.sh/uv/), Postgres 16,
+and the [Doppler CLI](https://docs.doppler.com/docs/install-cli). Secrets come
+from Doppler's shared `dev` config — nothing reads a `.env` file, and local
+runs never use `prd`. `DEEJAYTOOLS_DATABASE_URL` is not in Doppler: set it in
+the shell for your local database, and `doppler run` passes it through.
 
 ```bash
+brew install gnupg dopplerhq/cli/doppler && doppler login   # once per machine
+doppler setup                   # once per clone: reads doppler.yaml
 uv sync --all-extras
 uv run pre-commit install
-cp .env.example .env            # then point it at your local database
-set -a; source .env; set +a     # the scripts read the environment, not .env
+uv run check-doppler-keys       # every required .env.example name is in dev
+export DEEJAYTOOLS_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/deejaytools
 
 # Schema: apply migrations/ to an empty database, then provision principals
-uv run python scripts/apply_migrations.py
-uv run python scripts/backfill_principals.py
+doppler run -- uv run python scripts/apply_migrations.py
+doppler run -- uv run python scripts/backfill_principals.py
 
-uv run uvicorn src.api_deejaytools.main:app --reload --port 3001
+doppler run -- uv run uvicorn src.api_deejaytools.main:app --reload --port 3001
 ```
 
 Tests run against a real local Postgres database whose name ends in `_test`

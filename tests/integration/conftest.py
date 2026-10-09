@@ -60,7 +60,7 @@ os.environ["DEEJAYTOOLS_CORS_ORIGINS"] = "http://localhost:5173"
 os.environ["ENVIRONMENT"] = "test"
 os.environ.pop("SENTRY_DSN_APIS", None)
 # Discord is off unless a test turns it on (discord_posts); set empty so a
-# developer's .env cannot point the suite at a real webhook.
+# suite run under `doppler run` cannot point at a real webhook.
 for _name in (
     "DISCORD_WEBHOOK_URL",
     "DISCORD_WEBHOOK_URL_ERRORS",
