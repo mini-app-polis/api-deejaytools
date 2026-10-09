@@ -114,6 +114,14 @@ class Settings(BaseSettings):
     DISCORD_WEBHOOK_URL_ACTIVITY: str | None = Field(
         default=None, description="Webhook for data changes and songs added."
     )
+    # The change feed's switch, as api-kaianolevine-com has it: off mutes
+    # the per-request "data changed" summaries without a deploy, and leaves
+    # faults, and the "song added" announcements, as they are. Unsetting a
+    # webhook cannot do that: activity would fall back to
+    # DISCORD_WEBHOOK_URL, and unsetting that silences errors too.
+    NOTIFY_DATA_CHANGES: bool = Field(
+        default=True, description="Post per-request data-change summaries."
+    )
 
     # Google Drive (deejaytools-api DRIVE.md, "Configuration"). Unprefixed:
     # the names deejaytools-api reads. All three are required by every Drive

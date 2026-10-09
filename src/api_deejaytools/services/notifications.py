@@ -21,7 +21,9 @@ What stays here is this service's policy:
   development fault in the shared ``errors`` channel is not mistaken for
   production's.
 - **What is not news** (``SUPPRESSED_TABLES``, ``EXCLUDED_PATHS``,
-  ``CHANGES_NOT_REPORTED``), each with its reason.
+  ``CHANGES_NOT_REPORTED``), each with its reason. ``NOTIFY_DATA_CHANGES``
+  turns the change feed off altogether without a deploy, as in
+  api-kaianolevine-com; faults and "song added" are unaffected.
 - **No machine callers.** The only caller is the web app, so a 4xx is a
   person meeting a guard and is never reported (``is_machine`` is None).
 - **Webhooks resolve from ``Settings``**, which also reads a ``.env``
@@ -30,6 +32,8 @@ What stays here is this service's policy:
   logged, the rest silently, and nothing is posted.
 - **Song added** (``announce_song_added``): one message per song, posted
   when its Drive build commits, never for a build that fails or rolls back.
+- **Feedback** (``announce_feedback``): one message per piece of site
+  feedback accepted, naming its type and subject, never its sender.
 - **Background faults** (``report_fault``, ``report_fault_once``): work with
   no request — the scheduler, song builds, Drive jobs — reports only what
   is final or what stops a whole step, never each retry.
@@ -79,7 +83,8 @@ SUPPRESSED_TABLES = frozenset(
 #: and their failures are the monitors' job.
 EXCLUDED_PATHS = ("/health", "/version")
 
-#: Paths whose faults are reported but whose changes are not.
+#: Paths whose faults are reported but whose changes are not. Each covers
+#: the paths below it too (``/v1/checkins`` covers ``/v1/checkins/{id}``).
 CHANGES_NOT_REPORTED = frozenset(
     {
         # Every sign-in upserts the users row (email, updated_at) and
@@ -98,6 +103,18 @@ CHANGES_NOT_REPORTED = frozenset(
         # without a tally. The same work is no more news when an operator
         # triggers it. Its failures are reported by the scheduler.
         "/internal/tick",
+        # Synthetic check-ins for exercising the floor: a stub leader, its
+        # partner, pair and check-in on every injection, and their removal.
+        # Test data an admin made on purpose, reported in the shared feed
+        # as if dancers had arrived. The admin who made it knows.
+        "/v1/admin/checkins",
+        # The live floor: every dancer checking in or withdrawing a check-in,
+        # and every manager action on the queue (promote, complete,
+        # incomplete, move down, withdraw). Dozens a minute at an event,
+        # each one routine, which would bury everything else in the shared
+        # channel. Faults are still reported.
+        "/v1/checkins",
+        "/v1/queue",
     }
 )
 
@@ -158,12 +175,13 @@ def _config(
     report_changes: bool = True,
     suppressed_tables: frozenset[str] = SUPPRESSED_TABLES,
 ) -> activity.ActivityConfig:
+    settings = get_settings()
     return activity.ActivityConfig(
         service=SERVICE,
-        environment=get_settings().ENVIRONMENT,
+        environment=settings.ENVIRONMENT,
         suppressed_tables=suppressed_tables,
         excluded_paths=EXCLUDED_PATHS,
-        report_changes=report_changes,
+        report_changes=report_changes and settings.NOTIFY_DATA_CHANGES,
         send=send,
         label=True,
     )
@@ -184,7 +202,7 @@ async def activity_middleware(request: Any, call_next: Any) -> Any:
     the fault detail ``errors.UnhandledErrorMiddleware`` records.
     """
     path = request.url.path
-    if path in CHANGES_NOT_REPORTED:
+    if activity.is_excluded(path, CHANGES_NOT_REPORTED):
         return await _faults_only(request, call_next)
     if activity.is_excluded(path, OPERATOR_QUEUE_PATHS):
         return await _operator_queue(request, call_next)
@@ -343,4 +361,47 @@ def announce_song_added(
         ],
         context="songs/added",
         send=send,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Feedback
+# ---------------------------------------------------------------------------
+
+
+def announce_feedback(
+    kind: str, subject: str, *, emailed: bool, screenshot: bool
+) -> None:
+    """Post "feedback" to activity when someone sends site feedback.
+
+    The type and subject only — never the message, the sender's name or
+    their email: the route is public, the channel is shared, and the whole
+    message goes by email. Says whether it was emailed, because without a
+    Brevo key this post is the only sign the feedback arrived. Fire and
+    forget: the person sending feedback does not wait on Discord.
+    """
+    lines = [_md(subject)]
+    if screenshot:
+        lines.append("with a screenshot")
+    lines.append(
+        "emailed to the maintainer"
+        if emailed
+        else "not emailed: no Brevo key is set, and the message was not kept"
+    )
+    activity.dispatch(
+        send(
+            discord.CHANNEL_ACTIVITY,
+            {
+                "embeds": [
+                    {
+                        "title": f"{discord.environment_prefix()}feedback · {kind}",
+                        "color": _ANNOUNCE_COLOR,
+                        "description": "\n".join(lines),
+                        "footer": {"text": f"{SERVICE} · {get_settings().ENVIRONMENT}"},
+                    }
+                ],
+                "allowed_mentions": dict(discord.NO_MENTIONS),
+            },
+            "feedback",
+        )
     )

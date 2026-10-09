@@ -15,6 +15,7 @@ from typing import Any
 import asyncpg
 import httpx
 import pytest
+import respx
 from mini_app_polis import activity, discord
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +34,9 @@ from api_deejaytools.services import (
 )
 
 from .conftest import Clerk, bearer
+from .queue_helpers import dancer_pair, insert_floor_session
+from .test_checkins import _body as checkin_body
+from .test_checkins import _waiting_session
 from .test_drive_jobs_processor import (
     FakeDrive as FakeJobDrive,
 )
@@ -270,6 +274,38 @@ async def test_failed_build_reports_a_fault_and_announces_nothing(
     assert fault["footer"]["text"] == "api-deejaytools · test"
 
 
+class _SentryWithIds(Sentry):
+    """The Sentry stand-in, answering each capture with an event id."""
+
+    def capture_exception(self, exc: BaseException) -> str:  # type: ignore[override]
+        super().capture_exception(exc)
+        return f"evt-{len(self.captured)}"
+
+
+async def test_removed_song_fault_carries_its_sentry_id(
+    client: httpx.AsyncClient,
+    person: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_drive: FakeDrive,  # noqa: F811
+    discord_posts: Posts,
+) -> None:
+    """The failure a person notices is a Sentry event, and Discord links it."""
+    sentry = _SentryWithIds()
+    monkeypatch.setattr(song_builds, "sentry_sdk", sentry)
+    fake_drive.fail_upload = RuntimeError("bucket secret-name refused")
+    jane = await person("jane")
+    song = await _upload(client, jane, routine_name="Ballad")
+
+    (fault,) = await discord_posts.channel(discord.CHANNEL_ERRORS)
+    assert fault["description"] == (
+        f"`song build {song['id']} · failed, song removed`\n"
+        "```RuntimeError · sentry evt-1```"
+    )
+    ((_exc, scope),) = sentry.captured
+    assert scope.tags == {"subsystem": "song_builds"}
+    assert scope.contexts["song_build"]["song_id"] == song["id"]
+
+
 async def test_song_deleted_mid_build_announces_nothing(
     client: httpx.AsyncClient,
     person: Callable,
@@ -420,6 +456,173 @@ async def test_operator_queue_changes_are_reported(
     assert res.status_code == 200, res.text
     (change,) = await discord_posts.changes()
     assert change["description"] == "`drive_jobs` *1"
+
+
+async def test_change_feed_can_be_switched_off(
+    client: httpx.AsyncClient,
+    person: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_drive: FakeDrive,  # noqa: F811
+    discord_posts: Posts,
+) -> None:
+    """NOTIFY_DATA_CHANGES mutes the change feed only: song added still posts."""
+    monkeypatch.setattr(get_settings(), "NOTIFY_DATA_CHANGES", False)
+    jane = await person("jane")
+    created = await client.post(
+        "/v1/teams", json={"identifier": "Jt Swing"}, headers=jane.headers
+    )
+    assert created.status_code == 201
+    await _upload(client, jane, routine_name="Ballad")
+
+    assert await discord_posts.changes() == []
+    assert len(await discord_posts.songs_added()) == 1
+
+
+async def test_synthetic_check_ins_are_not_news(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    discord_posts: Posts,
+) -> None:
+    """An admin's test injection writes users, partners, pairs and check-ins;
+    none of it is dancers arriving, so none of it is in the shared feed."""
+    admin = await person("admin", admin=True)
+    session_id = await insert_floor_session(db, divisions=(("Classic", True, 0),))
+    injected = await client.post(
+        "/v1/admin/checkins",
+        json={
+            "sessionId": session_id,
+            "divisionName": "Classic",
+            "leaderFirstName": "Test",
+            "leaderLastName": "Leader",
+            "followerFirstName": "Test",
+            "followerLastName": "Follower",
+        },
+        headers=admin.headers,
+    )
+    assert injected.status_code == 201, injected.text
+    removed = await client.delete("/v1/admin/checkins/test", headers=admin.headers)
+    assert removed.status_code == 200, removed.text
+
+    assert await discord_posts.changes() == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/v1/checkins",
+        "/v1/checkins/chk_1",
+        "/v1/queue/promote",
+        "/v1/queue/complete",
+        "/v1/queue/incomplete",
+        "/v1/queue/move-down",
+        "/v1/queue/withdraw",
+    ],
+)
+def test_live_floor_paths_report_faults_only(path: str) -> None:
+    assert activity.is_excluded(path, notifications.CHANGES_NOT_REPORTED)
+
+
+def test_session_changes_are_still_reported() -> None:
+    """Prefix matching, not substring: a session's status is still news."""
+    for path in ("/v1/sessions/s1/status", "/v1/checkins-export", "/v1/queues"):
+        assert not activity.is_excluded(path, notifications.CHANGES_NOT_REPORTED)
+
+
+async def test_a_check_in_is_not_news(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    discord_posts: Posts,
+) -> None:
+    me = await person()
+    d = await dancer_pair(db, user_id=me.id)
+    session_id = await _waiting_session(db, divisions=(("Classic", True, 1),))
+    res = await client.post(
+        "/v1/checkins", json=checkin_body(session_id, d), headers=me.headers
+    )
+    assert res.status_code == 201, res.text
+
+    assert await discord_posts.changes() == []
+
+
+# --- feedback ---------------------------------------------------------------------
+
+
+async def _feedback(client: httpx.AsyncClient, **extra: Any) -> httpx.Response:
+    return await client.post(
+        "/v1/feedback",
+        json={
+            "type": "bug",
+            "subject": "Queue *froze* @everyone",
+            "message": "It stopped at 3pm. Call me.",
+            "contactName": "Jane Doe",
+            "contactEmail": "jane@example.test",
+            **extra,
+        },
+    )
+
+
+async def test_feedback_posts_its_type_and_subject_only(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    discord_posts: Posts,
+) -> None:
+    monkeypatch.setattr(get_settings(), "DEEJAYTOOLS_BREVO_API_KEY", None)
+    monkeypatch.setattr(get_settings(), "BREVO_API_KEY", None)
+    res = await _feedback(client)
+    assert res.status_code == 201
+
+    (post,) = [p for p in discord_posts.sent if p["context"] == "feedback"]
+    assert post["channel"] == discord.CHANNEL_ACTIVITY
+    assert post["json"]["allowed_mentions"] == {"parse": []}
+    (embed,) = await discord_posts.channel(discord.CHANNEL_ACTIVITY)
+    assert embed["title"] == "[DEVELOPMENT] feedback · bug"
+    assert embed["description"] == (
+        "Queue \\*froze\\* @everyone\n"
+        "not emailed: no Brevo key is set, and the message was not kept"
+    )
+    assert embed["footer"]["text"] == "api-deejaytools · test"
+    # The sender and their message go by email, never to the shared channel.
+    for private in ("Jane", "jane@example.test", "3pm"):
+        assert private not in str(post)
+
+
+async def test_emailed_feedback_says_so(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    discord_posts: Posts,
+) -> None:
+    monkeypatch.setattr(get_settings(), "DEEJAYTOOLS_BREVO_API_KEY", "key")
+    with respx.mock(assert_all_called=False) as router:
+        router.post("https://api.brevo.com/v3/smtp/email").mock(
+            return_value=httpx.Response(201, json={"messageId": "<m@brevo>"})
+        )
+        res = await _feedback(client, screenshot="data:image/png;base64,iVBORw0KGgo=")
+    assert res.status_code == 201
+
+    (embed,) = await discord_posts.channel(discord.CHANNEL_ACTIVITY)
+    assert embed["description"].endswith(
+        "\nwith a screenshot\nemailed to the maintainer"
+    )
+
+
+async def test_feedback_brevo_refused_is_a_fault_not_feedback(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    discord_posts: Posts,
+) -> None:
+    monkeypatch.setattr(get_settings(), "DEEJAYTOOLS_BREVO_API_KEY", "key")
+    with respx.mock(assert_all_called=False) as router:
+        router.post("https://api.brevo.com/v3/smtp/email").mock(
+            return_value=httpx.Response(401, json={"code": "unauthorized"})
+        )
+        res = await _feedback(client)
+    assert res.status_code == 502
+
+    assert await discord_posts.channel(discord.CHANNEL_ACTIVITY) == []
+    (fault,) = await discord_posts.channel(discord.CHANNEL_ERRORS)
+    assert fault["title"] == "[DEVELOPMENT] fault · 502"
 
 
 # --- faults -----------------------------------------------------------------------
@@ -696,6 +899,27 @@ async def test_failing_scheduler_step_posts_once_per_run_of_failures(
     assert [f["description"] for f in faults] == [
         "`scheduler · sessions`\n```RuntimeError```"
     ] * 2
+
+
+async def test_scheduler_sessions_fault_carries_its_sentry_id(
+    monkeypatch: pytest.MonkeyPatch, discord_posts: Posts
+) -> None:
+    sentry = _SentryWithIds()
+    monkeypatch.setattr(scheduler, "sentry_sdk", sentry)
+
+    async def statuses(_db: Any) -> None:
+        raise RuntimeError("connection refused to 10.0.0.1")
+
+    monkeypatch.setattr(session_tick, "tick_session_statuses", statuses)
+    monkeypatch.setattr(scheduler.drive, "drive_configured", lambda: False)
+
+    await scheduler.run_tick()
+    (fault,) = await discord_posts.channel(discord.CHANNEL_ERRORS)
+    assert fault["description"] == (
+        "`scheduler · sessions`\n```RuntimeError · sentry evt-1```"
+    )
+    ((_exc, scope),) = sentry.captured
+    assert scope.tags == {"subsystem": "sessions"}
 
 
 # --- off ----------------------------------------------------------------------------

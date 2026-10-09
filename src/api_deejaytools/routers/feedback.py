@@ -19,6 +19,7 @@ from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, model_va
 
 from ..config import get_settings
 from ..errors import ErrorResponse, Meta, error_body, success
+from ..services import notifications
 from ..validation import Email, ZodModel
 from ..zod_types import documents_zod_body, parse_zod_body
 
@@ -198,4 +199,12 @@ async def send_feedback(request: Request) -> Any:
             )
         )
 
+    # After the email, so a Brevo refusal (502, already a fault in errors)
+    # is not also announced as feedback received.
+    notifications.announce_feedback(
+        body.type,
+        body.subject,
+        emailed=bool(brevo_key),
+        screenshot=bool(screenshot),
+    )
     return success(None)

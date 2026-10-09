@@ -803,9 +803,17 @@ async def _on_failure(
             # that took it over owns the song, its file and its report.
             return
         # Final for this song: the uploader sees it vanish and must upload
-        # again. Not a Sentry event, as before; the log line has the error.
+        # again — the failure a person notices — so it is a Sentry event, as
+        # giving up after retries is, and the Discord report carries its id.
         # A song kept for a retry (below) is reported only when it gives up.
-        notifications.report_fault(f"song build {song_id} · failed, song removed", exc)
+        with sentry_sdk.new_scope() as scope:
+            scope.set_level("error")
+            scope.set_tag("subsystem", "song_builds")
+            scope.set_context("song_build", {"song_id": song_id, "removed": True})
+            event_id = sentry_sdk.capture_exception(exc)
+        notifications.report_fault(
+            f"song build {song_id} · failed, song removed", exc, event_id=event_id
+        )
         if uploaded:
             await _discard_file(maker, uploaded, song_id)
         return

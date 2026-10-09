@@ -68,11 +68,16 @@ async def run_tick() -> None:
             await session_tick.fill_running_sessions(db)
     except Exception as exc:  # noqa: BLE001 - logged; the pass goes on
         logger.error(with_log_prefix(LOG_FAILURE, f"tick_failed: {exc!r}"))
-        # Each step fails on every tick while its cause lasts, so Discord
-        # hears once per run of failures (report_fault_once). Not a Sentry
-        # capture here, as before: the error log line is the record.
+        # Captured like the other steps, so the Discord report carries a
+        # Sentry id to follow. Each step fails on every tick while its cause
+        # lasts, so Discord hears once per run of failures
+        # (report_fault_once); Sentry groups the repeats itself.
+        with sentry_sdk.new_scope() as scope:
+            scope.set_level("error")
+            scope.set_tag("subsystem", "sessions")
+            event_id = sentry_sdk.capture_exception(exc)
         notifications.report_fault_once(
-            "scheduler.sessions", "scheduler · sessions", exc
+            "scheduler.sessions", "scheduler · sessions", exc, event_id=event_id
         )
     else:
         notifications.clear_fault("scheduler.sessions")
