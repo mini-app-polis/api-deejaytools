@@ -81,7 +81,10 @@ Prerequisites: Python 3.11, [uv](https://docs.astral.sh/uv/), Postgres 16,
 and the [Doppler CLI](https://docs.doppler.com/docs/install-cli). Secrets come
 from Doppler's shared `dev` config — nothing reads a `.env` file, and local
 runs never use `prd`. `DEEJAYTOOLS_DATABASE_URL` is not in Doppler: set it in
-the shell for your local database, and `doppler run` passes it through.
+the shell for your local database. `doppler run` passes it through because
+Doppler holds no value for that name (if it did, Doppler's would win). The
+same goes for `DISABLE_SCHEDULER=1`, which keeps the scheduler — and its Drive
+uploads to the real folder — off locally.
 
 ```bash
 brew install gnupg dopplerhq/cli/doppler && doppler login   # once per machine
@@ -95,7 +98,7 @@ export DEEJAYTOOLS_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/de
 doppler run -- uv run python scripts/apply_migrations.py
 doppler run -- uv run python scripts/backfill_principals.py
 
-doppler run -- uv run uvicorn src.api_deejaytools.main:app --reload --port 3001
+DISABLE_SCHEDULER=1 doppler run -- uv run uvicorn src.api_deejaytools.main:app --reload --port 3001
 ```
 
 Tests run against a real local Postgres database whose name ends in `_test`
