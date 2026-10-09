@@ -1,3 +1,11 @@
+# [1.4.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.3.2...v1.4.0) (2026-10-09)
+
+
+### Features
+
+* **notifications:** add NOTIFY_DATA_CHANGES, Sentry ids on song and session faults, mute test check-ins ([d970ed1](https://github.com/mini-app-polis/api-deejaytools/commit/d970ed14723206344da4538e5db16ced01ae85ff))
+* **notifications:** announce site feedback, keep the live floor out of the change feed ([7172c7a](https://github.com/mini-app-polis/api-deejaytools/commit/7172c7a0a2189eef07700eefbc219a23b4ca98b4))
+
 ## [1.3.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.3.1...v1.3.2) (2026-10-08)
 
 
