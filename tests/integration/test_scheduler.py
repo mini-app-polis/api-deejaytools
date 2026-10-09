@@ -123,7 +123,10 @@ async def test_session_failure_does_not_stop_drive_work(steps: dict[str, Any]) -
     errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
     assert len(errors) == 1 and "tick_failed" in errors[0]
     assert "drive_jobs_tick_failed" not in errors[0]
-    assert steps["sentry"].captured == []
+    # Reported like the other steps, so its Discord fault has a Sentry id.
+    ((exc, tags),) = steps["sentry"].captured
+    assert str(exc) == "statuses broke"
+    assert tags == {"level": "error", "subsystem": "sessions"}
 
 
 async def test_drive_failure_is_logged_and_reported(steps: dict[str, Any]) -> None:

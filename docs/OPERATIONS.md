@@ -83,6 +83,7 @@ named by Clerk user id, never by email.
 | `DISCORD_WEBHOOK_URL` | Fallback webhook for every channel. |
 | `DISCORD_WEBHOOK_URL_ERRORS` | Optional: the `errors` channel's own webhook. |
 | `DISCORD_WEBHOOK_URL_ACTIVITY` | Optional: the `activity` channel's own webhook. |
+| `NOTIFY_DATA_CHANGES` | Default `true`. `false` mutes the "data changed" feed without a deploy; faults and "song added" still post. |
 
 A channel without its own variable uses `DISCORD_WEBHOOK_URL`. With neither
 set, that channel is off: nothing is sent, nothing fails, and the log says
@@ -142,9 +143,9 @@ holds every post until it lifts (logged, and reported to Sentry once).
     failed. Posted once per run of failures: the next is posted only after
     the step has succeeded again.
 
-  Each names the exception's type, and the Sentry event id where the
-  failure was already reported to Sentry; nothing is reported to Sentry
-  twice for Discord's sake.
+  Each names the exception's type and its Sentry event id (every one of
+  these is reported to Sentry, with a `subsystem` tag); nothing is
+  reported to Sentry twice for Discord's sake.
 
 ### What is left out, and why
 
@@ -156,11 +157,11 @@ holds every post until it lifts (logged, and reported to Sentry once).
 | Changes made by `POST /v1/auth/sync` | Every sign-in updates the users row and re-ensures the principal. Faults are still posted. |
 | Changes made by `POST /v1/songs/upload/chunk` | The song (and a team or "other" upload's placeholder partner) is announced by its build instead, and only if the build succeeds. Faults are still posted. |
 | Changes made by `GET /internal/tick` | The scheduler's own work, which the background loop does every 30 s unreported. Faults are posted by the scheduler. |
+| Changes made by `POST /v1/admin/checkins` and `DELETE /v1/admin/checkins/test` | The admin's synthetic test check-ins (a stub leader, partner, pair and check-in each) and their removal: test data, which would read in the shared feed as dancers arriving. Faults are still posted. |
 | `/health`, `/version` | Polled by monitors; never posted, faults included. |
 
-The admin's synthetic test check-ins (`POST /v1/admin/checkins`) and the
-legacy `POST /v1/songs` (a song record with no file and no build) get no
-"song added": they appear in the change feed as ordinary changes. The
+The legacy `POST /v1/songs` (a song record with no file and no build) gets
+no "song added": it appears in the change feed as an ordinary change. The
 conformance and e2e suites upload real songs to dev, so dev's `activity`
 channel shows their songs, labelled `[DEVELOPMENT]`.
 

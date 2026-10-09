@@ -21,7 +21,9 @@ What stays here is this service's policy:
   development fault in the shared ``errors`` channel is not mistaken for
   production's.
 - **What is not news** (``SUPPRESSED_TABLES``, ``EXCLUDED_PATHS``,
-  ``CHANGES_NOT_REPORTED``), each with its reason.
+  ``CHANGES_NOT_REPORTED``), each with its reason. ``NOTIFY_DATA_CHANGES``
+  turns the change feed off altogether without a deploy, as in
+  api-kaianolevine-com; faults and "song added" are unaffected.
 - **No machine callers.** The only caller is the web app, so a 4xx is a
   person meeting a guard and is never reported (``is_machine`` is None).
 - **Webhooks resolve from ``Settings``**, which also reads a ``.env``
@@ -98,6 +100,12 @@ CHANGES_NOT_REPORTED = frozenset(
         # without a tally. The same work is no more news when an operator
         # triggers it. Its failures are reported by the scheduler.
         "/internal/tick",
+        # Synthetic check-ins for exercising the floor: a stub leader, its
+        # partner, pair and check-in on every injection, and their removal.
+        # Test data an admin made on purpose, reported in the shared feed
+        # as if dancers had arrived. The admin who made it knows.
+        "/v1/admin/checkins",
+        "/v1/admin/checkins/test",
     }
 )
 
@@ -158,12 +166,13 @@ def _config(
     report_changes: bool = True,
     suppressed_tables: frozenset[str] = SUPPRESSED_TABLES,
 ) -> activity.ActivityConfig:
+    settings = get_settings()
     return activity.ActivityConfig(
         service=SERVICE,
-        environment=get_settings().ENVIRONMENT,
+        environment=settings.ENVIRONMENT,
         suppressed_tables=suppressed_tables,
         excluded_paths=EXCLUDED_PATHS,
-        report_changes=report_changes,
+        report_changes=report_changes and settings.NOTIFY_DATA_CHANGES,
         send=send,
         label=True,
     )
