@@ -108,6 +108,17 @@ holds every post until it lifts (logged, and reported to Sentry once).
   team upload `(Team, team Jt Swing)`, an "other" upload `(…, as Formation)`.
   Names are `First Last`, else the display name, else the user id; the
   routine is the routine name, else the song's display name (the filename).
+- **Feedback**, one per piece of site feedback accepted (`POST /v1/feedback`):
+  its type and subject, whether it had a screenshot, and whether it was
+  emailed. Never the message, the sender's name or their email — those go
+  by email only. Without a Brevo key the post says the message was not
+  kept: it is the only sign the feedback arrived. A Brevo refusal is a
+  `fault · 502` in `errors` instead, and no feedback post.
+
+  > **feedback · bug**
+  > Queue froze
+  > emailed to the maintainer
+
 - **Data changed**, one per request that committed anything worth saying:
   the tables it changed with `+` created, `~` updated, `-` deleted rows and
   `*` statements (row count unknown), and in the footer the method, path and
@@ -157,6 +168,7 @@ holds every post until it lifts (logged, and reported to Sentry once).
 | Changes made by `POST /v1/auth/sync` | Every sign-in updates the users row and re-ensures the principal. Faults are still posted. |
 | Changes made by `POST /v1/songs/upload/chunk` | The song (and a team or "other" upload's placeholder partner) is announced by its build instead, and only if the build succeeds. Faults are still posted. |
 | Changes made by `GET /internal/tick` | The scheduler's own work, which the background loop does every 30 s unreported. Faults are posted by the scheduler. |
+| Changes made under `/v1/checkins` and `/v1/queue` | The live floor: every check-in and withdrawal, and every manager queue action (promote, complete, incomplete, move down, withdraw). Dozens a minute at an event, each routine; they would bury everything else in the shared channel. Session status changes are still reported. Faults are still posted. |
 | Changes made by `POST /v1/admin/checkins` and `DELETE /v1/admin/checkins/test` | The admin's synthetic test check-ins (a stub leader, partner, pair and check-in each) and their removal: test data, which would read in the shared feed as dancers arriving. Faults are still posted. |
 | `/health`, `/version` | Polled by monitors; never posted, faults included. |
 
