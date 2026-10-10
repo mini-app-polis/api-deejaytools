@@ -1,3 +1,15 @@
+# [1.5.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.4.2...v1.5.0) (2026-10-10)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 5.25.1 ([be229c0](https://github.com/mini-app-polis/api-deejaytools/commit/be229c0e6cf3011fa87a115301743925aa11a50b))
+
+
+### Features
+
+* **observability:** per-route latency for the event-floor routes ([5641d42](https://github.com/mini-app-polis/api-deejaytools/commit/5641d4216fda9a5736589ad5bdba945b58dc0728))
+
 ## [1.4.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.4.1...v1.4.2) (2026-10-09)
 
 
