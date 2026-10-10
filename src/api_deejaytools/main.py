@@ -55,6 +55,20 @@ logger = get_logger()
 NOTIFICATION_DRAIN_SECONDS = 5.0
 """How long shutdown waits for Discord messages still in flight."""
 
+METRICS_ROUTES = (
+    "/v1/checkins",
+    "/v1/queue/promote",
+    "/v1/queue/{session_id}/active",
+    "/v1/queue/{session_id}/waiting",
+)
+"""Route templates that get their own Latency series in CloudWatch.
+
+Each is a billed metric, so this is the event floor only: check-in and
+promote, the two queue transactions that lock the session row (ADR-005),
+and the two public queue reads the floor screens poll. Must match
+``dashboard_api_routes`` in mini-app-polis/infra ``observability.tf``.
+"""
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -132,6 +146,7 @@ def _build_app() -> FastAPI:
         service="api-deejaytools",
         client_factory=lambda: cloudwatch.client_factory(settings),
         exclude_paths=["/health", "/version"],
+        routes=METRICS_ROUTES,
     )
 
     routers = (
