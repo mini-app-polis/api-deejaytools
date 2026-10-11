@@ -1,3 +1,10 @@
+## [1.5.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.1...v1.5.2) (2026-10-11)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-identity to 2.1.4 ([e6847f5](https://github.com/mini-app-polis/api-deejaytools/commit/e6847f5c3d1f3bff8901e69332e7febda99d58f2))
+
 ## [1.5.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.0...v1.5.1) (2026-10-11)
 
 
