@@ -8,7 +8,8 @@ to decide something they leave open.
 
 Copied from api-kaianolevine-com: FastAPI, SQLAlchemy async with asyncpg,
 pydantic-settings, uv, Sentry, `mini_app_polis.logger`, the request-metrics
-middleware, Railway with `railway.json`, and its raw-SQL migration runner.
+middleware, Railway (now declared in `.railway/railway.ts`), and its raw-SQL
+migration runner.
 Not its routes, and not its error style: this service answers in
 deejaytools-api's codes and shapes (`errors.py`).
 
