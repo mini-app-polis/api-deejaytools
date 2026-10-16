@@ -6,6 +6,11 @@ Date: 2026-10-02
 
 Accepted
 
+Amended 2026-10-16: the rollback constraint below (additive schema changes
+only, and draining `song_uploads` before switching traffic back because
+deejaytools-api ignores it) lapsed when deejaytools-api was retired on
+2026-10-02. The decision itself stands.
+
 ## Context
 
 An uploaded song is built in the background after the upload answers: it

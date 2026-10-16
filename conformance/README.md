@@ -46,6 +46,4 @@ The suite drops and rebuilds the schema before it runs, under the running
 service; the service survives that (no prepared-statement caching, see
 `src/api_deejaytools/database.py`), so it can stay up across runs.
 
-CI runs this in the `test` job. Until every route exists it is allowed to
-fail (`continue-on-error`); once it passes, that line comes out and it gates
-like everything else.
+CI runs this in the `test` job, where it gates like everything else.

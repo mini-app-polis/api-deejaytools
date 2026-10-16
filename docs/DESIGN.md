@@ -1,6 +1,7 @@
 # Design
 
-The settled decisions are deejaytools-api's ADR-006 to ADR-009. This file
+The settled decisions are deejaytools-api's ADR-006 to ADR-009; they remain
+the spec now that deejaytools-api is retired (2026-10-02). This file
 records how this repository carries them out, and the places where it had
 to decide something they leave open.
 
@@ -30,8 +31,8 @@ deejaytools-api's codes and shapes (`errors.py`).
   the backfill's rule. Never re-applied to an existing principal.
 - **`users.role` decides admin at each deploy.** The backfill grants
   `deejaytools-admin` where `users.role = 'admin'` and removes it elsewhere,
-  so a promotion or demotion made through deejaytools-api during a rollback
-  carries over. Through this service both always move together.
+  so a role set directly on `users` carries over. Through this service both
+  always move together.
 - **`/internal/tick` fails closed** with `403 FORBIDDEN` "Admin access
   required" when `TICK_SECRET` is unset, the answer deejaytools-api gives
   for a wrong secret (ADR-007 leaves the status open).

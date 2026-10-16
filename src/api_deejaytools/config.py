@@ -14,8 +14,7 @@ class Settings(BaseSettings):
     Most names carry a DEEJAYTOOLS_ prefix because they live in the shared
     ecosystem Doppler config, which also holds the other Clerk tenant's
     CLERK_* values and other services' DATABASE_URL. They are the names
-    deejaytools-api reads, so one config feeds both services through the
-    cutover.
+    deejaytools-api read, so its config carried over unchanged.
     """
 
     DEEJAYTOOLS_DATABASE_URL: str = Field(
