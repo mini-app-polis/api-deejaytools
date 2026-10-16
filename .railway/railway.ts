@@ -1,12 +1,19 @@
-// api-deejaytools as Railway Infrastructure as Code, applied by CI
-// (.github/workflows/railway-apply.yml): a push to dev that changes .railway/
-// applies it to development; the dev → main pull request is planned
-// against production (.github/workflows/railway-plan.yml), and merging it
-// applies to production, refusing to remove anything unless the pull request
-// is labelled allow-destroy. As mini-app-polis/infra applies Terraform.
-// Nothing is applied from a workstation, and Railway itself does not read
-// this file when it deploys. Replaces railway.json, which Railway
+// api-deejaytools as Railway Infrastructure as Code, applied by CI: a pull
+// request into main that changes .railway/ is planned
+// (.github/workflows/railway-plan.yml), and merging it plans again and
+// applies (railway-apply.yml), refusing to remove anything unless the pull
+// request is labelled allow-destroy. As mini-app-polis/infra applies
+// Terraform. Nothing is applied from a workstation, and Railway itself does
+// not read this file when it deploys. Replaces railway.json, which Railway
 // never applied to this service and stops reading on 2026-12-01. MINI-69.
+//
+// Production only. Planned against any other environment it declares
+// nothing, and a partial that owns nothing there changes nothing; the
+// development service keeps the settings its dashboard holds. Development
+// is not managed here because Railway refuses `railway config plan` with a
+// development-scoped project token ("Unauthorized", even for a file that
+// declares nothing) while the same plan works with a production one
+// (Oct 2026). Add it back when Railway fixes that.
 //
 // A named partial: the ecosystem project holds services from several
 // repositories, so this file manages api-deejaytools and nothing else.
@@ -29,12 +36,6 @@ export const partial = "api-deejaytools";
 
 const REGION = "us-east4-eqdc4a";
 
-const BRANCH: Record<string, string> = { production: "main", development: "dev" };
-const DOMAIN: Record<string, string> = {
-  production: "api.deejaytools.com",
-  development: "api-dev.deejaytools.com",
-};
-
 const SHARED = [
   "AWS_REGION",
   "BREVO_API_KEY",
@@ -56,18 +57,17 @@ const SHARED = [
 ];
 
 export default defineRailway((ctx) => {
-  const environment = ctx.environment ?? "";
   const name = ctx.projectName ?? "mini-app-polis ecosystem";
-  if (!(environment in BRANCH)) {
+  if (ctx.environment !== "production") {
     return project(name, { resources: [] });
   }
 
   const api = service("api-deejaytools", {
-    source: github("mini-app-polis/api-deejaytools", { branch: BRANCH[environment] }),
+    source: github("mini-app-polis/api-deejaytools", { branch: "main" }),
     // Root Dockerfile with digest-pinned bases and a non-root user (CD-021).
     build: { builder: "DOCKERFILE" as const, dockerfilePath: "Dockerfile" },
     replicas: { [REGION]: 1 },
-    domains: [{ domain: DOMAIN[environment], port: 3001 }],
+    domains: [{ domain: "api.deejaytools.com", port: 3001 }],
     deploy: {
       healthcheckPath: "/health",
       healthcheckTimeout: 300,
