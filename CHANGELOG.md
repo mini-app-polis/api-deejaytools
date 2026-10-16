@@ -1,3 +1,10 @@
+## [1.5.6](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.5...v1.5.6) (2026-10-16)
+
+
+### Bug Fixes
+
+* **build:** start the API from the image's CMD; Railway doesn't apply railway.json to this service ([115b9ba](https://github.com/mini-app-polis/api-deejaytools/commit/115b9bab35c05e096c86e47568964c3b367d2501))
+
 ## [1.5.5](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.4...v1.5.5) (2026-10-15)
 
 
