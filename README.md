@@ -148,8 +148,13 @@ refused.
 
 ## Deployment
 
-Railway, from `railway.json`: migrations, then the principal backfill, then
-uvicorn. Configuration comes from the shared Doppler config under the
+Railway, building the root Dockerfile, whose CMD runs migrations, then the
+principal backfill, then uvicorn. The service's settings — builder,
+healthcheck, restart policy, limits, and the variables it reads — are
+declared in `.railway/railway.ts` and applied by CI: a pull request into
+`dev` or `main` that changes `.railway/` gets a plan comment, and merging it
+applies that plan to development or production (`.railway/README.md`).
+Configuration comes from the shared Doppler config under the
 `DEEJAYTOOLS_` names deejaytools-api also reads; see `.env.example`.
 Discord notifications (`DISCORD_WEBHOOK_URL`, optionally
 `DISCORD_WEBHOOK_URL_ERRORS` and `DISCORD_WEBHOOK_URL_ACTIVITY`; off when

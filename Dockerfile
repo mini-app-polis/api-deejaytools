@@ -6,10 +6,10 @@
 # as db-ops. To move to a newer patch, look up the tag's current digest and
 # replace it here, in a commit of its own.
 #
-# The start command is the image's CMD. Railway does not apply railway.json
-# to this service (no config file is recorded on its deployments), so a start
-# command kept only there never runs and the container exits at once. It is
-# wrapped in /bin/sh -c for the `&&` and $PORT.
+# The start command is the image's CMD, and only here: .railway/railway.ts,
+# which declares the rest of the service's settings, deliberately does not
+# repeat it (CD-017 accepts either, not both). It is wrapped in /bin/sh -c
+# for the `&&` and $PORT.
 
 FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 
