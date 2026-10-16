@@ -1,8 +1,8 @@
 """``GET /internal/tick`` — the operator route (deejaytools-api API.md, ADR-007).
 
 Runs one scheduler pass (``services.scheduler.run_tick``: session status
-advance, active-queue auto-fill, one batch of the Drive job queue) and answers
-once it has finished. Errors inside the pass are logged, never returned.
+advance, active-queue auto-fill, starting due song builds in the background,
+one batch of the Drive job queue) and answers once it has finished. Errors inside the pass are logged, never returned.
 
 Unversioned on purpose: operators, monitors and the conformance suite call it
 at this stable path. ``evaluator.yaml`` carries the API-004 exemption for it
@@ -72,7 +72,8 @@ def require_tick_secret() -> Callable[[str | None], None]:
     summary="Run one scheduler pass",
     description=(
         "Operator route: one scheduler pass (session status advance, queue "
-        "auto-fill, one Drive job batch), answered after it finishes. Requires "
+        "auto-fill, due song builds started, one Drive job batch), answered "
+        "after it finishes. Requires "
         "x-tick-secret equal to TICK_SECRET; refuses every call when "
         "TICK_SECRET is unset."
     ),

@@ -8,10 +8,9 @@ The background loop runs a pass at startup and then every ``TICK_INTERVAL_MS``
 **When the loop runs.** Never with ``DISABLE_SCHEDULER=1`` (read as
 deejaytools-api reads it: only ``"1"``), and never when ``ENVIRONMENT`` is
 ``test``, so no test, and no suite that builds the app, ever starts a
-background loop; tests drive ``run_tick`` directly. Deploy with the flag set
-and turn the loop on only at cutover, after deejaytools-api's scheduler is
-stopped: two schedulers would both advance sessions and drain the Drive
-queue (ADR-006 point 5).
+background loop; tests drive ``run_tick`` directly. Only one scheduler may
+run against the database (ADR-006 point 5); since deejaytools-api's
+retirement this loop is that scheduler.
 
 Several replicas are safe: session status updates are idempotent, the queue
 fill locks each session row, and Drive jobs are claimed with SKIP LOCKED.
@@ -84,8 +83,7 @@ async def run_tick() -> None:
 
     if not drive.drive_configured():
         # Without Drive credentials every build and Drive job would fail and
-        # burn its retries; while deejaytools-api serves the same database,
-        # that would exhaust jobs it could still run. They wait instead.
+        # burn its retries, so they wait until Drive is configured instead.
         global _drive_skip_logged
         if not _drive_skip_logged:
             _drive_skip_logged = True

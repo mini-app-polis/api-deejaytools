@@ -1,36 +1,7 @@
 # Operations
 
-Procedures for running this service on deejaytools-api's database.
-
-## Switching traffic back to deejaytools-api
-
-The schema stays additive (ADR-008), so deejaytools-api can serve the same
-database again at any time. One thing does not carry over: song builds in
-flight. This service keeps an uploaded song's bytes in `song_uploads` until
-its Drive build finishes; deejaytools-api never reads that table, so a song
-still building when traffic moves back stays without a file.
-
-Before switching back:
-
-1. Check what is still building:
-
-   ```sql
-   SELECT status, count(*) FROM song_uploads GROUP BY status;
-   ```
-
-2. `pending` and `running` rows finish on their own within a few scheduler
-   ticks (a `pending` row may be waiting out a retry backoff: see
-   `next_attempt_at`, epoch milliseconds). Wait until none are left, or
-   force a pass with `GET /internal/tick`.
-3. `failed` rows have used all their attempts. Retry them (below), or
-   accept that those songs have no file. Their uploaders see a song with no
-   file and can upload it again.
-4. Switch traffic. The table can stay; deejaytools-api ignores it, and its
-   song delete still works (`ON DELETE CASCADE`).
-
-Other state needs nothing: Drive jobs live in deejaytools-api's own
-`drive_jobs` table, and identity grants are re-derived from `users.role` by
-the backfill on this service's next deploy.
+Procedures for running this service on the database it took over from
+deejaytools-api.
 
 ## Retrying failed song builds
 
@@ -58,11 +29,10 @@ A retried build reuses a file it already uploaded (it finds it by its
 
 ## Configuration not carried over
 
-`CORS_ORIGINS`, deejaytools-api's legacy fallback for
-`DEEJAYTOOLS_CORS_ORIGINS`, is deliberately not read. Set
-`DEEJAYTOOLS_CORS_ORIGINS` in the shared config before the switch; without it
-the service allows only `http://localhost:5173`, so the web app's
-requests fail in the browser.
+Allowed origins come from `DEEJAYTOOLS_CORS_ORIGINS` (comma-separated) only.
+The unprefixed `CORS_ORIGINS`, which deejaytools-api read as a fallback, is
+ignored. Without `DEEJAYTOOLS_CORS_ORIGINS` the service allows only
+`http://localhost:5173`, so the web app's requests fail in the browser.
 
 ## Discord notifications
 
