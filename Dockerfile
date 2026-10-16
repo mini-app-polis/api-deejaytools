@@ -1,14 +1,15 @@
-# The API's image. Railway builds it from here (railway.json selects it), so
-# the base image, interpreter patch and system packages are recorded in the
-# repo instead of inferred by the builder at build time (CD-021).
+# The API's image. Railway builds it from here, so the base image,
+# interpreter patch and system packages are recorded in the repo instead of
+# inferred by the builder at build time (CD-021).
 #
 # Base images are pinned by digest (CD-022) — the same python and uv digests
 # as db-ops. To move to a newer patch, look up the tag's current digest and
 # replace it here, in a commit of its own.
 #
-# The start command stays in railway.json. Railway runs a Dockerfile
-# service's start command in exec form, with no shell, so it is wrapped in
-# /bin/sh -c for the `&&` and $PORT.
+# The start command is the image's CMD. Railway does not apply railway.json
+# to this service (no config file is recorded on its deployments), so a start
+# command kept only there never runs and the container exits at once. It is
+# wrapped in /bin/sh -c for the `&&` and $PORT.
 
 FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 
@@ -35,3 +36,5 @@ RUN uv sync --locked --no-dev
 # unprivileged user can create.
 RUN useradd --system --uid 10001 --no-create-home --home-dir /app deejaytools-api
 USER deejaytools-api
+
+CMD ["/bin/sh", "-c", "python scripts/apply_migrations.py && python scripts/backfill_principals.py && exec uvicorn src.api_deejaytools.main:app --host 0.0.0.0 --port ${PORT:-3001}"]
