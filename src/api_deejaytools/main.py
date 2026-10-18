@@ -11,12 +11,12 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 
-import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mini_app_polis import activity
 from mini_app_polis.logger import LOG_START, LOG_WARNING, get_logger, with_log_prefix
 from mini_app_polis.request_metrics import RequestMetricsMiddleware
+from mini_app_polis.sentry import init_sentry
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 from . import __version__
@@ -74,19 +74,20 @@ and the two public queue reads the floor screens poll. Must match
 async def lifespan(_app: FastAPI):
     """Initialize and tear down process-level app resources."""
     settings = get_settings()
-    if settings.SENTRY_DSN_APIS:
-        sentry_sdk.init(
-            dsn=settings.SENTRY_DSN_APIS,
-            integrations=[FastApiIntegration()],
-            environment=settings.ENVIRONMENT,
-            traces_sample_rate=1.0,
-        )
-        sentry_sdk.get_global_scope().set_tag("service", "api-deejaytools")
+    # An empty DSN in production logs an ERROR rather than passing silently
+    # (CD-038).
+    sentry_on = init_sentry(
+        "api-deejaytools",
+        dsn_var="SENTRY_DSN_APIS",
+        dsn=settings.SENTRY_DSN_APIS or "",
+        integrations=[FastApiIntegration()],
+        traces_sample_rate=1.0,
+    )
     logger.info(
         with_log_prefix(
             LOG_START,
             f"api-deejaytools starting (env={settings.ENVIRONMENT}, "
-            f"sentry={'on' if settings.SENTRY_DSN_APIS else 'off'})",
+            f"sentry={'on' if sentry_on else 'off'})",
         )
     )
     # Off under DISABLE_SCHEDULER=1 and ENVIRONMENT=test (services/scheduler.py).
