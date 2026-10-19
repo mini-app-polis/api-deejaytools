@@ -1,3 +1,10 @@
+## [1.5.16](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.15...v1.5.16) (2026-10-19)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 6.9.0 ([bd4d01d](https://github.com/mini-app-polis/api-deejaytools/commit/bd4d01d9267e4dabcdf34ebbc0cb28ce1c9e0bfd))
+
 ## [1.5.15](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.14...v1.5.15) (2026-10-19)
 
 
