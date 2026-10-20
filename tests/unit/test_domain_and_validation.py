@@ -10,6 +10,8 @@ from pydantic import ValidationError
 from api_deejaytools.domain import (
     DIVISIONS,
     canonical_timezone,
+    entity_display,
+    entity_name_pair,
     ms_to_date_in_zone,
     partnership_display,
     season_year_from_date_string,
@@ -35,6 +37,51 @@ def test_partnership_display() -> None:
     assert partnership_display("Ada L", "") == "Ada L"
     assert partnership_display("Ada L", "Team X", "team") == "Team X"
     assert partnership_display("Ada L", "", "solo") == "Ada L"
+
+
+def test_entity_name_pair() -> None:
+    def label(**kw: object) -> str:
+        return entity_display(*entity_name_pair(owner_name="Ada L", **kw))  # type: ignore[arg-type]
+
+    assert label() == "Ada L"
+    # Real partners read leader then follower, whichever side owns the song.
+    assert label(partner_name="Bo F", partner_kind="partner") == "Ada L & Bo F"
+    assert (
+        label(partner_name="Lee L", partner_kind="partner", partner_role="leader")
+        == "Lee L & Ada L"
+    )
+    # A team (or other placeholder) is its own name, never the owner's.
+    assert label(partner_name="Jt Swing", partner_kind="team") == "Jt Swing"
+    assert label(partner_name="Jt Swing", partner_kind="team", division="Teams") == (
+        "Jt Swing"
+    )
+    # A managed partnership is its own couple, never the owner.
+    assert label(managed_leader="Ma Lead", managed_follower="Mi Fol") == (
+        "Ma Lead & Mi Fol"
+    )
+    assert label(managed_leader="Ma Lead", managed_follower="") == "Ma Lead"
+    # ProAm reads am then pro.
+    assert (
+        label(partner_name="Pro F", partner_kind="partner", division="ProAm LeaderAm")
+        == "Ada L & Pro F"
+    )
+    assert (
+        label(
+            partner_name="Pro L",
+            partner_kind="partner",
+            partner_role="leader",
+            division="ProAm FollowerAm",
+        )
+        == "Ada L & Pro L"
+    )
+    assert (
+        label(
+            managed_leader="Pro L",
+            managed_follower="Am F",
+            division=" ProAm FollowerAm ",
+        )
+        == "Am F & Pro L"
+    )
 
 
 @pytest.mark.parametrize(

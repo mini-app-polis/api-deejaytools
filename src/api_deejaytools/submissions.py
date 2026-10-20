@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from .domain import is_follower_am_division  # noqa: F401 - re-exported
 from .labels import build_structured_song_label, partnership_label
 from .models import Event, EventSongSubmission, ManagedPartnership, Partner, Song, User
 from .routers.events import compute_status
@@ -59,11 +60,6 @@ def is_open_event(event_name: str | None) -> bool:
     if not event_name:
         return False
     return _NOT_ALNUM.sub("", event_name.lower()).startswith("theopen")
-
-
-def is_follower_am_division(division: str | None) -> bool:
-    """Divisions ordered amateur-first because the follower is the amateur."""
-    return js_trim(division or "") == "ProAm FollowerAm"
 
 
 def effective_division(

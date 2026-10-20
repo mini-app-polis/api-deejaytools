@@ -25,9 +25,10 @@ from ..domain import (
     DEFAULT_TIMEZONE,
     DIVISIONS,
     canonical_timezone,
+    entity_display,
+    entity_name_pair,
     full_name,
     locale_key,
-    partnership_display,
     season_year_from_date_string,
     song_entity_key,
     today_in_zone,
@@ -317,6 +318,7 @@ async def event_entities(
                     Partner.first_name.label("partner_first"),
                     Partner.last_name.label("partner_last"),
                     Partner.kind.label("partner_kind"),
+                    Partner.partner_role.label("partner_role"),
                     ManagedPartnership.leader_first_name,
                     ManagedPartnership.leader_last_name,
                     ManagedPartnership.follower_first_name,
@@ -352,16 +354,27 @@ async def event_entities(
         if key in entities:
             entities[key]["song_count"] += 1
             continue
-        if r.leader_first_name is not None:
-            leader = full_name(r.leader_first_name, r.leader_last_name)
-            follower = full_name(r.follower_first_name, r.follower_last_name)
-            label = f"{leader} & {follower}" if follower else leader
-        else:
-            label = partnership_display(
-                full_name(r.owner_first, r.owner_last),
-                full_name(r.partner_first, r.partner_last),
-                r.partner_kind,
+        # Leader & follower, or a team's own name; ProAm reads am then pro.
+        managed = r.leader_first_name is not None
+        label = entity_display(
+            *entity_name_pair(
+                owner_name=full_name(r.owner_first, r.owner_last),
+                partner_name=full_name(r.partner_first, r.partner_last),
+                partner_kind=r.partner_kind,
+                partner_role=r.partner_role,
+                managed_leader=(
+                    full_name(r.leader_first_name, r.leader_last_name)
+                    if managed
+                    else None
+                ),
+                managed_follower=(
+                    full_name(r.follower_first_name, r.follower_last_name)
+                    if managed
+                    else None
+                ),
+                division=division,
             )
+        )
         entities[key] = {"label": label or "Unnamed entry", "song_count": 1}
 
     divisions: list[dict[str, Any]] = [

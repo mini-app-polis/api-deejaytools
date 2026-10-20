@@ -41,6 +41,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..database import get_sessionmaker
+from ..domain import entity_name_pair
 from ..models import (
     EventSongSubmission,
     ManagedPartnership,
@@ -49,7 +50,6 @@ from ..models import (
     SongUpload,
     User,
 )
-from ..submissions import is_follower_am_division
 from ..zod_coerce import js_trim, js_words
 from . import drive, notifications
 from .drive_jobs import MAX_ATTEMPTS, backoff_ms, enqueue_drive_job
@@ -142,23 +142,27 @@ def entity_names(
     division: str | None,
 ) -> tuple[str, str | None]:
     """(first, second) for the filename and title, after the ProAm swap."""
-    user_name = _name(user.first_name, user.last_name) or user.id
-    leader: str
-    follower: str | None
-    if managed is not None:
-        leader = _name(managed.leader_first_name, managed.leader_last_name)
-        follower = _name(managed.follower_first_name, managed.follower_last_name)
-    elif partner is None:
-        leader, follower = user_name, None
-    elif partner.kind and partner.kind != "partner":
-        leader, follower = _name(partner.first_name, partner.last_name), None
-    elif partner.partner_role == "leader":
-        leader, follower = _name(partner.first_name, partner.last_name), user_name
-    else:
-        leader, follower = user_name, _name(partner.first_name, partner.last_name)
-    if follower is not None and is_follower_am_division(division):
-        return follower, leader
-    return leader, follower
+    return entity_name_pair(
+        owner_name=_name(user.first_name, user.last_name) or user.id,
+        partner_name=(
+            _name(partner.first_name, partner.last_name)
+            if partner is not None
+            else None
+        ),
+        partner_kind=partner.kind if partner is not None else None,
+        partner_role=partner.partner_role if partner is not None else None,
+        managed_leader=(
+            _name(managed.leader_first_name, managed.leader_last_name)
+            if managed is not None
+            else None
+        ),
+        managed_follower=(
+            _name(managed.follower_first_name, managed.follower_last_name)
+            if managed is not None
+            else None
+        ),
+        division=division,
+    )
 
 
 def processed_stem(
