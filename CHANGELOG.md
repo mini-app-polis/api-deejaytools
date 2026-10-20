@@ -1,3 +1,10 @@
+## [1.5.17](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.16...v1.5.17) (2026-10-20)
+
+
+### Bug Fixes
+
+* **events:** label entered entities by leader/follower, team name, and ProAm am/pro order ([21c8b6d](https://github.com/mini-app-polis/api-deejaytools/commit/21c8b6db96a6f69790b8dd91468a994aa55fcae2))
+
 ## [1.5.16](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.15...v1.5.16) (2026-10-19)
 
 
