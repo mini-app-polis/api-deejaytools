@@ -9,20 +9,18 @@ For the configured issuer it:
   - writes the issuer row;
   - creates a `human` principal for every `users` row that has none
     (subject = users.id, already the Clerk `sub`);
-  - grants `deejaytools-dancer` to all of them, and `deejaytools-admin`
-    to rows with role = 'admin' (granted_by = 'migration_backfill');
-  - removes `deejaytools-admin` from principals whose users row says
-    anything but 'admin'.
+  - grants `deejaytools-dancer` to all of them, and seeds
+    `deejaytools-admin` for a row with role = 'admin' only when its
+    principal holds no role yet (granted_by = 'migration_backfill').
 
-So users.role decides admin access at every deploy. Through this service
-the two never disagree (PATCH /v1/admin/users/{id}/role writes both); the
-revoke is for changes made through deejaytools-api while traffic was rolled
-back, where only users.role moves, so a demotion there is not lost.
+After that first grant the identity store is the only authority for admin
+access: users.role is never read again, so editing that column (by SQL, a
+restore or a script) cannot grant or revoke admin at the next deploy.
+Promote and demote through PATCH /v1/admin/users/{id}/role.
 
-Idempotent, so it runs on every deploy, after scripts/apply_migrations.py and before the app. That
-is also the re-run ADR-007 asks for after a rollback window: anyone who
-signed up through deejaytools-api meanwhile is picked up by the next deploy
-(and by their own next sync).
+Idempotent, so it runs on every deploy, after scripts/apply_migrations.py
+and before the app, and picks up anyone who has a users row but no
+principal yet.
 
 Runs as the runtime role: it writes rows, not schema. Exits non-zero on any
 failure, so the deploy fails visibly rather than serving people who cannot
@@ -55,6 +53,10 @@ FROM users u
 ON CONFLICT (issuer, subject) DO NOTHING
 """
 
+# The admin seed applies only to a principal with no roles yet. The
+# NOT EXISTS reads the table as it was before this statement, so a principal
+# created a moment ago in PRINCIPALS_SQL qualifies and one that already holds
+# a role never does.
 GRANTS_SQL = """
 INSERT INTO identity_principal_roles (principal_id, role_name, granted_by)
 SELECT p.id, r.role_name, $2
@@ -63,20 +65,13 @@ JOIN identity_principals p ON p.issuer = $1 AND p.subject = u.id
 CROSS JOIN LATERAL (
   SELECT 'deejaytools-dancer' AS role_name
   UNION ALL
-  SELECT 'deejaytools-admin' WHERE u.role = 'admin'
+  SELECT 'deejaytools-admin'
+  WHERE u.role = 'admin'
+    AND NOT EXISTS (
+      SELECT 1 FROM identity_principal_roles held WHERE held.principal_id = p.id
+    )
 ) r
 ON CONFLICT (principal_id, role_name) DO NOTHING
-"""
-
-
-REVOKE_SQL = """
-DELETE FROM identity_principal_roles r
-USING identity_principals p, users u
-WHERE r.principal_id = p.id
-  AND p.issuer = $1
-  AND p.subject = u.id
-  AND r.role_name = 'deejaytools-admin'
-  AND u.role <> 'admin'
 """
 
 
@@ -95,12 +90,10 @@ async def backfill(
         await conn.execute(ISSUER_SQL, issuer, jwks_url)
         principals = await conn.execute(PRINCIPALS_SQL, issuer)
         grants = await conn.execute(GRANTS_SQL, issuer, GRANTED_BY)
-        revoked = await conn.execute(REVOKE_SQL, issuer)
-    # asyncpg returns the command tag, e.g. "INSERT 0 12" or "DELETE 1".
+    # asyncpg returns the command tag, e.g. "INSERT 0 12".
     return {
         "principals": int(principals.split()[-1]),
         "grants": int(grants.split()[-1]),
-        "revoked": int(revoked.split()[-1]),
     }
 
 
@@ -111,11 +104,10 @@ async def _run(database_url: str, issuer: str, jwks_url: str) -> None:
     finally:
         await conn.close()
     logger.info(
-        "Backfill for %s: %d principal(s), %d grant(s) added, %d admin grant(s) revoked.",
+        "Backfill for %s: %d principal(s), %d grant(s) added.",
         issuer,
         counts["principals"],
         counts["grants"],
-        counts["revoked"],
     )
 
 
