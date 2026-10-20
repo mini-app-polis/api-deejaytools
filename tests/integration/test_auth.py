@@ -98,9 +98,10 @@ async def test_token_signed_by_another_key_is_401(
     assert res.status_code == 401
 
 
-async def test_unreachable_jwks_is_401_and_was_asked(
+async def test_unreachable_jwks_is_503_and_was_asked(
     client: httpx.AsyncClient,
 ) -> None:
+    """An outage leaves the credential unjudged: 503, so the app keeps the session."""
     # Not the clerk fixture: its JWKS route would answer instead of this one.
     from api_deejaytools import auth
 
@@ -112,8 +113,8 @@ async def test_unreachable_jwks_is_401_and_was_asked(
         )
     auth._verifier.cache_clear()
     assert route.called
-    assert res.status_code == 401
-    assert res.json() == UNAUTHORIZED
+    assert res.status_code == 503
+    assert res.json()["error"]["code"] == "AUTH_UNAVAILABLE"
 
 
 # ---------------------------------------------------------------------------
