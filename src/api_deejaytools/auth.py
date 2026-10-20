@@ -53,6 +53,7 @@ from typing import Literal
 
 from fastapi import Depends, Header, Request
 from identity.clerk import ClerkIssuer, ClerkVerifier
+from identity.errors import IssuerUnavailable
 from identity.policy import authorize as decide
 from identity.store import (
     Issuer,
@@ -70,7 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
 from .database import get_db_session
-from .errors import forbidden, unauthorized, user_not_synced
+from .errors import api_error, forbidden, unauthorized, user_not_synced
 from .models import User
 
 logger = get_logger()
@@ -102,13 +103,15 @@ def get_verifier() -> ClerkVerifier | None:
 
 
 async def verify_bearer(authorization: str | None) -> VerifiedSubject:
-    """Verify ``Authorization: Bearer <Clerk session JWT>``. Raises 401 on any failure.
+    """Verify ``Authorization: Bearer <Clerk session JWT>``.
 
-    As deejaytools-api: the scheme must be exactly ``Bearer `` and every
-    failure — no header, bad token, untrusted issuer, unreachable JWKS,
-    unconfigured issuer — is the same 401. The reason is logged with the
-    verifier's own message, so an environment fault (an unreachable JWKS, a
-    rotated key) does not read in the logs like ordinary bad tokens.
+    The scheme must be exactly ``Bearer ``. A credential that was judged and
+    failed — no header, bad token, untrusted issuer, unconfigured issuer — is
+    a 401. An issuer that could not be reached (``IssuerUnavailable``: its
+    JWKS did not answer) is a 503: the credential was never judged, and a 401
+    would make the web app sign the user out over an outage that heals on the
+    next request. The reason is logged with the verifier's own message either
+    way.
     """
     if not authorization or not authorization.startswith("Bearer "):
         logger.warning(with_log_prefix(LOG_WARNING, "auth_failed: missing_token"))
@@ -124,7 +127,12 @@ async def verify_bearer(authorization: str | None) -> VerifiedSubject:
         raise unauthorized()
     try:
         return await verifier.verify(authorization[len("Bearer ") :])
-    except Exception as exc:  # noqa: BLE001 - every failure is a 401, as today
+    except IssuerUnavailable as exc:
+        logger.warning(with_log_prefix(LOG_WARNING, f"auth_unavailable: {exc!r}"))
+        raise api_error(
+            503, "AUTH_UNAVAILABLE", "Identity provider unreachable; retry shortly"
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - every judged failure is a 401
         logger.warning(with_log_prefix(LOG_WARNING, f"auth_failed: {exc!r}"))
         raise unauthorized() from exc
 
