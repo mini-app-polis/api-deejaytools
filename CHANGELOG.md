@@ -1,3 +1,10 @@
+## [1.5.22](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.21...v1.5.22) (2026-10-20)
+
+
+### Bug Fixes
+
+* **auth:** answer 503 instead of 401 when the issuer is unreachable ([cf21e74](https://github.com/mini-app-polis/api-deejaytools/commit/cf21e7476608034c5512c0b84f55787da16f2dd6))
+
 ## [1.5.21](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.20...v1.5.21) (2026-10-20)
 
 
