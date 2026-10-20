@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 
-from .domain import full_name, partnership_display
+from .domain import entity_display, entity_name_pair, full_name
 from .zod_coerce import js_trim
 
 # JavaScript's /_v(\d+)(?:\.[^.]*)?$/: ASCII digits, and $ only at the very end.
@@ -64,15 +64,28 @@ def partnership_label(
     partner_first: str | None,
     partner_last: str | None,
     partner_kind: str | None = None,
+    partner_role: str | None = None,
+    division: str | None = None,
 ) -> str:
-    """The "who" of a song: its managed partnership's names when it has one
-    (joined row present), else owner and partner via ``partnership_display``."""
-    if managed_leader_first is not None:
-        leader = full_name(managed_leader_first, managed_leader_last)
-        follower = full_name(managed_follower_first, managed_follower_last)
-        return f"{leader} & {follower}" if follower else leader
-    return partnership_display(
-        full_name(owner_first, owner_last),
-        full_name(partner_first, partner_last),
-        partner_kind,
+    """The "who" of a song: its managed partnership when it has one (joined
+    row present), else owner and partner, ordered by ``entity_name_pair``."""
+    managed = managed_leader_first is not None
+    return entity_display(
+        *entity_name_pair(
+            owner_name=full_name(owner_first, owner_last),
+            partner_name=full_name(partner_first, partner_last),
+            partner_kind=partner_kind,
+            partner_role=partner_role,
+            managed_leader=(
+                full_name(managed_leader_first, managed_leader_last)
+                if managed
+                else None
+            ),
+            managed_follower=(
+                full_name(managed_follower_first, managed_follower_last)
+                if managed
+                else None
+            ),
+            division=division,
+        )
     )

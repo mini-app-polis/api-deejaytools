@@ -88,6 +88,13 @@ deejaytools-api's codes and shapes (`errors.py`).
   retry, a restart), so whoever uploaded a song for someone else is staged
   with the bytes (`song_uploads.uploaded_by_user_id`, migration 004)
   rather than kept in memory. What posts where: docs/OPERATIONS.md.
+- **Who a song belongs to reads leader first** (`domain.entity_name_pair`).
+  deejaytools-api named the song's owner first ("owner & partner"). Here a
+  managed partnership is its leader and follower, a team or other
+  placeholder partner is its own name alone, and a real partner is ordered
+  leader then follower by `partner_role`. ProAm reads amateur then pro, so
+  ProAm FollowerAm swaps the pair. One rule names the event's entered
+  entities, submission and run labels, and the processed filename.
 - **No prepared-statement caching** (`database.py`): the service survives
   its schema being rebuilt underneath it, which deejaytools-api's
   CONFORMANCE.md requires of a target, for one extra round trip per query.

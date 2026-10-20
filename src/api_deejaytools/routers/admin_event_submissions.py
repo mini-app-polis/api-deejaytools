@@ -104,6 +104,7 @@ async def list_event_submissions(
                     Partner.first_name.label("partner_first"),
                     Partner.last_name.label("partner_last"),
                     Partner.kind.label("partner_kind"),
+                    Partner.partner_role.label("partner_role"),
                     managed.leader_first_name.label("managed_leader_first"),
                     managed.leader_last_name.label("managed_leader_last"),
                     managed.follower_first_name.label("managed_follower_first"),
@@ -136,6 +137,8 @@ async def list_event_submissions(
                 partner_first=r.partner_first,
                 partner_last=r.partner_last,
                 partner_kind=r.partner_kind,
+                partner_role=r.partner_role,
+                division=r.song_division,
             )
             data.append(
                 {
