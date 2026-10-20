@@ -1,3 +1,12 @@
+## [1.5.18](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.17...v1.5.18) (2026-10-20)
+
+
+### Bug Fixes
+
+* **auth:** stop users.role overriding admin grants on deploy ([f3f536d](https://github.com/mini-app-polis/api-deejaytools/commit/f3f536d5ea25c12f5dfdf7d8af45545a9e3080cd))
+* **auth:** stop users.role overriding admin grants on deploy ([e92c158](https://github.com/mini-app-polis/api-deejaytools/commit/e92c158e1ac4686c8f9964ff823658971b39e230))
+* **deps:** bump certifi to 2026.10.19 for GHSA-6q48-6c7w-9gw2 ([67b0505](https://github.com/mini-app-polis/api-deejaytools/commit/67b05051a0cceb9f25f8d41dc8cc72e89104a297))
+
 ## [1.5.17](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.16...v1.5.17) (2026-10-20)
 
 
