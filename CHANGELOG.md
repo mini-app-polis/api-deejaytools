@@ -1,3 +1,10 @@
+## [1.5.21](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.20...v1.5.21) (2026-10-20)
+
+
+### Bug Fixes
+
+* **labels:** name song partnerships leader first, by team, and ProAm am/pro in submission and run labels ([92b1039](https://github.com/mini-app-polis/api-deejaytools/commit/92b10399e9f8e204bb0ceee4c714f7d47ef16dbe))
+
 ## [1.5.20](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.19...v1.5.20) (2026-10-20)
 
 
