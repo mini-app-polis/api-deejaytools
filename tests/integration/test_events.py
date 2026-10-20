@@ -239,6 +239,63 @@ async def test_entities_grouped_by_division(
     ]
 
 
+async def test_entity_labels_follow_roles_teams_and_proam(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    dancer = await person("dancer")
+    event = await _create(client, admin)
+    await db.execute(
+        "INSERT INTO partners (id, user_id, first_name, last_name, partner_role,"
+        " kind, created_at, updated_at) VALUES"
+        " ('lead', $1, 'Lee', 'Lead', 'leader', 'partner', 1, 1),"
+        " ('team', $1, 'Jt Swing', '', 'follower', 'team', 1, 1)",
+        dancer.id,
+    )
+    await db.execute(
+        "INSERT INTO managed_partnerships (id, user_id, leader_first_name, leader_last_name,"
+        " follower_first_name, follower_last_name, created_at, updated_at) "
+        "VALUES ('mp', $1, 'Pro', 'Lead', 'Amy', 'Am', 1, 1)",
+        dancer.id,
+    )
+    songs = [
+        ("s1", "lead", None, "Classic"),
+        ("s2", "team", None, "Teams"),
+        ("s3", None, "mp", "ProAm FollowerAm"),
+        ("s4", "lead", None, "ProAm FollowerAm"),
+    ]
+    for sid, partner, managed, division in songs:
+        await db.execute(
+            "INSERT INTO songs (id, user_id, partner_id, managed_partnership_id, division,"
+            " created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 1, 1)",
+            sid,
+            dancer.id,
+            partner,
+            managed,
+            division,
+        )
+        await db.execute(
+            "INSERT INTO event_song_submissions (id, event_id, song_id,"
+            " submitted_by_user_id, created_at) VALUES ($1, $2, $3, $4, 1)",
+            f"sub_{sid}",
+            event["id"],
+            sid,
+            dancer.id,
+        )
+
+    res = await client.get(f"/v1/events/{event['id']}/entities", headers=dancer.headers)
+
+    assert res.status_code == 200
+    labels = {
+        d["division"]: [e["label"] for e in d["entities"]] for d in res.json()["data"]
+    }
+    assert labels == {
+        "Classic": ["Lee Lead & Dancer"],
+        "ProAm FollowerAm": ["Amy Am & Pro Lead", "Dancer & Lee Lead"],
+        "Teams": ["Jt Swing"],
+    }
+
+
 async def test_delete_cascades_and_queues_copies_for_trash(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:

@@ -66,6 +66,50 @@ def full_name(*parts: str | None) -> str:
     return js_trim(" ".join(p for p in parts if p))
 
 
+def is_follower_am_division(division: str | None) -> bool:
+    """Divisions ordered amateur-first because the follower is the amateur."""
+    return js_trim(division or "") == "ProAm FollowerAm"
+
+
+def entity_name_pair(
+    *,
+    owner_name: str,
+    partner_name: str | None = None,
+    partner_kind: str | None = None,
+    partner_role: str | None = None,
+    managed_leader: str | None = None,
+    managed_follower: str | None = None,
+    division: str | None = None,
+) -> tuple[str, str | None]:
+    """(first, second) names of a song's competing entity.
+
+    A managed partnership is its leader and follower; a placeholder partner
+    (team, solo, other) is just its own name; a real partner is ordered leader
+    then follower by ``partner_role``. ProAm divisions read amateur then pro:
+    LeaderAm already is, FollowerAm swaps.
+    """
+    first: str
+    second: str | None
+    if managed_leader is not None:
+        first, second = managed_leader, managed_follower or None
+    elif not partner_name:
+        first, second = owner_name, None
+    elif partner_kind and partner_kind != "partner":
+        first, second = partner_name, None
+    elif partner_role == "leader":
+        first, second = partner_name, owner_name or None
+    else:
+        first, second = owner_name, partner_name
+    if second is not None and is_follower_am_division(division):
+        return second, first
+    return first, second
+
+
+def entity_display(first: str, second: str | None) -> str:
+    """``first & second``, or ``first`` alone."""
+    return f"{first} & {second}" if second else first
+
+
 def season_year_from_date_string(date_str: str) -> str:
     """Season year for a YYYY-MM-DD string, read from its fields (no timezone)."""
     year_str, _, rest = date_str.partition("-")
