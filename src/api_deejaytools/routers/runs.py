@@ -148,6 +148,7 @@ async def list_runs(
             song_partner.first_name.label("song_partner_first"),
             song_partner.last_name.label("song_partner_last"),
             song_partner.kind.label("song_partner_kind"),
+            song_partner.partner_role.label("song_partner_role"),
             song_managed.leader_first_name.label("song_managed_leader_first"),
             song_managed.leader_last_name.label("song_managed_leader_last"),
             song_managed.follower_first_name.label("song_managed_follower_first"),
@@ -224,6 +225,8 @@ async def list_runs(
             partner_first=r.song_partner_first,
             partner_last=r.song_partner_last,
             partner_kind=r.song_partner_kind,
+            partner_role=r.song_partner_role,
+            division=r.song_division,
         )
         data.append(
             {

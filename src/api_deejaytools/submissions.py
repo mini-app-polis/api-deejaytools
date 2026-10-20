@@ -130,6 +130,7 @@ async def fetch_user_submission_rows(
             Partner.first_name.label("partner_first"),
             Partner.last_name.label("partner_last"),
             Partner.kind.label("partner_kind"),
+            Partner.partner_role.label("partner_role"),
             managed.leader_first_name.label("managed_leader_first"),
             managed.leader_last_name.label("managed_leader_last"),
             managed.follower_first_name.label("managed_follower_first"),
@@ -168,6 +169,8 @@ def map_submission_row(row: Any) -> dict[str, Any]:
         partner_first=row.partner_first,
         partner_last=row.partner_last,
         partner_kind=row.partner_kind,
+        partner_role=row.partner_role,
+        division=division,
     )
     return {
         "id": row.id,

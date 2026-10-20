@@ -29,6 +29,13 @@
 // mini_app_polis reads on its behalf. The two that are not shared, the
 // database URL (a reference to Postgres-deejaytools) and PORT, are kept as
 // Railway has them.
+//
+// The rest of the Settings fields the service reads in production are not
+// shared either, and are kept as Railway has them with preserve(): set on
+// the service when needed and left unset otherwise, so the code's default
+// applies without Doppler holding every one of them.
+// tests/unit/test_railway_variables.py fails when a Settings field is
+// neither declared here nor listed there as deliberately left out.
 
 import { defineRailway, github, preserve, project, service } from "railway/iac";
 
@@ -78,7 +85,17 @@ export default defineRailway((ctx) => {
     env: {
       ...Object.fromEntries(SHARED.map((n) => [n, ctx.shared[n]])),
       DEEJAYTOOLS_DATABASE_URL: preserve(),
+      // OPS-002: the schema-owning role's connection, read by
+      // scripts/apply_migrations.py. Like the one above, a database URL.
+      DEEJAYTOOLS_DATABASE_URL_MIGRATIONS: preserve(),
       PORT: preserve(),
+      // The fallback for every Discord channel without its own webhook.
+      DISCORD_WEBHOOK_URL: preserve(),
+      // Mutes the change feed without a deploy (docs/OPERATIONS.md).
+      NOTIFY_DATA_CHANGES: preserve(),
+      // The scheduler's pace, and its off switch.
+      TICK_INTERVAL_MS: preserve(),
+      DISABLE_SCHEDULER: preserve(),
     },
   });
 
