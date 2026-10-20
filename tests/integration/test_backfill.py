@@ -38,7 +38,7 @@ async def test_backfill_provisions_every_user(db: asyncpg.Connection) -> None:
 
     counts = await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL)
 
-    assert counts == {"principals": 2, "grants": 3, "revoked": 0}
+    assert counts == {"principals": 2, "grants": 3}
     assert await _grants(db) == {
         "user_dancer": {"deejaytools-dancer"},
         "user_admin": {"deejaytools-dancer", "deejaytools-admin"},
@@ -62,34 +62,38 @@ async def test_backfill_is_idempotent(db: asyncpg.Connection) -> None:
     assert await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL) == {
         "principals": 0,
         "grants": 0,
-        "revoked": 0,
     }
 
 
 async def test_backfill_picks_up_users_added_later(db: asyncpg.Connection) -> None:
-    """The rollback case: a user who signed up through deejaytools-api meanwhile."""
+    """Someone with a users row but no principal yet is provisioned next deploy."""
     await _add_user(db, "user_before")
     await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL)
-    await _add_user(db, "user_during_rollback")
+    await _add_user(db, "user_after")
 
     counts = await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL)
 
-    assert counts == {"principals": 1, "grants": 1, "revoked": 0}
-    assert "user_during_rollback" in await _grants(db)
+    assert counts == {"principals": 1, "grants": 1}
+    assert "user_after" in await _grants(db)
 
 
-async def test_backfill_revokes_admin_demoted_in_users_role(
+async def test_users_role_never_overrides_the_identity_store(
     db: asyncpg.Connection,
 ) -> None:
-    """The rollback case: someone demoted through deejaytools-api meanwhile."""
+    """Once provisioned, editing users.role grants and revokes nothing."""
     await _add_user(db, "user_was_admin", role="admin")
+    await _add_user(db, "user_was_dancer")
     await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL)
     await db.execute("UPDATE users SET role = 'user' WHERE id = 'user_was_admin'")
+    await db.execute("UPDATE users SET role = 'admin' WHERE id = 'user_was_dancer'")
 
     counts = await backfill_mod.backfill(db, TEST_ISSUER, TEST_JWKS_URL)
 
-    assert counts == {"principals": 0, "grants": 0, "revoked": 1}
-    assert await _grants(db) == {"user_was_admin": {"deejaytools-dancer"}}
+    assert counts == {"principals": 0, "grants": 0}
+    assert await _grants(db) == {
+        "user_was_admin": {"deejaytools-dancer", "deejaytools-admin"},
+        "user_was_dancer": {"deejaytools-dancer"},
+    }
 
 
 def test_main_refuses_without_issuer(monkeypatch: pytest.MonkeyPatch) -> None:
