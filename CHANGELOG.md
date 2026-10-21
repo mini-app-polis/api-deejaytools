@@ -1,3 +1,11 @@
+## [1.5.28](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.27...v1.5.28) (2026-10-21)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 6.15.0 ([5d4e576](https://github.com/mini-app-polis/api-deejaytools/commit/5d4e57655b5bc5efe2f6f0b1de2fb8fb6b878962))
+* **deps:** patch vulnerable dependencies (virtualenv) ([cb42f29](https://github.com/mini-app-polis/api-deejaytools/commit/cb42f29b8caa3a9050e4a66bad626eb0d53de1cd))
+
 ## [1.5.27](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.26...v1.5.27) (2026-10-21)
 
 
