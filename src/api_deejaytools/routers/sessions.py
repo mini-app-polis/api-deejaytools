@@ -555,6 +555,7 @@ async def create_session(
     if division_rows:
         await db.execute(insert(SessionDivision), division_rows)
     await db.commit()
+    invalidate_session_cache(session_id)
     return success(await _full(db, session_id))
 
 
