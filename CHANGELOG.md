@@ -1,3 +1,12 @@
+## [1.5.26](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.25...v1.5.26) (2026-10-21)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 6.12.0 ([eb352c8](https://github.com/mini-app-polis/api-deejaytools/commit/eb352c8cce808b189a1623581871712d866690cc))
+* **deps:** bump miniapppolis-common-utils to 6.13.0 ([ebf109e](https://github.com/mini-app-polis/api-deejaytools/commit/ebf109e53f34e3c02a5b0c428d8b4c14b2586314))
+* **sessions:** clear the cached session reads when a session is created or its event changes ([d50bb42](https://github.com/mini-app-polis/api-deejaytools/commit/d50bb429b709bb9f8d5518db3bc29e25cc8a4b28))
+
 ## [1.5.25](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.24...v1.5.25) (2026-10-21)
 
 
