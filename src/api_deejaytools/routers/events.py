@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from ..auth import Caller, require_scope
+from ..cache import invalidate_all_session_caches
 from ..database import get_db_session
 from ..domain import (
     DEFAULT_TIMEZONE,
@@ -463,6 +464,7 @@ async def patch_event(
             setattr(row, field, value)
     row.updated_at = _now_ms()
     await session.commit()
+    invalidate_all_session_caches()
     return success(map_event(row))
 
 
@@ -515,6 +517,7 @@ async def delete_event(
     )
     await session.execute(delete(Event).where(Event.id == id))
     await session.commit()
+    invalidate_all_session_caches()
 
     await enqueue_trash_jobs(
         session, orphaned_copies, source="event_delete", context={"event_id": id}

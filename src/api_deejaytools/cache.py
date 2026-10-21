@@ -68,3 +68,13 @@ def invalidate_session_cache(session_id: str) -> None:
     # A change to any session can affect every GET /v1/sessions variant.
     response_cache.invalidate_prefix("sessions:list:")
     invalidate_queue_cache(session_id)
+
+
+def invalidate_all_session_caches() -> None:
+    """Invalidate every cached session and queue view.
+
+    For an event change: session reads carry the event's name and timezone,
+    and deleting an event deletes its sessions with their queues.
+    """
+    response_cache.invalidate_prefix("sessions:")
+    response_cache.invalidate_prefix("queue:")

@@ -281,3 +281,49 @@ async def test_delete_cascades(
         "code": "NOT_FOUND",
         "message": "Session not found",
     }
+
+
+# --- the cached reads follow writes -------------------------------------------------
+
+
+async def test_a_new_session_shows_in_lists_read_moments_before(
+    client: httpx.AsyncClient, person: Callable
+) -> None:
+    """The lists are cached for a few seconds; creating a session must not
+    leave an admin looking at a list without it."""
+    admin = await person("admin", admin=True)
+    event_id = await _event(client, admin)
+    # Read both list variants first, so they are cached.
+    assert (await client.get("/v1/sessions")).json()["data"] == []
+    assert (await client.get(f"/v1/sessions?event_id={event_id}")).json()["data"] == []
+
+    created = (await _session(client, admin, event_id)).json()["data"]
+
+    for url in ("/v1/sessions", f"/v1/sessions?event_id={event_id}"):
+        ids = [s["id"] for s in (await client.get(url)).json()["data"]]
+        assert ids == [created["id"]], url
+
+
+async def test_event_changes_reach_cached_session_reads(
+    client: httpx.AsyncClient, person: Callable
+) -> None:
+    """Session reads carry the event's timezone, and deleting an event
+    deletes its sessions: neither waits for the cache to expire."""
+    admin = await person("admin", admin=True)
+    event_id = await _event(client, admin)
+    session_id = (await _session(client, admin, event_id)).json()["data"]["id"]
+    [listed] = (await client.get("/v1/sessions")).json()["data"]
+    assert listed["event_timezone"] == "UTC"
+    assert (await client.get(f"/v1/sessions/{session_id}")).status_code == 200
+
+    await client.patch(
+        f"/v1/events/{event_id}",
+        json={"timezone": "America/Chicago"},
+        headers=admin.headers,
+    )
+    [listed] = (await client.get("/v1/sessions")).json()["data"]
+    assert listed["event_timezone"] == "America/Chicago"
+
+    await client.delete(f"/v1/events/{event_id}", headers=admin.headers)
+    assert (await client.get("/v1/sessions")).json()["data"] == []
+    assert (await client.get(f"/v1/sessions/{session_id}")).status_code == 404
