@@ -8,6 +8,7 @@ from typing import Any
 
 import asyncpg
 import httpx
+import pytest
 
 from api_deejaytools.cache import response_cache
 
@@ -634,3 +635,69 @@ async def test_withdraw_any_queue_compacts_and_refills(
         session_id,
     )
     assert [r["checkin_id"] for r in active] == [s[0]["checkin_id"]]
+
+
+# --- a failure part-way through an action ------------------------------------------
+
+_RETRY = "conflicted with concurrent activity; please retry"
+
+
+@pytest.mark.parametrize(
+    ("path", "queue_type", "index", "message"),
+    [
+        ("complete", "active", 0, f"Completion {_RETRY}"),
+        ("incomplete", "active", 0, f"Rotation {_RETRY}"),
+        ("move-down", "non_priority", 0, f"Move {_RETRY}"),
+        ("withdraw", "non_priority", 1, f"Withdraw {_RETRY}"),
+    ],
+)
+async def test_a_failure_mid_action_is_a_409_that_leaves_the_queue_as_it_was(
+    client: httpx.AsyncClient,
+    person: Callable[..., Any],
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    queue_type: str,
+    index: int,
+    message: str,
+) -> None:
+    """Each action has already moved, removed or recorded rows when its audit
+    row is written. Failing there must roll all of it back: the manager is
+    told to retry, and a retry starts from the queue they were looking at."""
+    admin = await person("admin", admin=True)
+    session_id = await insert_floor_session(db, **_closed_window())
+    entries = {
+        "active": await _fill(db, session_id, "active", 3),
+        "non_priority": await _fill(db, session_id, "non_priority", 3),
+    }
+    entry_id = entries[queue_type][index]["entry_id"]
+
+    async def snapshot() -> tuple[Any, ...]:
+        runs = await db.fetchval(
+            "SELECT count(*) FROM runs WHERE session_id = $1", session_id
+        )
+        return (
+            await positions(db, session_id, "active"),
+            await positions(db, session_id, "non_priority"),
+            await queue_events(db, session_id),
+            runs,
+        )
+
+    before = await snapshot()
+
+    async def fail(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("audit write failed")
+
+    monkeypatch.setattr("api_deejaytools.routers.queue.record_queue_event", fail)
+    res = await client.post(
+        f"/v1/queue/{path}", json={"queueEntryId": entry_id}, headers=admin.headers
+    )
+    assert (res.status_code, _error(res)[2]) == (409, message)
+    assert await snapshot() == before
+
+    monkeypatch.undo()
+    retry = await client.post(
+        f"/v1/queue/{path}", json={"queueEntryId": entry_id}, headers=admin.headers
+    )
+    assert retry.status_code == 200
+    assert await snapshot() != before
