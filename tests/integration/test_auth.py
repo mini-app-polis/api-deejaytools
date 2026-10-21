@@ -26,6 +26,7 @@ NOT_SYNCED = {
     "error": {"code": "USER_NOT_SYNCED", "message": "Call POST /v1/auth/sync first"}
 }
 FORBIDDEN = {"error": {"code": "FORBIDDEN", "message": "Admin access required"}}
+JSON = {"Content-Type": "application/json"}
 
 
 async def _sync(client: httpx.AsyncClient, token: str, **body) -> httpx.Response:
@@ -506,3 +507,84 @@ async def test_patch_me_needs_a_principal(
     )
     assert res.status_code == 401
     assert res.json() == NOT_SYNCED
+
+
+async def test_every_route_a_dancer_lacks_the_scope_for_is_403(
+    client: httpx.AsyncClient,
+    clerk: Clerk,
+    db: asyncpg.Connection,
+    new_user_id: Callable[[], str],
+) -> None:
+    """A newly signed-in user holds only the roles sync grants. Every scoped
+    route whose scope those roles lack refuses them with the admin 403, before
+    looking at the path, query or body. The granted scopes come from the
+    seeded role-scope table, not a list here; every /v1/admin route must be
+    among the refused, so an admin route given a dancer's scope fails too.
+    """
+    import importlib
+    import inspect
+    import pkgutil
+
+    from fastapi.routing import APIRoute
+
+    import api_deejaytools.routers as routers_pkg
+
+    def route_scope(dependant: object) -> str | None:
+        for dep in dependant.dependencies:  # type: ignore[attr-defined]
+            try:
+                scope = inspect.getclosurevars(dep.call).nonlocals.get("scope")
+            except TypeError:
+                scope = None
+            if isinstance(scope, str):
+                return scope
+            found = route_scope(dep)
+            if found:
+                return found
+        return None
+
+    uid = new_user_id()
+    assert (await _sync(client, clerk.token(uid))).status_code == 200
+    granted = {
+        r["scope"]
+        for r in await db.fetch(
+            "SELECT rs.scope FROM identity_role_scopes rs "
+            "JOIN identity_principal_roles pr ON pr.role_name = rs.role_name "
+            "JOIN identity_principals p ON p.id = pr.principal_id "
+            "WHERE p.subject = $1",
+            uid,
+        )
+    }
+    assert granted  # not vacuous: sync grants the dancer role
+
+    scoped_routes = [
+        (route, scope)
+        for info in pkgutil.iter_modules(routers_pkg.__path__)
+        for route in importlib.import_module(
+            f"api_deejaytools.routers.{info.name}"
+        ).router.routes
+        if isinstance(route, APIRoute)
+        and (scope := route_scope(route.dependant)) is not None
+    ]
+    reachable_admin = [
+        f"{route.path} ({scope})"
+        for route, scope in scoped_routes
+        if route.path.startswith("/v1/admin") and scope in granted
+    ]
+    assert reachable_admin == []
+    routes = [(route, scope) for route, scope in scoped_routes if scope not in granted]
+    assert len(routes) > 10  # not vacuous: the admin and manager routes
+
+    headers = {**JSON, **bearer(clerk.token(uid))}
+    wrong = []
+    for route, scope in routes:
+        path = route.path_format.replace("{", "").replace("}", "")
+        for method in route.methods:
+            res = await client.request(
+                method,
+                path + "?limit=nope&event_id=a&event_id=b",
+                content=b'{"status": 5, "divisions": "x"}',
+                headers=headers,
+            )
+            if res.status_code != 403 or res.json() != FORBIDDEN:
+                wrong.append(f"{method} {route.path} ({scope}): {res.status_code}")
+    assert wrong == []
