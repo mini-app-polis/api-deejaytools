@@ -1,3 +1,11 @@
+## [1.5.30](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.29...v1.5.30) (2026-10-22)
+
+
+### Bug Fixes
+
+* **config:** one Google key file and one Brevo key ([ced5519](https://github.com/mini-app-polis/api-deejaytools/commit/ced551917d44ae3cf725e0b99418d0dc08830057))
+* **deps:** patch vulnerable dependencies (opentelemetry-api) ([7c96b00](https://github.com/mini-app-polis/api-deejaytools/commit/7c96b0065ade2d4059898de938ee77c97537662f))
+
 ## [1.5.29](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.28...v1.5.29) (2026-10-21)
 
 
