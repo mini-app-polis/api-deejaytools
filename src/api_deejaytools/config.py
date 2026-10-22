@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from typing import Annotated
 
@@ -69,15 +70,10 @@ class Settings(BaseSettings):
 
     # POST /v1/feedback emails through Brevo when a key is set; unset, the
     # feedback is accepted and no email is sent (deejaytools-api feedback.ts).
-    # BREVO_API_KEY is the legacy name, read only when the prefixed one is
-    # unset or empty: in the shared Doppler config the unprefixed name is
-    # api-kaianolevine-com's, a different Brevo account.
-    DEEJAYTOOLS_BREVO_API_KEY: str | None = Field(
-        default=None, description="Brevo API key for feedback emails."
-    )
+    # One Brevo account serves the fleet, so this is the same key
+    # api-kaianolevine-com reads.
     BREVO_API_KEY: str | None = Field(
-        default=None,
-        description="Legacy name for the Brevo key, read when the prefixed is unset.",
+        default=None, description="Brevo API key for feedback emails."
     )
 
     @property
@@ -94,8 +90,35 @@ class Settings(BaseSettings):
 
     @property
     def brevo_api_key(self) -> str | None:
-        """The Brevo key to use, as ``DEEJAYTOOLS_BREVO_API_KEY || BREVO_API_KEY``."""
-        return self.DEEJAYTOOLS_BREVO_API_KEY or self.BREVO_API_KEY or None
+        """The Brevo key, or None when ``BREVO_API_KEY`` is unset or empty."""
+        return self.BREVO_API_KEY or None
+
+    @property
+    def google_service_account(self) -> tuple[str, str] | None:
+        """``(client_email, private_key)`` from ``GOOGLE_CREDENTIALS_JSON``.
+
+        None when it is unset, is not a JSON object, or lacks either field.
+        Parsed with ``strict=False``: Doppler stores the key's line breaks as
+        real newlines, which strict JSON rejects inside a string.
+        """
+        raw = (self.GOOGLE_CREDENTIALS_JSON or "").strip()
+        if not raw:
+            return None
+        try:
+            info = json.loads(raw, strict=False)
+        except ValueError:
+            return None
+        if not isinstance(info, dict):
+            return None
+        email, key = info.get("client_email"), info.get("private_key")
+        if (
+            not isinstance(email, str)
+            or not email
+            or not isinstance(key, str)
+            or not key
+        ):
+            return None
+        return email, key
 
     # Discord notifications (services/notifications.py): the fleet's shared
     # channels, so unprefixed, the names mini_app_polis.discord reads. Each
@@ -122,15 +145,12 @@ class Settings(BaseSettings):
         default=True, description="Post per-request data-change summaries."
     )
 
-    # Google Drive (deejaytools-api DRIVE.md, "Configuration"). Unprefixed:
-    # the names deejaytools-api reads. All three are required by every Drive
-    # call; an empty value counts as missing, as it does there.
-    GOOGLE_SERVICE_ACCOUNT_EMAIL: str | None = Field(
-        default=None, description="Service account the Drive layer acts as."
-    )
-    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = Field(
-        default=None,
-        description="Its PEM private key; literal \\n sequences become newlines.",
+    # Google Drive (deejaytools-api DRIVE.md, "Configuration"). The fleet's
+    # one service account, as the JSON key file Google issues — the same
+    # GOOGLE_CREDENTIALS_JSON every cog reads. It and the parent folder are
+    # required by every Drive call; an empty value counts as missing.
+    GOOGLE_CREDENTIALS_JSON: str | None = Field(
+        default=None, description="The service account's JSON key file."
     )
     GOOGLE_DRIVE_PARENT_FOLDER_ID: str | None = Field(
         default=None, description="Root Drive folder every song file lives under."

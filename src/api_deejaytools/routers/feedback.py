@@ -194,8 +194,7 @@ async def send_feedback(request: Request) -> Any:
         logger.warning(
             with_log_prefix(
                 LOG_WARNING,
-                "feedback DEEJAYTOOLS_BREVO_API_KEY not set; "
-                "skipping transactional email",
+                "feedback BREVO_API_KEY not set; skipping transactional email",
             )
         )
 

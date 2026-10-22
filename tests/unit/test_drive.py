@@ -8,6 +8,7 @@ drive_fakes.py.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -35,8 +36,11 @@ class Clock:
 @pytest.fixture
 def configured(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = get_settings()
-    monkeypatch.setattr(settings, "GOOGLE_SERVICE_ACCOUNT_EMAIL", "sa@x.iam")
-    monkeypatch.setattr(settings, "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY", "KEY")
+    monkeypatch.setattr(
+        settings,
+        "GOOGLE_CREDENTIALS_JSON",
+        json.dumps({"client_email": "sa@x.iam", "private_key": "KEY"}),
+    )
     monkeypatch.setattr(settings, "GOOGLE_DRIVE_PARENT_FOLDER_ID", ROOT)
 
 
@@ -91,11 +95,7 @@ def test_sanitize_folder_name(raw: str, expected: str) -> None:
 
 @pytest.mark.parametrize(
     "missing",
-    [
-        "GOOGLE_SERVICE_ACCOUNT_EMAIL",
-        "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY",
-        "GOOGLE_DRIVE_PARENT_FOLDER_ID",
-    ],
+    ["GOOGLE_CREDENTIALS_JSON", "GOOGLE_DRIVE_PARENT_FOLDER_ID"],
 )
 @pytest.mark.parametrize("value", [None, ""])
 async def test_every_operation_fails_fast_when_unconfigured(
@@ -133,18 +133,37 @@ async def test_every_operation_fails_fast_when_unconfigured(
         assert str(info.value) == NOT_CONFIGURED
 
 
-def test_drive_configured_when_all_three_are_set(configured: None) -> None:
+def test_drive_configured_when_both_are_set(configured: None) -> None:
     assert drive.drive_configured() is True
 
 
-def test_credentials_use_drive_file_scope_and_unescape_the_key(
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "not json",
+        "[]",
+        json.dumps({"private_key": "KEY"}),
+        json.dumps({"client_email": "sa@x.iam"}),
+        json.dumps({"client_email": "", "private_key": "KEY"}),
+    ],
+)
+def test_unusable_credentials_json_counts_as_unconfigured(
+    configured: None, monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    monkeypatch.setattr(get_settings(), "GOOGLE_CREDENTIALS_JSON", raw)
+    assert drive.drive_configured() is False
+
+
+def test_credentials_use_drive_file_scope_and_the_files_key(
     configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        get_settings(),
-        "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY",
-        "-----BEGIN-----\\nabc\\n-----END-----\\n",
+    # Doppler stores the key file with the PEM's line breaks as real
+    # newlines inside the JSON string; strict JSON would reject that.
+    raw = (
+        '{"client_email": "sa@x.iam", '
+        '"private_key": "-----BEGIN-----\nabc\n-----END-----\n"}'
     )
+    monkeypatch.setattr(get_settings(), "GOOGLE_CREDENTIALS_JSON", raw)
     seen: dict[str, Any] = {}
 
     class FakeFacade:

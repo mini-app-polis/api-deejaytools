@@ -28,7 +28,6 @@ ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
 def brevo(monkeypatch: pytest.MonkeyPatch) -> Iterator[respx.Router]:
     """No Brevo key by default; Brevo's endpoint mocked, nothing else reachable."""
     settings = get_settings()
-    monkeypatch.setattr(settings, "DEEJAYTOOLS_BREVO_API_KEY", None)
     monkeypatch.setattr(settings, "BREVO_API_KEY", None)
     with respx.mock(assert_all_mocked=True, assert_all_called=False) as router:
         router.post(BREVO, name="brevo").mock(
@@ -62,8 +61,7 @@ async def test_without_a_key_it_is_accepted_and_nothing_is_sent(
 async def test_with_a_key_it_emails_the_feedback(
     client: httpx.AsyncClient, brevo: respx.Router, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _key(monkeypatch, "DEEJAYTOOLS_BREVO_API_KEY", "key-new")
-    _key(monkeypatch, "BREVO_API_KEY", "key-legacy")
+    _key(monkeypatch, "BREVO_API_KEY", "key-new")
     res = await client.post(
         URL,
         json={
@@ -103,12 +101,10 @@ async def test_with_a_key_it_emails_the_feedback(
     )
 
 
-async def test_legacy_key_and_blank_contact_fields(
+async def test_blank_contact_fields(
     client: httpx.AsyncClient, brevo: respx.Router, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # An empty prefixed key falls through to the legacy one, as `||` does.
-    _key(monkeypatch, "DEEJAYTOOLS_BREVO_API_KEY", "")
-    _key(monkeypatch, "BREVO_API_KEY", "key-legacy")
+    _key(monkeypatch, "BREVO_API_KEY", "key")
     res = await client.post(
         URL,
         json={
@@ -122,7 +118,7 @@ async def test_legacy_key_and_blank_contact_fields(
     )
     assert res.status_code == 201, res.text
     request, payload = _sent(brevo)
-    assert request.headers["api-key"] == "key-legacy"
+    assert request.headers["api-key"] == "key"
     assert "Name:  Not provided\nEmail: Not provided\n" in payload["textContent"]
     assert "attachment" not in payload
 
@@ -144,7 +140,7 @@ async def test_screenshot_is_attached(
     name: str,
     content: str,
 ) -> None:
-    _key(monkeypatch, "DEEJAYTOOLS_BREVO_API_KEY", "key")
+    _key(monkeypatch, "BREVO_API_KEY", "key")
     res = await client.post(
         URL,
         json={"type": "bug", "subject": "s", "message": "m", "screenshot": screenshot},
@@ -157,7 +153,7 @@ async def test_screenshot_is_attached(
 async def test_empty_base64_is_not_attached(
     client: httpx.AsyncClient, brevo: respx.Router, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _key(monkeypatch, "DEEJAYTOOLS_BREVO_API_KEY", "key")
+    _key(monkeypatch, "BREVO_API_KEY", "key")
     res = await client.post(
         URL,
         json={
@@ -175,7 +171,7 @@ async def test_empty_base64_is_not_attached(
 async def test_brevo_failure_is_502(
     client: httpx.AsyncClient, brevo: respx.Router, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _key(monkeypatch, "DEEJAYTOOLS_BREVO_API_KEY", "key")
+    _key(monkeypatch, "BREVO_API_KEY", "key")
     brevo.routes["brevo"].mock(
         return_value=httpx.Response(401, json={"code": "unauthorized"})
     )
@@ -227,7 +223,7 @@ async def test_validation(
     monkeypatch: pytest.MonkeyPatch,
     body: dict[str, Any],
 ) -> None:
-    _key(monkeypatch, "DEEJAYTOOLS_BREVO_API_KEY", "key")
+    _key(monkeypatch, "BREVO_API_KEY", "key")
     res = await client.post(URL, json=body)
     assert res.status_code == 400, res.text
     assert res.json()["error"]["code"] == "VALIDATION_ERROR"
