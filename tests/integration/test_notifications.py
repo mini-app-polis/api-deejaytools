@@ -568,7 +568,6 @@ async def test_feedback_posts_its_type_and_subject_only(
     monkeypatch: pytest.MonkeyPatch,
     discord_posts: Posts,
 ) -> None:
-    monkeypatch.setattr(get_settings(), "DEEJAYTOOLS_BREVO_API_KEY", None)
     monkeypatch.setattr(get_settings(), "BREVO_API_KEY", None)
     res = await _feedback(client)
     assert res.status_code == 201
@@ -593,7 +592,7 @@ async def test_emailed_feedback_says_so(
     monkeypatch: pytest.MonkeyPatch,
     discord_posts: Posts,
 ) -> None:
-    monkeypatch.setattr(get_settings(), "DEEJAYTOOLS_BREVO_API_KEY", "key")
+    monkeypatch.setattr(get_settings(), "BREVO_API_KEY", "key")
     with respx.mock(assert_all_called=False) as router:
         router.post("https://api.brevo.com/v3/smtp/email").mock(
             return_value=httpx.Response(201, json={"messageId": "<m@brevo>"})
@@ -612,7 +611,7 @@ async def test_feedback_brevo_refused_is_a_fault_not_feedback(
     monkeypatch: pytest.MonkeyPatch,
     discord_posts: Posts,
 ) -> None:
-    monkeypatch.setattr(get_settings(), "DEEJAYTOOLS_BREVO_API_KEY", "key")
+    monkeypatch.setattr(get_settings(), "BREVO_API_KEY", "key")
     with respx.mock(assert_all_called=False) as router:
         router.post("https://api.brevo.com/v3/smtp/email").mock(
             return_value=httpx.Response(401, json={"code": "unauthorized"})

@@ -11,6 +11,7 @@ service so copy tagging and reuse are exercised end to end.
 from __future__ import annotations
 
 import contextlib
+import json
 import time
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
@@ -149,8 +150,11 @@ def fake_drive(monkeypatch: pytest.MonkeyPatch) -> FakeDrive:
 def real_drive(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeDriveService]:
     """The real Drive layer over the in-memory fake Google service."""
     settings = get_settings()
-    monkeypatch.setattr(settings, "GOOGLE_SERVICE_ACCOUNT_EMAIL", "sa@x.iam")
-    monkeypatch.setattr(settings, "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY", "KEY")
+    monkeypatch.setattr(
+        settings,
+        "GOOGLE_CREDENTIALS_JSON",
+        json.dumps({"client_email": "sa@x.iam", "private_key": "KEY"}),
+    )
     monkeypatch.setattr(settings, "GOOGLE_DRIVE_PARENT_FOLDER_ID", "root")
     facade, svc = fake_facade()
     monkeypatch.setattr(drive, "_build_facade", lambda email, key: facade)

@@ -121,17 +121,16 @@ class _DriveConfig:
 
 def _config() -> _DriveConfig:
     settings = get_settings()
-    email = settings.GOOGLE_SERVICE_ACCOUNT_EMAIL
-    key = settings.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+    account = settings.google_service_account
     root = settings.GOOGLE_DRIVE_PARENT_FOLDER_ID
-    if not email or not key or not root:
+    if account is None or not root:
         raise DriveNotConfiguredError()
-    # Env stores often hold the PEM on one line with literal \n escapes.
-    return _DriveConfig(email, key.replace("\\n", "\n"), root)
+    email, key = account
+    return _DriveConfig(email, key, root)
 
 
 def drive_configured() -> bool:
-    """Whether all three Drive environment variables are set and non-empty."""
+    """Whether the service account and the parent folder are both configured."""
     try:
         _config()
     except DriveNotConfiguredError:
