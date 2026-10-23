@@ -13,7 +13,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import ManagedPartnership, Partner, Song
+from .labels import partnership_label
+from .models import ManagedPartnership, Partner, Song, User
 from .zod_coerce import js_trim
 
 LEGACY_PREFIX = "[Legacy] "
@@ -36,6 +37,45 @@ def computed_song_display_name(song: Song) -> str | None:
     return None
 
 
+def song_partnership_label(
+    *,
+    division: str | None,
+    owner_first_name: str | None,
+    owner_last_name: str | None,
+    partner_first_name: str | None,
+    partner_last_name: str | None,
+    partner_kind: str | None,
+    partner_role: str | None,
+    managed_leader_first_name: str | None,
+    managed_leader_last_name: str | None,
+    managed_follower_first_name: str | None,
+    managed_follower_last_name: str | None,
+) -> str | None:
+    """Who a song is for, ready to show: its managed partnership's leader &
+    follower, a placeholder's own name, or owner and partner ordered by
+    ``entity_name_pair`` (leader first; amateur first for ProAm FollowerAm).
+
+    None when the song has neither a partner nor a managed partnership: the
+    owner alone is not a partnership. ``partner_first_name`` and
+    ``managed_leader_first_name`` are None when no row was joined.
+    """
+    if partner_first_name is None and managed_leader_first_name is None:
+        return None
+    return partnership_label(
+        managed_leader_first=managed_leader_first_name,
+        managed_leader_last=managed_leader_last_name,
+        managed_follower_first=managed_follower_first_name,
+        managed_follower_last=managed_follower_last_name,
+        owner_first=owner_first_name,
+        owner_last=owner_last_name,
+        partner_first=partner_first_name,
+        partner_last=partner_last_name,
+        partner_kind=partner_kind,
+        partner_role=partner_role,
+        division=division,
+    )
+
+
 def map_song(
     song: Song,
     *,
@@ -46,12 +86,14 @@ def map_song(
     managed_leader_last_name: str | None = None,
     managed_follower_first_name: str | None = None,
     managed_follower_last_name: str | None = None,
+    partnership_label: str | None = None,
 ) -> dict[str, Any]:
     """A songs row on the wire, with whichever joined names the caller loaded.
 
     Names not loaded are null, as deejaytools-api returns them: the single
     song routes join the partner only, so their managed_* names are null even
-    when managed_partnership_id is set.
+    when managed_partnership_id is set. ``partnership_label`` is null unless
+    the caller built one (:func:`song_partnership_label`).
     """
     return {
         "id": song.id,
@@ -77,6 +119,7 @@ def map_song(
         "managed_leader_last_name": managed_leader_last_name,
         "managed_follower_first_name": managed_follower_first_name,
         "managed_follower_last_name": managed_follower_last_name,
+        "partnership_label": partnership_label,
     }
 
 
@@ -88,8 +131,25 @@ async def load_song_with_partner(
     With ``user_id``, only that user's live (not soft-deleted) song.
     """
     stmt = (
-        select(Song, Partner.first_name, Partner.last_name, Partner.kind)
+        select(
+            Song,
+            Partner.first_name,
+            Partner.last_name,
+            Partner.kind,
+            Partner.partner_role,
+            User.first_name,
+            User.last_name,
+            ManagedPartnership.leader_first_name,
+            ManagedPartnership.leader_last_name,
+            ManagedPartnership.follower_first_name,
+            ManagedPartnership.follower_last_name,
+        )
         .outerjoin(Partner, Partner.id == Song.partner_id)
+        .outerjoin(User, User.id == Song.user_id)
+        .outerjoin(
+            ManagedPartnership,
+            ManagedPartnership.id == Song.managed_partnership_id,
+        )
         .where(Song.id == song_id)
     )
     if user_id is not None:
@@ -97,11 +157,26 @@ async def load_song_with_partner(
     row = (await session.execute(stmt.limit(1))).first()
     if row is None:
         return None
+    # The managed partnership is joined for the label only: these routes
+    # return its names as null, as deejaytools-api does.
     return map_song(
         row[0],
         partner_first_name=row[1],
         partner_last_name=row[2],
         partner_kind=row[3],
+        partnership_label=song_partnership_label(
+            division=row[0].division,
+            owner_first_name=row[5],
+            owner_last_name=row[6],
+            partner_first_name=row[1],
+            partner_last_name=row[2],
+            partner_kind=row[3],
+            partner_role=row[4],
+            managed_leader_first_name=row[7],
+            managed_leader_last_name=row[8],
+            managed_follower_first_name=row[9],
+            managed_follower_last_name=row[10],
+        ),
     )
 
 
@@ -172,3 +247,12 @@ class SongData(BaseModel):
     managed_leader_last_name: str | None = Field(None, description="Leader last.")
     managed_follower_first_name: str | None = Field(None, description="Follower first.")
     managed_follower_last_name: str | None = Field(None, description="Follower last.")
+    partnership_label: str | None = Field(
+        None,
+        description=(
+            "Who the song is for, ready to show: leader first (amateur first "
+            "for ProAm FollowerAm), a placeholder's own name, or a managed "
+            "partnership's leader & follower. Null with no partner and no "
+            "managed partnership, and on routes that load no names."
+        ),
+    )
