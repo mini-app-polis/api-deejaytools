@@ -39,6 +39,7 @@ from ..models import (
     QueueEntry,
     Session,
     Song,
+    User,
 )
 from ..services.drive_jobs import enqueue_trash_jobs
 from ..song_records import (
@@ -46,6 +47,7 @@ from ..song_records import (
     assert_partner_owned,
     load_song_with_partner,
     map_song,
+    song_partnership_label,
 )
 from ..validation import NonEmptyStr, ZodModel
 from ..zod_coerce import js_trim
@@ -189,8 +191,12 @@ async def list_songs(
                 ManagedPartnership.leader_last_name,
                 ManagedPartnership.follower_first_name,
                 ManagedPartnership.follower_last_name,
+                Partner.partner_role,
+                User.first_name,
+                User.last_name,
             )
             .outerjoin(Partner, Partner.id == Song.partner_id)
+            .outerjoin(User, User.id == Song.user_id)
             .outerjoin(
                 ManagedPartnership,
                 ManagedPartnership.id == Song.managed_partnership_id,
@@ -210,6 +216,19 @@ async def list_songs(
                 managed_leader_last_name=r[5],
                 managed_follower_first_name=r[6],
                 managed_follower_last_name=r[7],
+                partnership_label=song_partnership_label(
+                    division=r[0].division,
+                    owner_first_name=r[9],
+                    owner_last_name=r[10],
+                    partner_first_name=r[1],
+                    partner_last_name=r[2],
+                    partner_kind=r[3],
+                    partner_role=r[8],
+                    managed_leader_first_name=r[4],
+                    managed_leader_last_name=r[5],
+                    managed_follower_first_name=r[6],
+                    managed_follower_last_name=r[7],
+                ),
             )
             for r in rows
         ]

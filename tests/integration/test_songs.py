@@ -45,6 +45,7 @@ SONG_KEYS = {
     "managed_leader_last_name",
     "managed_follower_first_name",
     "managed_follower_last_name",
+    "partnership_label",
 }
 
 
@@ -100,6 +101,7 @@ async def test_create_shape(client: httpx.AsyncClient, person: Callable) -> None
         "partner_kind": None,
         "managed_partnership_id": None,
         "managed_leader_first_name": None,
+        "partnership_label": None,
     }
 
     one = await client.get(f"/v1/songs/{created['id']}", headers=alice.headers)
@@ -188,6 +190,85 @@ async def test_list_joins_names_and_filters(
     one = await client.get(f"/v1/songs/{managed}", headers=alice.headers)
     assert one.json()["data"]["managed_partnership_id"] == "mp1"
     assert one.json()["data"]["managed_leader_first_name"] is None
+
+
+async def test_partnership_label(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    """Who a song is for, ordered by the one rule events use."""
+    alice = await person("alice")
+    await db.execute(
+        "UPDATE users SET first_name = 'Alice', last_name = 'A' WHERE id = $1",
+        alice.id,
+    )
+
+    async def partner(pid: str, first: str, last: str, role: str, kind: str) -> str:
+        await db.execute(
+            "INSERT INTO partners (id, user_id, first_name, last_name, created_at,"
+            " updated_at, partner_role, kind) VALUES ($1, $2, $3, $4, 1, 1, $5, $6)",
+            pid,
+            alice.id,
+            first,
+            last,
+            role,
+            kind,
+        )
+        return pid
+
+    follower = await partner("p-f", "Fay", "F", "follower", "partner")
+    leader = await partner("p-l", "Lee", "L", "leader", "partner")
+    team = await partner("p-t", "The Swingers", "", "follower", "team")
+    await db.execute(
+        "INSERT INTO managed_partnerships (id, user_id, leader_first_name,"
+        " leader_last_name, follower_first_name, follower_last_name, created_at,"
+        " updated_at) VALUES ('mp1', $1, 'Max', 'M', 'Mia', 'N', 1, 1)",
+        alice.id,
+    )
+    expected = {
+        # Alice leads; her partner follows.
+        await insert_song(
+            db, alice.id, partner_id=follower, division="Classic", created_at=1
+        ): "Alice A & Fay F",
+        # Her partner leads.
+        await insert_song(
+            db, alice.id, partner_id=leader, division="Classic", created_at=2
+        ): "Lee L & Alice A",
+        # ProAm FollowerAm reads amateur (the follower) first.
+        await insert_song(
+            db,
+            alice.id,
+            partner_id=follower,
+            division="ProAm FollowerAm",
+            created_at=3,
+        ): "Fay F & Alice A",
+        # A team is its own name.
+        await insert_song(
+            db, alice.id, partner_id=team, division="Team", created_at=4
+        ): "The Swingers",
+        # A managed couple is its leader & follower.
+        await insert_song(
+            db, alice.id, managed_partnership_id="mp1", division="Classic", created_at=5
+        ): "Max M & Mia N",
+        # No partner and no managed partnership: no label.
+        await insert_song(db, alice.id, division="Classic", created_at=6): None,
+    }
+
+    listed = (await client.get("/v1/songs", headers=alice.headers)).json()["data"]
+    assert {s["id"]: s["partnership_label"] for s in listed} == expected
+
+    for song_id, label in expected.items():
+        one = await client.get(f"/v1/songs/{song_id}", headers=alice.headers)
+        data = one.json()["data"]
+        assert data["partnership_label"] == label, song_id
+        # The single read still returns the managed names as null.
+        assert data["managed_leader_first_name"] is None
+
+    patched = await client.patch(
+        f"/v1/songs/{next(iter(expected))}",
+        json={"routine_name": "Blue"},
+        headers=alice.headers,
+    )
+    assert patched.json()["data"]["partnership_label"] == "Alice A & Fay F"
 
 
 async def test_other_users_and_deleted_songs_are_not_found(
