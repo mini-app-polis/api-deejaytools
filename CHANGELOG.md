@@ -1,3 +1,16 @@
+# [1.6.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.33...v1.6.0) (2026-10-23)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 6.18.0 ([ee14fca](https://github.com/mini-app-polis/api-deejaytools/commit/ee14fca8df3ef57d3bc36f3511126408809af567))
+* **deps:** bump miniapppolis-common-utils to 6.20.0 ([54037c9](https://github.com/mini-app-polis/api-deejaytools/commit/54037c9886f467366410a2515c1f4c8d472e63f5))
+
+
+### Features
+
+* **songs:** return a ready-made partnership_label on song reads ([8731575](https://github.com/mini-app-polis/api-deejaytools/commit/8731575a96fa030dc1f725a20f5eb40afba51881))
+
 ## [1.5.33](https://github.com/mini-app-polis/api-deejaytools/compare/v1.5.32...v1.5.33) (2026-10-23)
 
 
