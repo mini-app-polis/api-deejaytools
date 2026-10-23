@@ -48,12 +48,8 @@ named by Clerk user id, never by email.
 
 ### Configuration
 
-| Variable | Purpose |
-|----------|---------|
-| `DISCORD_WEBHOOK_URL` | Fallback webhook for every channel. |
-| `DISCORD_WEBHOOK_URL_ERRORS` | Optional: the `errors` channel's own webhook. |
-| `DISCORD_WEBHOOK_URL_ACTIVITY` | Optional: the `activity` channel's own webhook. |
-| `NOTIFY_DATA_CHANGES` | Default `true`. `false` mutes the "data changed" feed without a deploy; faults and "song added" still post. |
+The webhook variables and `NOTIFY_DATA_CHANGES` are listed in
+[`.env.example`](../.env.example).
 
 A channel without its own variable uses `DISCORD_WEBHOOK_URL`. With neither
 set, that channel is off: nothing is sent, nothing fails, and the log says
