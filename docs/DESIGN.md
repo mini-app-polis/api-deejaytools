@@ -26,13 +26,10 @@ deejaytools-api's codes and shapes (`errors.py`).
   writes both from settings on every deploy, and `POST /v1/auth/sync` writes
   the issuer row if it is missing (the conformance suite rebuilds the schema
   under a running service).
-- **First provision mirrors a stored admin.** A principal created by sync
-  for a `users` row that already says `admin` also gets `deejaytools-admin`,
-  the backfill's rule. Never re-applied to an existing principal.
-- **`users.role` decides admin at each deploy.** The backfill grants
-  `deejaytools-admin` where `users.role = 'admin'` and removes it elsewhere,
-  so a role set directly on `users` carries over. Through this service both
-  always move together.
+- **Admin is a grant, never a column.** `deejaytools-admin` on the
+  person's principal is the only source of `role`; `users` has no role
+  column. Sync and the backfill grant only `deejaytools-dancer`, so admin
+  is given and taken only through `PATCH /v1/admin/users/{id}/role`.
 - **`/internal/tick` fails closed** with `403 FORBIDDEN` "Admin access
   required" when `TICK_SECRET` is unset, the answer deejaytools-api gives
   for a wrong secret (ADR-007 leaves the status open).

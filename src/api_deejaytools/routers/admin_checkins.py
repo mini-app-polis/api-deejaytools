@@ -199,7 +199,6 @@ async def inject_checkin(
             display_name=f"{leader_first} {leader_last}",
             first_name=leader_first,
             last_name=leader_last,
-            role="user",
             created_at=now,
             updated_at=now,
         )

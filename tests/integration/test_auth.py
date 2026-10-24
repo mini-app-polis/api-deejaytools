@@ -213,35 +213,19 @@ async def test_sync_without_token_is_401(client: httpx.AsyncClient) -> None:
     assert res.json() == UNAUTHORIZED
 
 
-async def test_sync_mirrors_existing_admin_on_first_provision(
+async def test_sync_never_grants_admin_on_first_provision(
     client: httpx.AsyncClient,
     clerk: Clerk,
     db: asyncpg.Connection,
     new_user_id: Callable[[], str],
 ) -> None:
-    """Promoted through deejaytools-api during a rollback, never provisioned here."""
+    """A users row with no principal yet is provisioned as a dancer only."""
     uid = new_user_id()
     await db.execute(
-        "INSERT INTO users (id, email, role, created_at, updated_at) "
-        "VALUES ($1, 'ada@example.com', 'admin', 1, 1)",
+        "INSERT INTO users (id, email, created_at, updated_at) "
+        "VALUES ($1, 'ada@example.com', 1, 1)",
         uid,
     )
-
-    res = await _sync(client, clerk.token(uid))
-
-    assert res.json()["data"]["role"] == "admin"
-    assert await _roles(db, uid) == {"deejaytools-dancer", "deejaytools-admin"}
-
-
-async def test_sync_does_not_reapply_admin_to_existing_principal(
-    client: httpx.AsyncClient,
-    clerk: Clerk,
-    db: asyncpg.Connection,
-    new_user_id: Callable[[], str],
-) -> None:
-    uid = new_user_id()
-    await _sync(client, clerk.token(uid))
-    await db.execute("UPDATE users SET role = 'admin' WHERE id = $1", uid)
 
     res = await _sync(client, clerk.token(uid))
 
@@ -274,7 +258,7 @@ async def test_me_returns_the_synced_record(
     assert res.json() == synced
 
 
-async def test_me_role_comes_from_the_grant_not_the_column(
+async def test_me_role_comes_from_the_grant(
     client: httpx.AsyncClient,
     clerk: Clerk,
     db: asyncpg.Connection,
@@ -291,7 +275,6 @@ async def test_me_role_comes_from_the_grant_not_the_column(
     res = await client.get("/v1/auth/me", headers=bearer(clerk.token(uid)))
 
     assert res.json()["data"]["role"] == "admin"
-    assert await db.fetchval("SELECT role FROM users WHERE id = $1", uid) == "user"
 
 
 async def test_me_with_users_row_but_no_principal_is_a_user(
@@ -300,11 +283,11 @@ async def test_me_with_users_row_but_no_principal_is_a_user(
     db: asyncpg.Connection,
     new_user_id: Callable[[], str],
 ) -> None:
-    """Signed up through deejaytools-api during a rollback, not yet backfilled."""
+    """A users row the backfill has not reached yet."""
     uid = new_user_id()
     await db.execute(
-        "INSERT INTO users (id, email, role, created_at, updated_at) "
-        "VALUES ($1, 'ada@example.com', 'admin', 1, 1)",
+        "INSERT INTO users (id, email, created_at, updated_at) "
+        "VALUES ($1, 'ada@example.com', 1, 1)",
         uid,
     )
 
@@ -407,12 +390,12 @@ async def test_admin_grant_allows_admin_scope(
     new_user_id: Callable[[], str],
 ) -> None:
     uid = new_user_id()
+    await _sync(scoped, clerk.token(uid))
     await db.execute(
-        "INSERT INTO users (id, email, role, created_at, updated_at) "
-        "VALUES ($1, 'ada@example.com', 'admin', 1, 1)",
+        "INSERT INTO identity_principal_roles (principal_id, role_name) "
+        "SELECT id, 'deejaytools-admin' FROM identity_principals WHERE subject = $1",
         uid,
     )
-    await _sync(scoped, clerk.token(uid))
 
     res = await scoped.get("/admin", headers=bearer(clerk.token(uid)))
 

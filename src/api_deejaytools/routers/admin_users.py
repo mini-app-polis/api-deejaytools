@@ -6,8 +6,8 @@ change behind ``deejaytools.users.write`` (ADR-007).
 
 ``role`` on the wire is derived from the identity store: ``"admin"`` when
 the user's principal holds ``deejaytools-admin``, else ``"user"``. The
-``users.role`` column is only a mirror kept for deejaytools-api; it is
-written by the role change and never read here.
+role change grants or revokes that role; nothing about it is stored on
+``users``.
 """
 
 from __future__ import annotations
@@ -229,8 +229,8 @@ async def list_users(
     response_model=AdminUserResponse,
     summary="Promote or demote a user",
     description=(
-        "Grants or revokes deejaytools-admin in the identity store and writes "
-        "users.role, in one transaction. An admin cannot change their own "
+        "Grants or revokes deejaytools-admin in the identity store, in one "
+        "transaction. An admin cannot change their own "
         "role away from admin. Idempotent. Requires deejaytools.users.write."
     ),
     responses={
@@ -256,28 +256,20 @@ async def update_role(
         raise api_error(403, "forbidden", "You cannot change your own admin role.")
 
     target = (
-        await session.execute(
-            select(User.id, User.email, User.role).where(User.id == id).limit(1)
-        )
+        await session.execute(select(User.id, User.email).where(User.id == id).limit(1))
     ).first()
     if target is None:
         raise api_error(404, ErrorCode.NOT_FOUND, "Not found")
 
-    # One transaction: the grant in the identity store (authority here) and
-    # the users.role mirror (authority in deejaytools-api), so either service
-    # sees the same admins.
     try:
         await session.execute(
-            update(User)
-            .where(User.id == id)
-            .values(role=body.role, updated_at=int(time.time() * 1000))
+            update(User).where(User.id == id).values(updated_at=int(time.time() * 1000))
         )
         principal_id = await ensure_principal(
             session,
             issuer=get_settings().DEEJAYTOOLS_CLERK_ISSUER or "",
             subject=id,
             email=target.email or None,
-            users_role=target.role,
             granted_by=caller.user_id,
         )
         if body.role == "admin":

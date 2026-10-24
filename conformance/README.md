@@ -12,7 +12,7 @@ here, because that repo stays frozen:
 |--------|-------|
 | **Schema:** after drizzle's migrations, apply this service's post-baseline migrations (`INTEGRATION_EXTRA_MIGRATIONS`), so the identity tables and seed rows exist (ADR-009 harness change 1) | `harness/global-setup.ts` |
 | **Reset:** spare `identity_issuers`, `identity_roles`, `identity_role_scopes` and `schema_migrations` (harness change 2) | `harness/harness.ts` |
-| **Admins:** `actor({ admin: true })` also grants `deejaytools-admin` (harness change 3) | `harness/harness.ts` |
+| **Admins:** `actor({ admin: true })` grants `deejaytools-admin` in the identity store only (harness change 3) | `harness/harness.ts` |
 | HTTP only: no in-process app, a plain Postgres client for direct writes, and the route table fixed in `harness/routes.ts` (the 70 routes deejaytools-api registers) | `harness/` |
 | **Tick:** the operator test sends `INTEGRATION_TICK_SECRET`, and checks the route refuses without it. This service's `/internal/tick` fails closed when `TICK_SECRET` is unset (ADR-007), where deejaytools-api's was open | `tests/events-sessions.integration.test.ts` |
 | The two upload tests that swap Drive for in-process stand-ins are dropped; they were already skipped over HTTP. The service's own tests cover that path | `tests/songs-upload.integration.test.ts` |

@@ -94,16 +94,28 @@ async def test_production_adopts_baseline_without_running_it(scratch: str) -> No
         identity_tables = await conn.fetchval(
             "SELECT count(*) FROM pg_tables WHERE tablename LIKE 'identity_%'"
         )
-        users_columns = await conn.fetchval(
-            "SELECT count(*) FROM information_schema.columns WHERE table_name = 'users'"
-        )
+        users_columns = {
+            r["column_name"]
+            for r in await conn.fetch(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_name = 'users'"
+            )
+        }
         issuers = await conn.fetchval("SELECT count(*) FROM identity_issuers")
     finally:
         await conn.close()
     assert rows["001_baseline.sql"] is None  # marked, never run
     assert rows["002_identity_store.sql"] is not None  # run
     assert identity_tables == 7
-    assert users_columns == 8  # untouched
+    assert users_columns == {
+        "id",
+        "email",
+        "display_name",
+        "first_name",
+        "last_name",
+        "created_at",
+        "updated_at",
+    }
     # The issuer is per environment: the backfill and sync write it, not 002.
     assert issuers == 0
 

@@ -154,15 +154,13 @@ async def resolve_principal(
 
 
 def wire_role(principal: Principal | None) -> Literal["user", "admin"]:
-    """The ``role`` the web app sees: derived from the grant, not the column."""
+    """The ``role`` the web app sees, derived from the ``deejaytools-admin`` grant."""
     return (
         "admin" if principal is not None and ROLE_ADMIN in principal.roles else "user"
     )
 
 
-async def provision_principal(
-    subject: VerifiedSubject, session: AsyncSession, *, users_role: str
-) -> None:
+async def provision_principal(subject: VerifiedSubject, session: AsyncSession) -> None:
     """Make sure a signed-in person is a principal with ``deejaytools-dancer``.
 
     Idempotent, and does not commit: ``POST /v1/auth/sync`` runs it in the
@@ -172,11 +170,9 @@ async def provision_principal(
       its own Clerk instance, and the conformance suite rebuilds the schema
       under a running service, so the row cannot be relied on to come from a
       migration or from startup.
-    - A principal created here also gets ``deejaytools-admin`` when the
-      ``users`` row already says admin: someone promoted through
-      deejaytools-api while traffic was rolled back. Same rule as the
-      backfill (scripts/backfill_principals.py). Never re-applied to an
-      existing principal, so admin access changes as a grant, not a column.
+    - A principal created here is never granted ``deejaytools-admin``:
+      admin access is only granted through
+      ``PATCH /v1/admin/users/{id}/role``.
     - ``deejaytools-dancer`` is ensured on every call.
     """
     await ensure_principal(
@@ -184,7 +180,6 @@ async def provision_principal(
         issuer=subject.issuer,
         subject=subject.subject,
         email=str(subject.claims.get("email") or "") or None,
-        users_role=users_role,
         granted_by="auth_sync",
     )
 
@@ -195,20 +190,18 @@ async def ensure_principal(
     issuer: str,
     subject: str,
     email: str | None,
-    users_role: str,
     granted_by: str,
 ) -> uuid.UUID:
     """The principal for ``(issuer, subject)``, provisioned if missing.
 
     ``provision_principal``'s rules, for a subject known by its ids rather
-    than by a verified credential: the issuer row is written if missing, a
-    new principal also gets ``deejaytools-admin`` when ``users_role`` says
-    admin, and ``deejaytools-dancer`` is ensured on every call, granted by
+    than by a verified credential: the issuer row is written if missing and
+    ``deejaytools-dancer`` is ensured on every call, granted by
     ``granted_by``. Idempotent, and does not commit. Returns the principal id.
 
-    Also used by ``PATCH /v1/admin/users/{id}/role`` for a target who signed
-    up through deejaytools-api while traffic was rolled back, so the grant
-    has a principal to go to.
+    Also used by ``PATCH /v1/admin/users/{id}/role`` for a target who has a
+    ``users`` row but no principal yet, so the grant has a principal to go
+    to.
     """
     settings = get_settings()
     await session.execute(
@@ -249,8 +242,6 @@ async def ensure_principal(
     )
 
     roles = [ROLE_DANCER]
-    if created is not None and users_role == "admin":
-        roles.append(ROLE_ADMIN)
     await session.execute(
         insert(PrincipalRole)
         .values(

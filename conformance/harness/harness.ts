@@ -17,7 +17,7 @@ import { integrationBaseUrl } from "./target.js";
  *   instead of the Node app's drizzle schema.
  * - Reset spares the identity seed tables and the migration runner's
  *   schema_migrations (ADR-009 harness change 2).
- * - `actor({ admin: true })` also grants deejaytools-admin to the actor's
+ * - `actor({ admin: true })` grants deejaytools-admin to the actor's
  *   principal when the identity tables exist (ADR-009 harness change 3).
  */
 
@@ -141,9 +141,7 @@ export async function actor(
   }
   if (opts.admin) {
     // Admins are promoted in the database, as in every environment: the
-    // users.role mirror deejaytools-api reads, and the grant the identity
-    // store decides from.
-    await db`UPDATE users SET role = 'admin' WHERE id = ${id}`;
+    // grant the identity store decides from.
     const [{ store }] = await db<{ store: string | null }[]>`
       SELECT to_regclass('public.identity_principal_roles')::text AS store`;
     if (store) {
