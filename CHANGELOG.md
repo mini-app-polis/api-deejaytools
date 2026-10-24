@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.6.2...v1.7.0) (2026-10-24)
+
+
+### Features
+
+* **auth:** drop users.role and decide admin from identity grants only ([c46ed5e](https://github.com/mini-app-polis/api-deejaytools/commit/c46ed5e403f5382a4f37a79104b055783b0f4445))
+
 ## [1.6.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.6.1...v1.6.2) (2026-10-24)
 
 
