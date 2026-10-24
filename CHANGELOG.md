@@ -1,3 +1,14 @@
+## [1.6.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.6.1...v1.6.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* **admin:** the admin Songs label leads with the leader ([1e70a9c](https://github.com/mini-app-polis/api-deejaytools/commit/1e70a9cca87cc006d9759f02ad6460998862effc))
+* **deps:** bump miniapppolis-common-utils to 6.22.1 ([a15e5db](https://github.com/mini-app-polis/api-deejaytools/commit/a15e5dbd29e7c6a3adfd85ee68807720fcf0f84f))
+* **deps:** bump miniapppolis-common-utils to 6.22.2 ([9772f76](https://github.com/mini-app-polis/api-deejaytools/commit/9772f76e2920f7140eaeeff90afe206cfc7748f0))
+* **deps:** bump miniapppolis-identity to 2.1.9 ([40011a4](https://github.com/mini-app-polis/api-deejaytools/commit/40011a4b8ea23642aa2b6939e4b0ce6e237f2771))
+* **queue:** queue, check-in and run entity labels lead with the leader ([ea04eae](https://github.com/mini-app-polis/api-deejaytools/commit/ea04eae103420d9fd6cb27a813f474337b87336b))
+
 ## [1.6.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.6.0...v1.6.1) (2026-10-23)
 
 
