@@ -518,6 +518,7 @@ async def my_checkins(
                 Partner.first_name.label("partner_first"),
                 Partner.last_name.label("partner_last"),
                 Partner.kind.label("partner_kind"),
+                Partner.partner_role.label("partner_role"),
                 ManagedPartnership.leader_first_name,
                 ManagedPartnership.leader_last_name,
                 ManagedPartnership.follower_first_name,
@@ -602,6 +603,7 @@ async def my_checkins(
                 r.leader_last_name,
                 r.follower_first_name,
                 r.follower_last_name,
+                r.division_name,
             )
         elif r.entity_pair_id and (r.pair_user_first or r.pair_user_last):
             label = pair_label(
@@ -610,6 +612,8 @@ async def my_checkins(
                 r.partner_first,
                 r.partner_last,
                 r.partner_kind,
+                r.partner_role,
+                r.division_name,
             )
         else:
             label = "Solo"

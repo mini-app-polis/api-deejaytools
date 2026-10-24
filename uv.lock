@@ -1287,7 +1287,7 @@ wheels = [
 
 [[package]]
 name = "miniapppolis-common-utils"
-version = "6.22.0"
+version = "6.22.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-python-client" },
@@ -1304,22 +1304,22 @@ dependencies = [
     { name = "spotipy" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cf/6f/e92706a8e2080a09777d61e765536c886b2eba2e93a868030156115d126a/miniapppolis_common_utils-6.22.0.tar.gz", hash = "sha256:e255c4f584f1419d525c7b0d379b6e57b13664faf31e9e72aa690bb1048cd67b", size = 428960, upload-time = "2026-10-23T19:04:12.24Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/2d/8cc73add2aa443360eccef3c9d45d18077f5a46c379927fe9a16d2e1492c/miniapppolis_common_utils-6.22.2.tar.gz", hash = "sha256:eba16634262b1da57a217be218f7bae0bdcde1902b45d404b09b5e2823934c27", size = 429259, upload-time = "2026-10-24T00:11:08.407Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d4/6b/7af95095e161a6408010267b593a42e8440707f6830052f036e42ca06a93/miniapppolis_common_utils-6.22.0-py3-none-any.whl", hash = "sha256:a4881ab246326ba0e2df4da63d527461dbb609951909b565881dbd7cf0ea10d0", size = 195918, upload-time = "2026-10-23T19:04:11.049Z" },
+    { url = "https://files.pythonhosted.org/packages/69/74/07be8eb83ffe82edb2f3025d618a370a7ff7c4f5e368384955118efd3226/miniapppolis_common_utils-6.22.2-py3-none-any.whl", hash = "sha256:66473229364f77f040c5ef5ab920956f1dd13760fb9f4bfc6a2df6b37a876285", size = 195183, upload-time = "2026-10-24T00:11:06.808Z" },
 ]
 
 [[package]]
 name = "miniapppolis-identity"
-version = "2.1.8"
+version = "2.1.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pyjwt", extra = ["crypto"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/19/dd/c8d8ce89d90d0dd3b446b61ffde576120b310d1b6a20f675695db1ae25a0/miniapppolis_identity-2.1.8.tar.gz", hash = "sha256:2d3909dd8969b6931cbae7a60b9f50ea84bf69757106c86fd4176c4ca8a769cc", size = 9826037, upload-time = "2026-10-21T23:19:33.418Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/fe/dc6e5c5ebf309363a8c7e7ffe76a7cbf7fc280355755fc4559044d582010/miniapppolis_identity-2.1.9.tar.gz", hash = "sha256:f77a1c5b7ea8ee44aff3cea928f1c19029b74d8208b1619be1a2595cae059a8a", size = 9826225, upload-time = "2026-10-23T23:21:18.635Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6e/be/0121950688e1d910fb440775195693e2c139540b081d899db7f4e6a6df97/miniapppolis_identity-2.1.8-py3-none-any.whl", hash = "sha256:fc9577c21570e5755498e4c0bc62d58c972bf75c5e63fea531f2a352b62490a5", size = 28755, upload-time = "2026-10-21T23:19:31.887Z" },
+    { url = "https://files.pythonhosted.org/packages/59/15/2fb764537c3d69d8dd507805da2b14e4fcf11722b178d338507e69a9eeb2/miniapppolis_identity-2.1.9-py3-none-any.whl", hash = "sha256:e859d1898f42785a8ba73b3b4557f3c07c2da973dbfee1e2e01beba1f5a328cc", size = 28755, upload-time = "2026-10-23T23:21:16.998Z" },
 ]
 
 [package.optional-dependencies]
