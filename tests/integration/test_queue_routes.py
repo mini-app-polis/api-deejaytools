@@ -249,6 +249,55 @@ async def test_queue_entry_shape_and_labels(
     assert [r["entityLabel"] for r in standard] == ["Sol O", "Lea Der & Fol Lower"]
 
 
+async def test_queue_labels_lead_with_the_leader(
+    client: httpx.AsyncClient, db: asyncpg.Connection
+) -> None:
+    """Read live at floor trials, so it reads as the couple is announced."""
+    session_id = await insert_floor_session(db, **_closed_window())
+    # Amelie uploaded the song; Fabio, her partner, leads.
+    leads = await dancer_pair(
+        db, first="Amelie", last="Gruber", partner=("Fabio", "Zanardelli")
+    )
+    await db.execute(
+        "UPDATE partners SET partner_role = 'leader' WHERE id = $1",
+        leads["partner_id"],
+    )
+    # ProAm FollowerAm: the amateur follower reads first.
+    proam = await dancer_pair(db, first="Pro", last="Lead", partner=("Am", "Follow"))
+    owner = await insert_user(db, first="Own", last="Er")
+    mp = await insert_managed(db, owner, leader=("Ma", "Lead"), follower=("Mi", "Fol"))
+    for position, (entity, division) in enumerate(
+        [(leads, "Classic"), (proam, "ProAm FollowerAm")], start=1
+    ):
+        await insert_entry(
+            db,
+            session_id=session_id,
+            queue_type="priority",
+            position=position,
+            song_id=entity["song_id"],
+            submitted_by=entity["user_id"],
+            pair_id=entity["pair_id"],
+            division=division,
+        )
+    await insert_entry(
+        db,
+        session_id=session_id,
+        queue_type="priority",
+        position=3,
+        song_id=proam["song_id"],
+        submitted_by=owner,
+        managed_partnership_id=mp,
+        division="ProAm FollowerAm",
+    )
+
+    rows = (await client.get(f"/v1/queue/{session_id}/waiting")).json()["data"]
+    assert [r["entityLabel"] for r in rows] == [
+        "Fabio Zanardelli & Amelie Gruber",
+        "Am Follow & Pro Lead",
+        "Mi Fol & Ma Lead",
+    ]
+
+
 async def test_reads_are_cached_until_a_mutation(
     client: httpx.AsyncClient, person: Callable[..., Any], db: asyncpg.Connection
 ) -> None:

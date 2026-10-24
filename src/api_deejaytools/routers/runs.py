@@ -158,6 +158,7 @@ async def list_runs(
             Partner.first_name.label("partner_first"),
             Partner.last_name.label("partner_last"),
             Partner.kind.label("partner_kind"),
+            Partner.partner_role.label("partner_role"),
             solo_user.first_name.label("solo_first"),
             solo_user.last_name.label("solo_last"),
             ManagedPartnership.leader_first_name,
@@ -198,6 +199,7 @@ async def list_runs(
                 r.leader_last_name,
                 r.follower_first_name,
                 r.follower_last_name,
+                r.division_name,
             )
         elif r.pair_user_first or r.pair_user_last:
             entity_label = (
@@ -207,6 +209,8 @@ async def list_runs(
                     r.partner_first,
                     r.partner_last,
                     r.partner_kind,
+                    r.partner_role,
+                    r.division_name,
                 )
                 or "Pair"
             )

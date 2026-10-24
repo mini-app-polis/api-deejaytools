@@ -94,7 +94,8 @@ deejaytools-api's codes and shapes (`errors.py`).
   placeholder partner is its own name alone, and a real partner is ordered
   leader then follower by `partner_role`. ProAm reads amateur then pro, so
   ProAm FollowerAm swaps the pair. One rule names the event's entered
-  entities, submission and run labels, and the processed filename.
+  entities, submission and run labels, the processed filename, and the
+  queue, check-in and run entity labels.
 - **No prepared-statement caching** (`database.py`): the service survives
   its schema being rebuilt underneath it, which deejaytools-api's
   CONFORMANCE.md requires of a target, for one extra round trip per query.
