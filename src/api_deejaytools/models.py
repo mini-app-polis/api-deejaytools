@@ -35,7 +35,6 @@ def _pg_enum(name: str, *values: str) -> Enum:
     return Enum(*values, name=name, create_type=False)
 
 
-USER_ROLE = _pg_enum("user_role", "user", "admin")
 SESSION_STATUS = _pg_enum(
     "session_status",
     "scheduled",
@@ -61,9 +60,8 @@ QUEUE_EVENT_ACTION = _pg_enum(
 class User(Base):
     """A signed-in person. ``id`` is their Clerk subject (JWT ``sub``).
 
-    ``role`` is a mirror kept for deejaytools-api, which still authorizes
-    from it until it is retired (ADR-007). This service never decides from
-    it: authority comes from the identity store.
+    Admin access is not stored here: it is the ``deejaytools-admin`` grant
+    on the person's principal in the identity store.
     """
 
     __tablename__ = "users"
@@ -73,7 +71,6 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(Text)
     first_name: Mapped[str | None] = mapped_column(Text)
     last_name: Mapped[str | None] = mapped_column(Text)
-    role: Mapped[str] = mapped_column(USER_ROLE, server_default="user")
     created_at: Mapped[int] = mapped_column(BigInteger)
     updated_at: Mapped[int] = mapped_column(BigInteger)
 

@@ -53,8 +53,11 @@ async def _admin_roles(db: asyncpg.Connection, user_id: str) -> list[str]:
     return [r["role_name"] for r in rows]
 
 
-async def _users_role(db: asyncpg.Connection, user_id: str) -> str:
-    return str(await db.fetchval("SELECT role FROM users WHERE id = $1", user_id))
+async def _users_row(db: asyncpg.Connection, user_id: str) -> dict[str, object]:
+    """The users row, minus updated_at: what a role change must leave alone."""
+    row = dict(await db.fetchrow("SELECT * FROM users WHERE id = $1", user_id))
+    row.pop("updated_at")
+    return row
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +91,6 @@ async def test_list_shape_counts_order_and_derived_role(
     alice = await person("alice")
     await _set_created(db, admin.id, 200)
     await _set_created(db, alice.id, 100)
-    # users.role says admin, but there is no grant: the wire says "user".
-    await db.execute("UPDATE users SET role = 'admin' WHERE id = $1", alice.id)
     await insert_song(db, alice.id)
     deleted = await insert_song(db, alice.id)
     await db.execute("UPDATE songs SET deleted_at = 9 WHERE id = $1", deleted)
@@ -160,13 +161,14 @@ async def test_list_checks_auth_before_the_query(
 # ---------------------------------------------------------------------------
 
 
-async def test_grant_writes_the_store_and_the_mirror_together(
+async def test_grant_writes_the_store_only(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:
     admin = await person("admin", admin=True)
     alice = await person("alice")
     await insert_song(db, alice.id)
     await _partner(db, alice.id, "p1", "Pat", "One")
+    before = await _users_row(db, alice.id)
 
     res = await client.patch(
         f"{URL}/{alice.id}/role", json={"role": "admin"}, headers=admin.headers
@@ -190,7 +192,7 @@ async def test_grant_writes_the_store_and_the_mirror_together(
         "deejaytools-admin",
         "deejaytools-dancer",
     ]
-    assert await _users_role(db, alice.id) == "admin"
+    assert await _users_row(db, alice.id) == before
     granted_by = await db.fetchval(
         "SELECT r.granted_by FROM identity_principal_roles r"
         " JOIN identity_principals p ON p.id = r.principal_id"
@@ -215,12 +217,12 @@ async def test_grant_writes_the_store_and_the_mirror_together(
     ]
 
 
-async def test_revoke_writes_the_store_and_the_mirror_together(
+async def test_revoke_writes_the_store_only(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:
     admin = await person("admin", admin=True)
     other = await person("other", admin=True)
-    await db.execute("UPDATE users SET role = 'admin' WHERE id = $1", other.id)
+    before = await _users_row(db, other.id)
 
     res = await client.patch(
         f"{URL}/{other.id}/role", json={"role": "user"}, headers=admin.headers
@@ -228,7 +230,7 @@ async def test_revoke_writes_the_store_and_the_mirror_together(
     assert res.status_code == 200, res.text
     assert res.json()["data"]["role"] == "user"
     assert await _admin_roles(db, other.id) == ["deejaytools-dancer"]
-    assert await _users_role(db, other.id) == "user"
+    assert await _users_row(db, other.id) == before
 
     me = await client.get("/v1/auth/me", headers=other.headers)
     assert me.json()["data"]["role"] == "user"
@@ -259,7 +261,7 @@ async def test_self_demotion_is_refused(
         f"{URL}/{admin.id}/role", json={"role": "admin"}, headers=admin.headers
     )
     assert ok.status_code == 200
-    assert await _users_role(db, admin.id) == "admin"
+    assert ok.json()["data"]["role"] == "admin"
 
 
 async def test_target_without_a_principal_is_provisioned(
@@ -269,7 +271,7 @@ async def test_target_without_a_principal_is_provisioned(
     clerk: Clerk,
     new_user_id: Callable[[], str],
 ) -> None:
-    """Someone who signed up through deejaytools-api during a rollback."""
+    """Someone with a users row but no principal yet."""
     admin = await person("admin", admin=True)
     uid = new_user_id()
     await db.execute(
@@ -295,7 +297,6 @@ async def test_target_without_a_principal_is_provisioned(
         "display_name": "late@example.test",
     }
     assert await _admin_roles(db, uid) == ["deejaytools-admin", "deejaytools-dancer"]
-    assert await _users_role(db, uid) == "admin"
 
     me = await client.get("/v1/auth/me", headers=bearer(clerk.token(uid)))
     assert me.status_code == 200, me.text
@@ -308,12 +309,12 @@ async def test_revoke_for_a_target_without_a_principal(
     db: asyncpg.Connection,
     new_user_id: Callable[[], str],
 ) -> None:
-    """A users.role admin with no principal is provisioned, then revoked."""
+    """A user with no principal is provisioned, and holds no admin grant."""
     admin = await person("admin", admin=True)
     uid = new_user_id()
     await db.execute(
-        "INSERT INTO users (id, email, role, created_at, updated_at)"
-        " VALUES ($1, 'late@example.test', 'admin', 1, 1)",
+        "INSERT INTO users (id, email, created_at, updated_at)"
+        " VALUES ($1, 'late@example.test', 1, 1)",
         uid,
     )
     res = await client.patch(
@@ -322,7 +323,6 @@ async def test_revoke_for_a_target_without_a_principal(
     assert res.status_code == 200, res.text
     assert res.json()["data"]["role"] == "user"
     assert await _admin_roles(db, uid) == ["deejaytools-dancer"]
-    assert await _users_role(db, uid) == "user"
 
 
 async def test_role_change_errors(

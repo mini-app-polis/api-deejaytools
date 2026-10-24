@@ -9,13 +9,11 @@ For the configured issuer it:
   - writes the issuer row;
   - creates a `human` principal for every `users` row that has none
     (subject = users.id, already the Clerk `sub`);
-  - grants `deejaytools-dancer` to all of them, and seeds
-    `deejaytools-admin` for a row with role = 'admin' only when its
-    principal holds no role yet (granted_by = 'migration_backfill').
+  - grants `deejaytools-dancer` to all of them
+    (granted_by = 'migration_backfill').
 
-After that first grant the identity store is the only authority for admin
-access: users.role is never read again, so editing that column (by SQL, a
-restore or a script) cannot grant or revoke admin at the next deploy.
+It never grants `deejaytools-admin`: the identity store is the only
+authority for admin access, and existing grants are left as they are.
 Promote and demote through PATCH /v1/admin/users/{id}/role.
 
 Idempotent, so it runs on every deploy, after scripts/apply_migrations.py
@@ -53,24 +51,11 @@ FROM users u
 ON CONFLICT (issuer, subject) DO NOTHING
 """
 
-# The admin seed applies only to a principal with no roles yet. The
-# NOT EXISTS reads the table as it was before this statement, so a principal
-# created a moment ago in PRINCIPALS_SQL qualifies and one that already holds
-# a role never does.
 GRANTS_SQL = """
 INSERT INTO identity_principal_roles (principal_id, role_name, granted_by)
-SELECT p.id, r.role_name, $2
+SELECT p.id, 'deejaytools-dancer', $2
 FROM users u
 JOIN identity_principals p ON p.issuer = $1 AND p.subject = u.id
-CROSS JOIN LATERAL (
-  SELECT 'deejaytools-dancer' AS role_name
-  UNION ALL
-  SELECT 'deejaytools-admin'
-  WHERE u.role = 'admin'
-    AND NOT EXISTS (
-      SELECT 1 FROM identity_principal_roles held WHERE held.principal_id = p.id
-    )
-) r
 ON CONFLICT (principal_id, role_name) DO NOTHING
 """
 

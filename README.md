@@ -133,16 +133,19 @@ deejaytools-api possible, lapsed when deejaytools-api was retired on
 - `migrations/004_song_upload_uploader.sql` adds a nullable
   `song_uploads.uploaded_by_user_id`, so the "song added" notification can
   name both people when a song was uploaded on someone's behalf.
+- `migrations/005_drop_users_role.sql` drops `users.role` and its
+  `user_role` enum. Admin access is the `deejaytools-admin` grant in the
+  identity store only.
 - `scripts/apply_migrations.py` applies pending files on every deploy,
   tracked in `schema_migrations`, before the app starts.
 - `scripts/backfill_principals.py` runs next, on every deploy: it writes this
-  environment's issuer row, makes every `users` row a principal, and keeps
-  `deejaytools-admin` in step with `users.role`. Idempotent.
+  environment's issuer row, makes every `users` row a principal, and grants
+  each `deejaytools-dancer`. It never grants `deejaytools-admin`. Idempotent.
 
 **First deploy against an existing database** (once per environment): set
 `BOOTSTRAP_MIGRATIONS=true` and `BOOTSTRAP_EXCLUDE` to every migration after
 the baseline (today:
-`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql`).
+`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql,005_drop_users_role.sql`).
 The runner records `001_baseline.sql` as applied without running it and
 runs the rest. Remove
 both variables after that deploy. A bootstrap without `BOOTSTRAP_EXCLUDE` is

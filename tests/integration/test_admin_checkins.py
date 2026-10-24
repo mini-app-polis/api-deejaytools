@@ -131,12 +131,10 @@ async def test_inject_creates_stub_rows_and_waits_for_fill(
         stub["first_name"],
         stub["last_name"],
         stub["display_name"],
-        stub["role"],
     ) == (
         "Lead",
         "A",
         "Lead A",
-        "user",
     )
     song = await db.fetchrow("SELECT * FROM songs WHERE id = $1", checkin["song_id"])
     assert (song["user_id"], song["display_name"]) == (stub["id"], "[Test Placeholder]")

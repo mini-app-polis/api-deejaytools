@@ -155,7 +155,6 @@ async def sync(
                 first_name=body.firstName,
                 last_name=body.lastName,
                 display_name=body.displayName,
-                role="user",
                 created_at=now,
                 updated_at=now,
             )
@@ -188,7 +187,7 @@ async def sync(
     row = await session.get(User, subject.subject)
     if row is None:
         raise api_error(500, ErrorCode.INTERNAL, "Failed to load user")
-    await provision_principal(subject, session, users_role=row.role)
+    await provision_principal(subject, session)
     await session.commit()
 
     principal = await resolve_principal(subject, session)
