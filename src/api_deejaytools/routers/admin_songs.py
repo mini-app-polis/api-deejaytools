@@ -16,10 +16,10 @@ from sqlalchemy.orm import aliased
 
 from ..auth import Caller, require_scope
 from ..database import get_db_session
-from ..domain import full_name, partnership_display
+from ..domain import full_name
 from ..errors import ErrorResponse, ListMeta, success_list
-from ..labels import build_structured_song_label
-from ..models import Partner, Song, User
+from ..labels import build_structured_song_label, partnership_label
+from ..models import ManagedPartnership, Partner, Song, User
 from ..song_records import is_legacy_song
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
@@ -148,12 +148,21 @@ async def list_songs(
                 Partner.first_name.label("partner_first"),
                 Partner.last_name.label("partner_last"),
                 Partner.kind.label("partner_kind"),
+                Partner.partner_role.label("partner_role"),
+                ManagedPartnership.leader_first_name.label("managed_leader_first"),
+                ManagedPartnership.leader_last_name.label("managed_leader_last"),
+                ManagedPartnership.follower_first_name.label("managed_follower_first"),
+                ManagedPartnership.follower_last_name.label("managed_follower_last"),
                 linked.email.label("partner_linked_user_email"),
             )
             .select_from(Song)
             .outerjoin(owner, owner.id == Song.user_id)
             .outerjoin(Partner, Partner.id == Song.partner_id)
             .outerjoin(linked, linked.id == Partner.linked_user_id)
+            .outerjoin(
+                ManagedPartnership,
+                ManagedPartnership.id == Song.managed_partnership_id,
+            )
             .where(*conditions)
             .order_by(Song.created_at.desc())
         )
@@ -163,7 +172,19 @@ async def list_songs(
     for r in rows:
         owner_name = full_name(r.owner_first, r.owner_last)
         partner_name = full_name(r.partner_first, r.partner_last)
-        partnership = partnership_display(owner_name, partner_name, r.partner_kind)
+        partnership = partnership_label(
+            managed_leader_first=r.managed_leader_first,
+            managed_leader_last=r.managed_leader_last,
+            managed_follower_first=r.managed_follower_first,
+            managed_follower_last=r.managed_follower_last,
+            owner_first=r.owner_first,
+            owner_last=r.owner_last,
+            partner_first=r.partner_first,
+            partner_last=r.partner_last,
+            partner_kind=r.partner_kind,
+            partner_role=r.partner_role,
+            division=r.division,
+        )
         data.append(
             {
                 "id": r.id,

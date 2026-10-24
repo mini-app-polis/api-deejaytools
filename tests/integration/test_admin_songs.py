@@ -127,6 +127,49 @@ async def test_shape_order_and_partners(
     }
 
 
+async def test_the_partnership_in_a_label_leads_with_the_leader(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    amelie = await person("amelie")
+    fabio = await _partner(db, amelie.id, "p_fabio", "Fabio", "Zanardelli")
+    await db.execute("UPDATE partners SET partner_role = 'leader' WHERE id = $1", fabio)
+    am = await _partner(db, amelie.id, "p_am", "Am", "Follow")
+    team = await _partner(db, amelie.id, "p_team", "Jt", "Swing", kind="team")
+    await db.execute(
+        "INSERT INTO managed_partnerships (id, user_id, leader_first_name,"
+        " leader_last_name, follower_first_name, follower_last_name, created_at,"
+        " updated_at) VALUES ('mp1', $1, 'Ma', 'Lead', 'Mi', 'Fol', 1, 1)",
+        amelie.id,
+    )
+    leads = await insert_song(
+        db, amelie.id, partner_id=fabio, division="Classic", created_at=40
+    )
+    proam = await insert_song(
+        db, amelie.id, partner_id=am, division="ProAm FollowerAm", created_at=30
+    )
+    teamed = await insert_song(
+        db, amelie.id, partner_id=team, division="Teams", created_at=20
+    )
+    managed = await insert_song(
+        db, amelie.id, managed_partnership_id="mp1", division="Classic", created_at=10
+    )
+    await db.execute(
+        "UPDATE users SET first_name = 'Amelie', last_name = 'Gruber' WHERE id = $1",
+        amelie.id,
+    )
+
+    res = await client.get(URL, headers=admin.headers)
+    assert res.status_code == 200, res.text
+    labels = {s["id"]: s["song_label"] for s in res.json()["data"]}
+    assert labels == {
+        leads: "Fabio Zanardelli & Amelie Gruber Classic",
+        proam: "Am Follow & Amelie Gruber ProAm FollowerAm",
+        teamed: "Jt Swing Teams",
+        managed: "Ma Lead & Mi Fol Classic",
+    }
+
+
 async def test_nameless_owner_and_unstructured_song(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:
