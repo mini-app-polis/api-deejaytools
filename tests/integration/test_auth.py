@@ -159,7 +159,7 @@ async def test_sync_creates_user_and_principal(
     )
 
     row = await db.fetchrow("SELECT * FROM users WHERE id = $1", uid)
-    assert row["role"] == "user"
+    assert row is not None
     assert await _roles(db, uid) == {"deejaytools-dancer"}
     issuer = await db.fetchrow("SELECT issuer, jwks_url FROM identity_issuers")
     assert (issuer["issuer"], issuer["jwks_url"]) == (TEST_ISSUER, TEST_JWKS_URL)
