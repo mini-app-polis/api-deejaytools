@@ -253,7 +253,11 @@ async def test_queue_labels_lead_with_the_leader(
     client: httpx.AsyncClient, db: asyncpg.Connection
 ) -> None:
     """Read live at floor trials, so it reads as the couple is announced."""
-    session_id = await insert_floor_session(db, **_closed_window())
+    session_id = await insert_floor_session(
+        db,
+        **_closed_window(),
+        divisions=(("Classic", False, 0), ("ProAm FollowerAm", False, 0)),
+    )
     # Amelie uploaded the song; Fabio, her partner, leads.
     leads = await dancer_pair(
         db, first="Amelie", last="Gruber", partner=("Fabio", "Zanardelli")
