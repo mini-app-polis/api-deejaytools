@@ -1,3 +1,11 @@
+## [1.9.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.9.0...v1.9.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **api:** separate dancer submission label pieces with dashes ([e6262fc](https://github.com/mini-app-polis/api-deejaytools/commit/e6262fc6c46574e4defcd4ae930b1bcb2e9e9c1f))
+* **deps:** bump miniapppolis-common-utils to 6.25.0 ([90ff689](https://github.com/mini-app-polis/api-deejaytools/commit/90ff6896285e50ae17da77861bb5d682d4926b4e))
+
 # [1.9.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.8.3...v1.9.0) (2026-10-25)
 
 
