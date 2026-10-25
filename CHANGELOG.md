@@ -1,3 +1,10 @@
+## [1.9.4](https://github.com/mini-app-polis/api-deejaytools/compare/v1.9.3...v1.9.4) (2026-10-25)
+
+
+### Bug Fixes
+
+* **deps:** upgrade miniapppolis-identity to 2.3.0 and add identity_audit_events.key_slot ([06ab7d9](https://github.com/mini-app-polis/api-deejaytools/commit/06ab7d91292f70977b6837504679134ba5d05bba))
+
 ## [1.9.3](https://github.com/mini-app-polis/api-deejaytools/compare/v1.9.2...v1.9.3) (2026-10-25)
 
 
