@@ -1,3 +1,10 @@
+## [1.8.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.8.0...v1.8.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-identity to 2.1.10 ([cf2a4db](https://github.com/mini-app-polis/api-deejaytools/commit/cf2a4db80b8e25e00e4f43c61d17c0a9320a416b))
+
 # [1.8.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.7.0...v1.8.0) (2026-10-25)
 
 
