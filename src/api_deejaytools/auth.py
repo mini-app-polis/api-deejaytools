@@ -25,8 +25,9 @@ noted:
     GET  /v1/queue/{session_id}/waiting
     POST /v1/feedback
 
-Operator: ``GET /internal/tick``, gated by TICK_SECRET and failing closed
-when it is unset.
+Operator: ``GET /internal/tick``, gated by TICK_SECRET (or
+TICK_SECRET_PREVIOUS during a rotation) and failing closed when TICK_SECRET is
+unset.
 
 Authenticated-only — a verified credential, no scope (AUTH-003). This is the
 whole list; a route added to it needs a reason of the same shape:

@@ -1,4 +1,5 @@
-"""``GET /internal/tick``: the secret gate (failing closed) and the answer."""
+"""``GET /internal/tick``: the secret gate (failing closed, rotation overlap) and
+the answer."""
 
 from __future__ import annotations
 
@@ -86,6 +87,68 @@ async def test_empty_secret_is_a_set_secret(
     res = await client.get("/internal/tick", headers={"x-tick-secret": ""})
     assert res.status_code == 200
     assert ticks == [1]
+
+
+@pytest.fixture
+def rotating(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mid-rotation: the new value is current, the old one is previous."""
+    monkeypatch.setattr(get_settings(), "TICK_SECRET", "new-secret")
+    monkeypatch.setattr(get_settings(), "TICK_SECRET_PREVIOUS", "old-secret")
+
+
+@pytest.mark.parametrize("given", ["new-secret", "old-secret"])
+async def test_current_or_previous_runs_the_pass(
+    client: httpx.AsyncClient, ticks: list[int], rotating: None, given: str
+) -> None:
+    res = await client.get("/internal/tick", headers={"x-tick-secret": given})
+    assert res.status_code == 200
+    assert ticks == [1]
+
+
+@pytest.mark.parametrize(
+    "header", [{"x-tick-secret": "wrong"}, {"x-tick-secret": ""}, {}]
+)
+async def test_neither_current_nor_previous_is_forbidden(
+    client: httpx.AsyncClient, ticks: list[int], rotating: None, header: dict[str, str]
+) -> None:
+    res = await client.get("/internal/tick", headers=header)
+    assert res.status_code == 403
+    assert res.json() == FORBIDDEN
+    assert ticks == []
+
+
+@pytest.mark.parametrize("previous", [None, ""])
+async def test_previous_unset_accepts_only_the_current_secret(
+    client: httpx.AsyncClient,
+    ticks: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+    secret: str,
+    previous: str | None,
+) -> None:
+    # Empty counts as unset: a cleared previous slot must not admit "".
+    monkeypatch.setattr(get_settings(), "TICK_SECRET_PREVIOUS", previous)
+    for header in ({"x-tick-secret": ""}, {"x-tick-secret": "old-secret"}, {}):
+        assert (await client.get("/internal/tick", headers=header)).status_code == 403
+    res = await client.get("/internal/tick", headers={"x-tick-secret": secret})
+    assert res.status_code == 200
+    assert ticks == [1]
+
+
+@pytest.mark.parametrize(
+    "header", [{"x-tick-secret": "old-secret"}, {"x-tick-secret": ""}, {}]
+)
+async def test_previous_alone_does_not_open_the_route(
+    client: httpx.AsyncClient,
+    ticks: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+    header: dict[str, str],
+) -> None:
+    monkeypatch.setattr(get_settings(), "TICK_SECRET", None)
+    monkeypatch.setattr(get_settings(), "TICK_SECRET_PREVIOUS", "old-secret")
+    res = await client.get("/internal/tick", headers=header)
+    assert res.status_code == 403
+    assert res.json() == FORBIDDEN
+    assert ticks == []
 
 
 async def test_not_rate_limited_or_versioned(

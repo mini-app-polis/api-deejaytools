@@ -15,6 +15,16 @@ constant time; otherwise ``403 FORBIDDEN "Admin access required"``. An empty
 ``TICK_SECRET`` is a set secret, as in deejaytools-api. **Difference from
 deejaytools-api (ADR-0008):** with ``TICK_SECRET`` unset the route fails closed
 with the same 403, where deejaytools-api left it open.
+
+Rotation overlap: ``TICK_SECRET_PREVIOUS``, when set, is accepted as well, so
+callers holding the old value keep working until the rotation retires it.
+Every accepted value is compared on every call, so the time taken does not
+say which one matched. It only ever extends a set ``TICK_SECRET``: with
+``TICK_SECRET`` unset the route stays closed whatever ``TICK_SECRET_PREVIOUS``
+holds, because unsetting the current secret is how the route is switched off
+and a leftover old value must not reopen it. An empty ``TICK_SECRET_PREVIOUS``
+counts as unset: clearing it is one way to retire it, and an empty header must
+not then pass.
 """
 
 from __future__ import annotations
@@ -47,15 +57,19 @@ class TickResponse(BaseModel):
 
 
 def _secret_matches(given: str | None) -> bool:
-    secret = get_settings().TICK_SECRET
-    if secret is None or given is None:
+    settings = get_settings()
+    if settings.TICK_SECRET is None or given is None:
         return False
-    return hmac.compare_digest(given.encode(), secret.encode())
+    accepted = [settings.TICK_SECRET]
+    if settings.TICK_SECRET_PREVIOUS:
+        accepted.append(settings.TICK_SECRET_PREVIOUS)
+    # A list, not a generator: every comparison runs, even after a match.
+    return any([hmac.compare_digest(given.encode(), s.encode()) for s in accepted])
 
 
 def require_tick_secret() -> Callable[[str | None], None]:
     """The route's gate as a dependency: 403 unless ``x-tick-secret`` matches
-    ``TICK_SECRET``. Declared at the registration so the guard is readable
+    ``TICK_SECRET`` (or ``TICK_SECRET_PREVIOUS`` during a rotation). Declared at the registration so the guard is readable
     where the route is (AUTH-003)."""
 
     def _dependency(
@@ -74,8 +88,9 @@ def require_tick_secret() -> Callable[[str | None], None]:
         "Operator route: one scheduler pass (session status advance, queue "
         "auto-fill, due song builds started, one Drive job batch), answered "
         "after it finishes. Requires "
-        "x-tick-secret equal to TICK_SECRET; refuses every call when "
-        "TICK_SECRET is unset."
+        "x-tick-secret equal to TICK_SECRET, or to TICK_SECRET_PREVIOUS "
+        "while a rotation overlaps; refuses every call when TICK_SECRET is "
+        "unset."
     ),
     response_model=TickResponse,
     responses={403: {"model": ErrorResponse, "description": "Bad or no secret."}},

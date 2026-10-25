@@ -176,6 +176,13 @@ class Settings(BaseSettings):
     TICK_SECRET: str | None = Field(
         default=None, description="Shared secret for GET /internal/tick."
     )
+    # The value TICK_SECRET held before a rotation, accepted alongside it
+    # until the rotation retires it. Only extends a set TICK_SECRET (it never
+    # opens the route alone), and empty counts as unset.
+    TICK_SECRET_PREVIOUS: str | None = Field(
+        default=None,
+        description="Previous tick secret, accepted during a rotation overlap.",
+    )
     TICK_INTERVAL_MS: int = Field(
         default=30000, description="Milliseconds between scheduler passes."
     )

@@ -285,12 +285,14 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DISABLE_SCHEDULER", raising=False)
     monkeypatch.delenv("TICK_INTERVAL_MS", raising=False)
     monkeypatch.delenv("TICK_SECRET", raising=False)
+    monkeypatch.delenv("TICK_SECRET_PREVIOUS", raising=False)
     s = Settings(_env_file=None)
-    assert (s.DISABLE_SCHEDULER, s.TICK_INTERVAL_MS, s.TICK_SECRET) == (
-        False,
-        30000,
-        None,
-    )
+    assert (
+        s.DISABLE_SCHEDULER,
+        s.TICK_INTERVAL_MS,
+        s.TICK_SECRET,
+        s.TICK_SECRET_PREVIOUS,
+    ) == (False, 30000, None, None)
 
 
 def _settings(**over: Any) -> Settings:
