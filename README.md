@@ -138,6 +138,9 @@ deejaytools-api possible, lapsed when deejaytools-api was retired on
 - `migrations/005_drop_users_role.sql` drops `users.role` and its
   `user_role` enum. Admin access is the `deejaytools-admin` grant in the
   identity store only.
+- `migrations/006_identity_audit_key_slot.sql` adds a nullable
+  `identity_audit_events.key_slot`, where miniapppolis-identity records
+  whether a machine's current or previous key proved it.
 - `scripts/apply_migrations.py` applies pending files on every deploy,
   tracked in `schema_migrations`, before the app starts.
 - `scripts/backfill_principals.py` runs next, on every deploy: it writes this
@@ -147,7 +150,7 @@ deejaytools-api possible, lapsed when deejaytools-api was retired on
 **First deploy against an existing database** (once per environment): set
 `BOOTSTRAP_MIGRATIONS=true` and `BOOTSTRAP_EXCLUDE` to every migration after
 the baseline (today:
-`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql,005_drop_users_role.sql`).
+`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql,005_drop_users_role.sql,006_identity_audit_key_slot.sql`).
 The runner records `001_baseline.sql` as applied without running it and
 runs the rest. Remove
 both variables after that deploy. A bootstrap without `BOOTSTRAP_EXCLUDE` is
