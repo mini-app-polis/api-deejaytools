@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.7.0...v1.8.0) (2026-10-25)
+
+
+### Features
+
+* **notifications:** add a per-environment Discord event allow-list and drop data-changed messages in development ([b78ede5](https://github.com/mini-app-polis/api-deejaytools/commit/b78ede51bfad5468a81c8e0ffaea743c79432336))
+
 # [1.7.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.6.2...v1.7.0) (2026-10-24)
 
 
