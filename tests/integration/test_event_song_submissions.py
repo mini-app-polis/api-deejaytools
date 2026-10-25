@@ -58,7 +58,7 @@ async def test_submit_shape_and_copy_job(
         "event_start_date": "2026-05-01",
         "event_status": compute_status("2026-05-01", "2026-05-03", "America/Chicago"),
         "song_id": song,
-        "song_label": "Alice & Pat Partner Classic Blue v03",
+        "song_label": "Alice & Pat Partner - Classic - Blue - v03",
         "division": "Classic",
         "round": "prelims_and_finals",
         "created_at": data["created_at"],
@@ -93,7 +93,7 @@ async def test_labels_for_managed_and_unstructured_songs(
     await db.execute("UPDATE songs SET display_name = ' Tune ' WHERE id = $1", bare)
     r1 = await _submit(client, alice, event_id=event, song_id=managed)
     r2 = await _submit(client, alice, event_id=event, song_id=bare)
-    assert r1.json()["data"]["song_label"] == "Lee L & Fay F Showcase"
+    assert r1.json()["data"]["song_label"] == "Lee L & Fay F - Showcase"
     assert r2.json()["data"]["song_label"] == "Tune"
     assert r2.json()["data"]["division"] is None
 

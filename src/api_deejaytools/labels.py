@@ -27,6 +27,7 @@ def build_structured_song_label(
     processed_filename: str | None,
     display_name: str | None,
     song_id: str,
+    separator: str = " ",
 ) -> str:
     """Song label outside the live queue: "Partnership Division Year Routine vNN".
 
@@ -42,7 +43,7 @@ def build_structured_song_label(
     partnership = js_trim(partnership)
 
     if (division or season_year or routine_name) and partnership:
-        return " ".join(
+        return separator.join(
             p for p in (partnership, division, season_year, routine_name, version) if p
         )
     return (

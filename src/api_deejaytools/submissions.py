@@ -190,6 +190,8 @@ def map_submission_row(row: Any) -> dict[str, Any]:
             processed_filename=row.song_processed_filename,
             display_name=row.song_display_name,
             song_id=row.song_id,
+            # The web app's song label uses the same pieces and separator.
+            separator=" - ",
         ),
         "division": division,
         "round": (
