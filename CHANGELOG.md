@@ -1,3 +1,16 @@
+# [1.9.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.8.3...v1.9.0) (2026-10-25)
+
+
+### Bug Fixes
+
+* **api:** drop the season year from dancer submission labels ([b22d669](https://github.com/mini-app-polis/api-deejaytools/commit/b22d6695e40df924f4095300c35e0d6885d10dfc))
+* **deps:** bump miniapppolis-common-utils to 6.24.0 ([49a7d07](https://github.com/mini-app-polis/api-deejaytools/commit/49a7d07b2865fffb01ef4621a5a304717998b789))
+
+
+### Features
+
+* **internal:** accept TICK_SECRET_PREVIOUS on x-tick-secret during rotation overlap ([c2fc1c7](https://github.com/mini-app-polis/api-deejaytools/commit/c2fc1c796e672ee6738e0ac24a6057d99db0911b))
+
 ## [1.8.3](https://github.com/mini-app-polis/api-deejaytools/compare/v1.8.2...v1.8.3) (2026-10-25)
 
 
