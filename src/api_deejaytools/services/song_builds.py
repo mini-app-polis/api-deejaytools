@@ -76,7 +76,7 @@ SONG_APP_PROPERTY = "deejaytools_song_id"
 
 _VERSION_RE = re.compile(r"_v(\d+)(?:\.[^.]*)?$")
 _NON_ALNUM = re.compile(r"[^a-zA-Z0-9]")
-_SEASON_ROLLOVER_MONTH = 10
+_SEASON_ROLLOVER_MONTH = 10  # ADR-0011
 
 _in_flight: set[asyncio.Task[bool]] = set()
 

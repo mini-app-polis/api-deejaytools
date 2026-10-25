@@ -30,7 +30,7 @@ DIVISIONS: tuple[str, ...] = tuple(d for group in DIVISION_GROUPS for d in group
 DEFAULT_TIMEZONE = "America/Chicago"
 
 # Seasons roll over on October 1: October to December belong to the next
-# calendar year's season (lib/seasonYear.ts).
+# calendar year's season (ADR-0011; deejaytools-com lib/seasonYear.ts).
 SEASON_ROLLOVER_MONTH = 10
 
 
