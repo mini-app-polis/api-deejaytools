@@ -46,6 +46,7 @@ from .test_drive_jobs_processor import (
     seed_submission,
     session,  # noqa: F401 - fixture
 )
+from .test_events import _create as create_event
 from .test_song_uploads import (
     MP3,
     FakeDrive,
@@ -521,6 +522,103 @@ async def test_synthetic_check_ins_are_not_news(
 )
 def test_live_floor_paths_report_faults_only(path: str) -> None:
     assert activity.is_excluded(path, notifications.CHANGES_NOT_REPORTED)
+
+
+async def _commit_changes_with_cascades(
+    client: httpx.AsyncClient, admin: Any, db: asyncpg.Connection
+) -> None:
+    """Writes the contract suite makes: create, and cascade deletes."""
+    pid = await _partner(client, admin)
+    removed = await client.delete(f"/v1/partners/{pid}", headers=admin.headers)
+    assert removed.status_code == 204, removed.text
+    event = await create_event(client, admin)
+    await db.execute(
+        "INSERT INTO sessions (id, event_id, name, checkin_opens_at,"
+        " floor_trial_starts_at, floor_trial_ends_at, created_at)"
+        " VALUES ('sess1', $1, 'S', 1, 2, 3, 1)",
+        event["id"],
+    )
+    gone = await client.delete(f"/v1/events/{event['id']}", headers=admin.headers)
+    assert gone.status_code == 200, gone.text
+
+
+async def test_development_posts_no_data_changes(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+    discord_posts: Posts,
+) -> None:
+    """DISCORD_NOTIFY_EVENTS' default leaves data_changed out of development."""
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "development")
+    admin = await person("admin", admin=True)
+    await _commit_changes_with_cascades(client, admin, db)
+    assert await discord_posts.channel(discord.CHANNEL_ACTIVITY) == []
+
+
+async def test_production_posts_the_same_data_changes(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+    discord_posts: Posts,
+) -> None:
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "production")
+    admin = await person("admin", admin=True)
+    await _commit_changes_with_cascades(client, admin, db)
+    paths = [c["footer"]["text"].split(" · ")[0] for c in await discord_posts.changes()]
+    assert "DELETE /v1/partners/" in " ".join(paths)
+    assert any(p.startswith("DELETE /v1/events/") for p in paths)
+
+
+async def test_development_still_posts_faults(
+    client: httpx.AsyncClient,
+    person: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    discord_posts: Posts,
+) -> None:
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "development")
+    jane = await person("jane")
+
+    async def broken(*_: Any) -> Any:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(teams, "_load_owned", broken)
+    res = await client.patch(
+        "/v1/teams/t1", json={"identifier": "X"}, headers=jane.headers
+    )
+    assert res.status_code == 500
+    (fault,) = await discord_posts.channel(discord.CHANNEL_ERRORS)
+    assert fault["title"].endswith("fault · 500")
+
+
+async def test_a_fault_left_out_of_the_list_is_not_posted(
+    client: httpx.AsyncClient,
+    person: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    discord_posts: Posts,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(
+        settings, "DISCORD_NOTIFY_EVENTS", {"production": [notifications.DATA_CHANGED]}
+    )
+    jane = await person("jane")
+
+    async def broken(*_: Any) -> Any:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(teams, "_load_owned", broken)
+    res = await client.patch(
+        "/v1/teams/t1", json={"identifier": "X"}, headers=jane.headers
+    )
+    assert res.status_code == 500
+    created = await client.post(
+        "/v1/teams", json={"identifier": "Kept"}, headers=jane.headers
+    )
+    assert created.status_code == 201
+    assert await discord_posts.channel(discord.CHANNEL_ERRORS) == []
+    assert len(await discord_posts.changes()) == 1
 
 
 def test_session_changes_are_still_reported() -> None:

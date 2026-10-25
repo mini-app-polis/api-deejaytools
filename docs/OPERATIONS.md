@@ -48,8 +48,27 @@ named by Clerk user id, never by email.
 
 ### Configuration
 
-The webhook variables and `NOTIFY_DATA_CHANGES` are listed in
-[`.env.example`](../.env.example).
+The webhook variables, `NOTIFY_DATA_CHANGES` and `DISCORD_NOTIFY_EVENTS`
+are listed in [`.env.example`](../.env.example).
+
+`DISCORD_NOTIFY_EVENTS` decides which messages each environment posts. It
+maps an environment name (`ENVIRONMENT`) to the events that environment
+sends, as JSON in a variable, in the same shape and with the same defaults
+as api-kaianolevine-com's:
+
+| Event | Message |
+|---|---|
+| `data_changed` | the summary of what a request committed, to `activity` |
+| `fault` | every fault, a request's or background work's, to `errors` |
+
+An event left out of an environment's list is not sent, and an environment
+with no entry sends every event. The defaults (in `config.py`) send both in
+production and only `fault` in development, where the writes are
+contract-suite runs and test cleanup. `NOTIFY_DATA_CHANGES` still applies:
+a data change is posted only when both allow it. "Song added" and
+"feedback" are not in the list and post as before. Don't silence a channel
+by unsetting its webhook instead: it would fall back to
+`DISCORD_WEBHOOK_URL`, which other channels share.
 
 A channel without its own variable uses `DISCORD_WEBHOOK_URL`. With neither
 set, that channel is off: nothing is sent, nothing fails, and the log says

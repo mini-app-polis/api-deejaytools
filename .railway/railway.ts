@@ -91,6 +91,8 @@ export default defineRailway((ctx) => {
       DISCORD_WEBHOOK_URL: preserve(),
       // Mutes the change feed without a deploy (docs/OPERATIONS.md).
       NOTIFY_DATA_CHANGES: preserve(),
+      // Which events each environment posts (docs/OPERATIONS.md).
+      DISCORD_NOTIFY_EVENTS: preserve(),
       // The scheduler's pace, and its off switch.
       TICK_INTERVAL_MS: preserve(),
       DISABLE_SCHEDULER: preserve(),
