@@ -24,6 +24,11 @@ What stays here is this service's policy:
   ``CHANGES_NOT_REPORTED``), each with its reason. ``NOTIFY_DATA_CHANGES``
   turns the change feed off altogether without a deploy, as in
   api-kaianolevine-com; faults and "song added" are unaffected.
+- **Which events each environment posts** (``DISCORD_NOTIFY_EVENTS``,
+  :func:`event_enabled`), named and shaped as in api-kaianolevine-com:
+  ``data_changed`` is the change feed, ``fault`` is every fault, from a
+  request or from background work. Development posts faults only. "Song
+  added" and "feedback" are not events in the list and are unaffected.
 - **No machine callers.** The only caller is the web app, so a 4xx is a
   person meeting a guard and is never reported (``is_machine`` is None).
 - **Webhooks resolve from ``Settings``**, like every other setting,
@@ -55,6 +60,24 @@ from ..config import Settings, get_settings
 logger = get_logger()
 
 SERVICE = "api-deejaytools"
+
+#: The messages ``DISCORD_NOTIFY_EVENTS`` names: the summary of what a
+#: request committed, and a fault (a request's 5xx, or a background fault).
+DATA_CHANGED = "data_changed"
+FAULT = "fault"
+NOTIFY_EVENTS = (DATA_CHANGED, FAULT)
+
+
+def event_enabled(event: str, settings: Settings) -> bool:
+    """Whether ``settings.ENVIRONMENT`` posts ``event`` to Discord.
+
+    An environment with no entry in ``DISCORD_NOTIFY_EVENTS`` posts every
+    event. ``NOTIFY_DATA_CHANGES`` is a separate gate.
+    """
+    lists = {k.lower(): v for k, v in settings.DISCORD_NOTIFY_EVENTS.items()}
+    allowed = lists.get(settings.ENVIRONMENT.lower())
+    return allowed is None or event in allowed
+
 
 #: Tables whose writes are bookkeeping rather than news. A request that
 #: changed only these posts nothing; one that changed others lists only
@@ -181,7 +204,10 @@ def _config(
         environment=settings.ENVIRONMENT,
         suppressed_tables=suppressed_tables,
         excluded_paths=EXCLUDED_PATHS,
-        report_changes=report_changes and settings.NOTIFY_DATA_CHANGES,
+        report_changes=report_changes
+        and settings.NOTIFY_DATA_CHANGES
+        and event_enabled(DATA_CHANGED, settings),
+        report_faults=event_enabled(FAULT, settings),
         send=send,
         label=True,
     )
@@ -223,7 +249,10 @@ def report_fault(
     never its text. Pass ``event_id`` when the caller already reported the
     exception to Sentry; nothing is reported to Sentry here, so a fault the
     caller did not report names its type only and the log line has the rest.
+    Nothing is posted when the environment leaves ``fault`` out of its list.
     """
+    if not event_enabled(FAULT, get_settings()):
+        return
     activity.dispatch(
         activity.report_fault(
             where,

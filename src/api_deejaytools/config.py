@@ -144,6 +144,20 @@ class Settings(BaseSettings):
     NOTIFY_DATA_CHANGES: bool = Field(
         default=True, description="Post per-request data-change summaries."
     )
+    # Which messages each environment posts, keyed by ENVIRONMENT, in the
+    # same shape and with the same defaults as api-kaianolevine-com's. The
+    # event names are services.notifications.NOTIFY_EVENTS. An environment
+    # with no entry posts every event; an event left out of its
+    # environment's list is not posted. Both gates apply: data changes also
+    # need NOTIFY_DATA_CHANGES. Development leaves data changes out: its
+    # writes are contract-suite runs and test cleanup, not news.
+    DISCORD_NOTIFY_EVENTS: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "production": ["data_changed", "fault"],
+            "development": ["fault"],
+        },
+        description="Per-environment allow-list of Discord notification events.",
+    )
 
     # Google Drive (deejaytools-api DRIVE.md, "Configuration"). The fleet's
     # one service account, as the JSON key file Google issues — the same

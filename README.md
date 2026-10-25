@@ -164,7 +164,9 @@ Configuration comes from the shared Doppler config under the
 `DEEJAYTOOLS_` names deejaytools-api read; see `.env.example`.
 Discord notifications (`DISCORD_WEBHOOK_URL`, optionally
 `DISCORD_WEBHOOK_URL_ERRORS` and `DISCORD_WEBHOOK_URL_ACTIVITY`; off when
-unset) are described in [docs/OPERATIONS.md](docs/OPERATIONS.md), with
+unset), the change-feed switch `NOTIFY_DATA_CHANGES` and the
+per-environment event allow-list `DISCORD_NOTIFY_EVENTS` (events
+`data_changed` and `fault`; development posts `fault` only) are described in [docs/OPERATIONS.md](docs/OPERATIONS.md), with
 retrying failed song builds.
 
 ## Versioning
