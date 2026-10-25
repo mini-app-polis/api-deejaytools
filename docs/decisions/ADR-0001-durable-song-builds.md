@@ -1,4 +1,4 @@
-# 0001. Make song builds durable
+# ADR-0001: Make song builds durable
 
 Date: 2026-10-02
 
@@ -25,9 +25,9 @@ bytes in memory. DRIVE.md lists what that loses:
 - two uploads in flight for the same slot can get the same version number.
 
 The brief for this service is to fix DRIVE.md's known defects rather than
-reproduce them, without the web app noticing (ADR-009), and with additive
+reproduce them, without the web app noticing (ADR-0010), and with additive
 schema changes only while deejaytools-api may serve the database again
-(ADR-008).
+(ADR-0009).
 
 ## Decision
 

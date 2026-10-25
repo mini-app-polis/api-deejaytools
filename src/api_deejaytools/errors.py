@@ -1,6 +1,6 @@
 """The response envelope and error helpers, on deejaytools-api's wire contract.
 
-Shapes (deejaytools-api docs/API.md, ADR-009):
+Shapes (deejaytools-api docs/API.md, ADR-0010):
 
     success       {"data": <object>, "meta": {"version": "v1"}}
     success list  {"data": [...],    "meta": {"version": "v1", "count": n}}
@@ -124,7 +124,7 @@ def forbidden() -> ApiError:
 def _validation_message(exc: RequestValidationError) -> str:
     """Summarize field errors as ``path: message; ...``, as the zod helper did.
 
-    The text differs from zod's (ADR-009 allows it); the code, status and
+    The text differs from zod's (ADR-0010 allows it); the code, status and
     envelope are the contract.
     """
     parts = []

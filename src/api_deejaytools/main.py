@@ -1,7 +1,7 @@
 """The api-deejaytools FastAPI app.
 
 Replaces deejaytools-api (Hono/Node) on the same database, answering the
-web app exactly as it does (deejaytools-api ADR-006, ADR-009). Package
+web app exactly as it does (ADR-0007, ADR-0010). Package
 identity (DOC-009): the repository is api-deejaytools, the distribution is
 ``api-deejaytools`` and the import package is ``api_deejaytools``.
 """
@@ -64,7 +64,7 @@ METRICS_ROUTES = (
 """Route templates that get their own Latency series in CloudWatch.
 
 Each is a billed metric, so this is the event floor only: check-in and
-promote, the two queue transactions that lock the session row (ADR-005),
+promote, the two queue transactions that lock the session row (ADR-0006),
 and the two public queue reads the floor screens poll. Must match
 ``dashboard_api_routes`` in mini-app-polis/infra ``observability.tf``.
 """

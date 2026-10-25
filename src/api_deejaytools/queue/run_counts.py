@@ -15,7 +15,7 @@ from ..models import Run
 class EntityRef:
     """One competing entity: a pair, a managed partnership, or (legacy) a solo user.
 
-    Exactly one is set. Solo is read-only (ADR-005): no new code writes it,
+    Exactly one is set. Solo is read-only (ADR-0006): no new code writes it,
     but historical rows keep counting.
     """
 

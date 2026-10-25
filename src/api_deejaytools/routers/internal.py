@@ -1,4 +1,4 @@
-"""``GET /internal/tick`` — the operator route (deejaytools-api API.md, ADR-007).
+"""``GET /internal/tick`` — the operator route (deejaytools-api API.md, ADR-0008).
 
 Runs one scheduler pass (``services.scheduler.run_tick``: session status
 advance, active-queue auto-fill, starting due song builds in the background,
@@ -6,14 +6,14 @@ one batch of the Drive job queue) and answers once it has finished. Errors insid
 
 Unversioned on purpose: operators, monitors and the conformance suite call it
 at this stable path. ``evaluator.yaml`` carries the API-004 exemption for it
-(deejaytools-api ADR-009). Being outside ``/v1/*`` it is also outside the rate
+(ADR-0010). Being outside ``/v1/*`` it is also outside the rate
 limit and the request deadline, which cover only ``/v1/*`` (middleware.py), as
 in deejaytools-api.
 
 Gate: the ``x-tick-secret`` header must equal ``TICK_SECRET``, compared in
 constant time; otherwise ``403 FORBIDDEN "Admin access required"``. An empty
 ``TICK_SECRET`` is a set secret, as in deejaytools-api. **Difference from
-deejaytools-api (ADR-007):** with ``TICK_SECRET`` unset the route fails closed
+deejaytools-api (ADR-0008):** with ``TICK_SECRET`` unset the route fails closed
 with the same 403, where deejaytools-api left it open.
 """
 

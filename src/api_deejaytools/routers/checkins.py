@@ -4,10 +4,10 @@ A dancer checks an entity into a session's waiting queue, lists their live
 check-ins, and withdraws their own. Writes are behind
 ``deejaytools.checkins.write``, the list behind ``deejaytools.checkins.read``;
 an admin may check in for someone else with ``on_behalf_of_user_id``, which
-is a second decision (``deejaytools.delegation.act``, ADR-007).
+is a second decision (``deejaytools.delegation.act``, ADR-0008).
 
 Check-in and withdraw are queue transactions: they lock the session row
-first, change the queue, and auto-fill the active queue (ADR-005).
+first, change the queue, and auto-fill the active queue (ADR-0006).
 """
 
 from __future__ import annotations
@@ -221,7 +221,7 @@ AUTH: dict[int | str, dict[str, Any]] = {
     summary="Check in",
     description=(
         "Requires deejaytools.checkins.write. Checks an entity into the session's "
-        "priority or standard queue (admission rules, ADR-005) and auto-fills "
+        "priority or standard queue (admission rules, ADR-0006) and auto-fills "
         "the active queue. The song must belong to the user and, for an event "
         "session, be submitted to the event. With on_behalf_of_user_id the "
         "caller also needs deejaytools.delegation.act, and the entity comes "

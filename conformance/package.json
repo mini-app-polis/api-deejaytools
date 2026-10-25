@@ -1,7 +1,7 @@
 {
   "name": "api-deejaytools-conformance",
   "private": true,
-  "description": "deejaytools-api's integration suite, driving api-deejaytools over HTTP (deejaytools-api ADR-009).",
+  "description": "deejaytools-api's integration suite, driving api-deejaytools over HTTP (ADR-0010).",
   "type": "module",
   "packageManager": "pnpm@9.0.0",
   "engines": {

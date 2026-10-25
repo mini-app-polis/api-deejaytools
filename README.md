@@ -7,10 +7,12 @@ answering the web app exactly as that service did, so the web app did not
 change at the switch. deejaytools-api was retired on 2026-10-02 and serves
 no traffic.
 
-The decisions behind it are in deejaytools-api's `docs/decisions/`:
-ADR-006 (the replacement), ADR-007 (authorization), ADR-008 (migrations) and
-ADR-009 (wire contract and testing). The behavior spec is deejaytools-api's
-`docs/API.md`, `SCHEMA.md`, `DRIVE.md`, `AUDIO-TAGGING.md` and ADR-005. See
+The decisions behind it are in [docs/decisions/](docs/decisions/), ported
+from deejaytools-api when it was archived: ADR-0007 (the replacement),
+ADR-0008 (authorization), ADR-0009 (migrations) and ADR-0010 (wire contract
+and testing). The behavior spec is ADR-0006 and deejaytools-api's
+`docs/API.md`, `SCHEMA.md`, `DRIVE.md` and `AUDIO-TAGGING.md`, in the
+archived [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api). See
 [docs/DESIGN.md](docs/DESIGN.md) for how this repo is laid out against them.
 
 ## Inputs and outputs
@@ -24,7 +26,7 @@ ADR-009 (wire contract and testing). The behavior spec is deejaytools-api's
 ## Endpoints
 
 Every route of deejaytools-api's `docs/API.md`, at the same path, with the
-scope ADR-007 maps it to (`require_scope(...)` in
+scope ADR-0008 maps it to (`require_scope(...)` in
 `src/api_deejaytools/auth.py`). "public" routes need no token.
 
 | Route | Auth |
@@ -118,7 +120,7 @@ PGURL=postgres://postgres:postgres@localhost:5432 bash scripts/check_baseline.sh
 ## Database and migrations
 
 The database is the one deejaytools-api served, taken over in production as
-it was. ADR-008's **additive only** rule, which kept a switch back to
+it was. ADR-0009's **additive only** rule, which kept a switch back to
 deejaytools-api possible, lapsed when deejaytools-api was retired on
 2026-10-02.
 

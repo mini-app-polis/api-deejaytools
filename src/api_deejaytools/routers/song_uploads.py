@@ -190,7 +190,7 @@ async def upload_chunk(
         raise bad("Missing chunk field")
     if on_behalf_of:
         # Where deejaytools-api checked the admin role: a second, audited
-        # decision (ADR-007). On every chunk, as there.
+        # decision (ADR-0008). On every chunk, as there.
         await authorize_delegation(caller, on_behalf_of, db, request)
 
     chunk_bytes = await chunk_file.read()

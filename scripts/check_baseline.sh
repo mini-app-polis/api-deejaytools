@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Check that migrations/001_baseline.sql is the schema drizzle leaves behind
-# (deejaytools-api ADR-008 point 2). Required, not optional: the baseline is
+# (ADR-0009 point 2). Required, not optional: the baseline is
 # only as good as this comparison.
 #
 # Builds two throwaway databases on one Postgres server:
@@ -70,7 +70,7 @@ if [[ "${REGENERATE:-}" == "1" ]]; then
 --
 -- The deejaytools schema exactly as deejaytools-api's drizzle migrations
 -- 0000-0015 leave it, enums, constraints, indexes and recorded drift
--- included (deejaytools-api ADR-008 point 2). Generated, never edited:
+-- included (ADR-0009 point 2). Generated, never edited:
 --
 --   REGENERATE=1 scripts/check_baseline.sh
 --

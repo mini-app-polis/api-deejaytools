@@ -22,7 +22,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    # Real Postgres, never SQLite (deejaytools-api ADR-009): the schema uses
+    # Real Postgres, never SQLite (ADR-0010): the schema uses
     # Postgres enums and check constraints, and the queue and the Drive job
     # queue depend on row locks. The tests refuse any database that is not
     # local and named *_test.
@@ -70,7 +70,7 @@ jobs:
       - name: Type check
         run: uv run mypy src/
 
-      # deejaytools-api ADR-008 point 2: the baseline must be the schema
+      # ADR-0009 point 2: the baseline must be the schema
       # drizzle builds. pg_dump refuses a server newer than itself, so the
       # one inside the service container is used.
       - name: Baseline matches drizzle
@@ -82,7 +82,7 @@ jobs:
       - name: Test
         run: uv run pytest --cov=src --cov-report=term-missing
 
-      # deejaytools-api ADR-009 Testing point 3: its integration suite,
+      # ADR-0010 Testing point 3: its integration suite,
       # copied into conformance/, driving this service over HTTP. It gates
       # like the rest. See conformance/README.md.
       - name: Install pnpm

@@ -1,4 +1,4 @@
-"""The floor-trial queue model (deejaytools-api src/lib/queue/*, ADR-005).
+"""The floor-trial queue model (deejaytools-api src/lib/queue/*, ADR-0006).
 
 - ``run_counts``: completed runs per entity and division, for admission.
 - ``single_entry``: the one-live-entry-per-session rule.

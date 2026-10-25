@@ -1,4 +1,4 @@
-"""Golden cases for song tagging, ported from deejaytools-api tagger.test.ts (ADR-009).
+"""Golden cases for song tagging, ported from deejaytools-api tagger.test.ts (ADR-0010).
 
 Every case in tagger.test.ts appears here with the same inputs and expected
 fields; the test names follow the TypeScript ``it`` titles. Fixtures are built

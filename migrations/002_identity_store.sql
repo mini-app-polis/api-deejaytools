@@ -1,7 +1,7 @@
 -- Migration 002: identity principal store
 --
 -- Installs the identity principal store in the deejaytools database
--- (deejaytools-api ADR-007, ADR-008 point 4): the same tables as
+-- (ADR-0008, ADR-0009 point 4): the same tables as
 -- api-kaianolevine-com migration 023, with identity_issuers.jwks_url
 -- nullable as its migration 024 left it and the identity library's models
 -- expect. One store per ecosystem: the same shape, never the same rows.
@@ -105,7 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_identity_audit_enforcement_point
   ON identity_audit_events(enforcement_point, occurred_at DESC);
 
 -- ---------------------------------------------------------------------------
--- Roles and scopes (deejaytools-api ADR-007's route classification)
+-- Roles and scopes (ADR-0008's route classification)
 -- ---------------------------------------------------------------------------
 
 INSERT INTO identity_roles (name, description) VALUES

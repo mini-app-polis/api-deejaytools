@@ -21,9 +21,9 @@ declare module "vitest" {
  * Builds the schema the way production has it: from an empty database, by
  * applying every migration in ./drizzle (deejaytools-api's, frozen), then
  * the target's post-baseline migrations from INTEGRATION_EXTRA_MIGRATIONS
- * (ADR-009 harness change 1), so the identity tables and their seed rows
+ * (ADR-0010 harness change 1), so the identity tables and their seed rows
  * exist. That also makes every conformance run a check that the target's
- * baseline and drizzle agree (ADR-008 point 7).
+ * baseline and drizzle agree (ADR-0009 point 7).
  *
  * Starts the stand-in Clerk key server for the whole run (clerk.ts), and
  * checks that the target answers before any test runs.

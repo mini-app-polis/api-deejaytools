@@ -5,7 +5,7 @@ are part of the contract: title, artist, the constant genre ``_Routine_``, the
 season year, and a provenance comment recording the tags the file arrived
 with.
 
-mutagen (ADR-009) reads and writes the tags themselves: ID3v2.3 for MP3 and
+mutagen (ADR-0010) reads and writes the tags themselves: ID3v2.3 for MP3 and
 for WAV's ``id3 `` chunk, and the Vorbis comment block for FLAC. The
 containers around them are hand-written where the spec needs behaviour
 mutagen does not give: the RIFF chunk list (overrun handling, ``id3 `` only),

@@ -1,7 +1,7 @@
 """The Google Drive layer (deejaytools-api DRIVE.md, src/services/drive.ts).
 
 Every Drive call in this service goes through ``mini_app_polis.google.drive.
-DriveFacade`` (ADR-009 "Reuse from the ecosystem"); nothing here or elsewhere
+DriveFacade`` (ADR-0010 "Reuse from the ecosystem"); nothing here or elsewhere
 calls googleapiclient directly. The facade is synchronous, so each call runs
 in a worker thread with ``asyncio.to_thread`` and the event loop never blocks
 on Google.

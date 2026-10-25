@@ -1,5 +1,5 @@
 """Edge cases where Python's defaults differ from JavaScript's, answered as
-deejaytools-api answers them (ADR-009): body parsing and middleware order,
+deejaytools-api answers them (ADR-0010): body parsing and middleware order,
 regex anchors and digits, non-finite numbers, trim(), Intl time zones and
 localeCompare."""
 

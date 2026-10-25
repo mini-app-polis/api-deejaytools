@@ -1,4 +1,4 @@
-"""GET /health: liveness only (API-010, ADR-009)."""
+"""GET /health: liveness only (API-010, ADR-0010)."""
 
 from __future__ import annotations
 

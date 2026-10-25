@@ -60,7 +60,7 @@ async def root() -> RedirectResponse:
         "Always 200 {'status': 'ok'} while the process serves: no auth and "
         "no database query (API-010). Intentionally public. Unlike "
         "deejaytools-api it does not answer 503 when the database is down "
-        "(ADR-009)."
+        "(ADR-0010)."
     ),
     response_model=HealthResponse,
 )

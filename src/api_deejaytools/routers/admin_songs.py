@@ -1,7 +1,7 @@
 """``/v1/admin/songs`` (deejaytools-api docs/API.md, src/routes/admin-songs.ts).
 
 The admin directory of every user's songs, behind
-``deejaytools.library.read`` (ADR-007).
+``deejaytools.library.read`` (ADR-0008).
 """
 
 from __future__ import annotations

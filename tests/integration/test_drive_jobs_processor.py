@@ -1,7 +1,7 @@
 """``process_drive_jobs`` against real Postgres (deejaytools-api DRIVE.md "Processing").
 
 The behaviour cases are deejaytools-api's src/services/driveJobs.test.ts,
-ported with the same inputs and expected outcomes (ADR-009 "golden cases are
+ported with the same inputs and expected outcomes (ADR-0010 "golden cases are
 ported"); there the database was mocked, here claims, leases and SKIP LOCKED
 run for real. Drive is mocked: most cases replace the Drive layer's functions,
 and the fixed-defect cases run the real Drive layer over the in-memory fake

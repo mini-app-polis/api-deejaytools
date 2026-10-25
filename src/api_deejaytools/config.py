@@ -31,7 +31,7 @@ class Settings(BaseSettings):
         description="Postgres connection string for the schema-owning role.",
     )
 
-    # The one trusted Clerk issuer (deejaytools-api ADR-007). Unset means
+    # The one trusted Clerk issuer (ADR-0008). Unset means
     # every authenticated request is rejected, as it is in deejaytools-api.
     DEEJAYTOOLS_CLERK_ISSUER: str | None = Field(
         default=None, description="The iss every session JWT must carry."
@@ -171,7 +171,7 @@ class Settings(BaseSettings):
     )
 
     # Scheduler and its operator route (deejaytools-api DRIVE.md "Processing",
-    # ADR-006 point 5, ADR-007). Unset TICK_SECRET makes GET /internal/tick
+    # ADR-0007 point 5, ADR-0008). Unset TICK_SECRET makes GET /internal/tick
     # refuse every call; an empty string is a set secret.
     TICK_SECRET: str | None = Field(
         default=None, description="Shared secret for GET /internal/tick."

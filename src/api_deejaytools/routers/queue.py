@@ -4,7 +4,7 @@ Floor-manager actions on a session's queues, and the queue reads.
 
 - promote, complete, incomplete, move-down, withdraw: behind
   ``deejaytools.queue.manage``. Each is one transaction that starts by
-  locking the session row (ADR-005, "Concurrency — pessimistic"), except
+  locking the session row (ADR-0006, "Concurrency — pessimistic"), except
   move-down, which Node runs without the lock. A failed transaction answers
   409 ``conflict``; there is no server-side retry.
 - active and waiting: public (API-008). priority and non-priority: behind
