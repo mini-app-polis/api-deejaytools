@@ -58,7 +58,7 @@ async def test_submit_shape_and_copy_job(
         "event_start_date": "2026-05-01",
         "event_status": compute_status("2026-05-01", "2026-05-03", "America/Chicago"),
         "song_id": song,
-        "song_label": "Alice & Pat Partner Classic 2026 Blue v03",
+        "song_label": "Alice & Pat Partner Classic Blue v03",
         "division": "Classic",
         "round": "prelims_and_finals",
         "created_at": data["created_at"],
