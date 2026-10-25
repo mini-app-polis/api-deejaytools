@@ -59,6 +59,7 @@ const SHARED = [
   "LOGGING_LEVEL",
   "SENTRY_DSN_APIS",
   "TICK_SECRET",
+  "TICK_SECRET_PREVIOUS",
 ];
 
 export default defineRailway((ctx) => {

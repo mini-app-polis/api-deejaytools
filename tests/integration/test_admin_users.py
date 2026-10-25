@@ -447,7 +447,7 @@ async def test_submissions_for_a_user_and_event(
     assert row["id"] == "s1"
     assert row["event_id"] == event
     assert row["event_name"] == "Swing Fling"
-    assert row["song_label"] == "Alice Classic 2026 Blue"
+    assert row["song_label"] == "Alice Classic Blue"
     assert row["division"] == "Classic"
     assert row["round"] == "prelims_and_finals"
     assert row["created_at"] == 10

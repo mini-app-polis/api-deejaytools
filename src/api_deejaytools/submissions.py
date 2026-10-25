@@ -124,7 +124,6 @@ async def fetch_user_submission_rows(
             Song.display_name.label("song_display_name"),
             Song.processed_filename.label("song_processed_filename"),
             Song.routine_name.label("song_routine_name"),
-            Song.season_year.label("song_season_year"),
             owner.first_name.label("owner_first"),
             owner.last_name.label("owner_last"),
             Partner.first_name.label("partner_first"),
@@ -184,7 +183,9 @@ def map_submission_row(row: Any) -> dict[str, Any]:
         "song_label": build_structured_song_label(
             partnership=partnership,
             division=division,
-            season_year=row.song_season_year,
+            # Dancers never see the season: it rolls over on October 1, so a
+            # November event's routines would read as next year's.
+            season_year=None,
             routine_name=row.song_routine_name,
             processed_filename=row.song_processed_filename,
             display_name=row.song_display_name,
