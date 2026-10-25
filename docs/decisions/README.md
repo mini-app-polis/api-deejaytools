@@ -9,9 +9,10 @@ ADR-0006 (floor-trial queue model, as built), ADR-0007 (the replacement),
 ADR-0008 (authorization), ADR-0009 (migrations) and ADR-0010 (wire contract
 and testing).
 
-ADR-0001 is a decision this repository made on its own, where those ADRs
-leave room. Smaller choices of the same kind are listed in
-[../DESIGN.md](../DESIGN.md).
+ADR-0001 and ADR-0011 were written in this repository: ADR-0001 is a
+decision it made where those ADRs leave room, and ADR-0011 records a rule
+inherited from deejaytools-api that had no ADR. Smaller choices of the same
+kind are listed in [../DESIGN.md](../DESIGN.md).
 
 Files are named `ADR-NNNN-short-slug.md` (ecosystem-standards DOC-005). An
 ADR in another repository is cited with that repository's name first, as in
@@ -29,3 +30,4 @@ ADR in another repository is cited with that repository's name first, as in
 | [ADR-0008](ADR-0008-replacement-api-identity-authorization.md) | Replacement API: authorization through the identity library |
 | [ADR-0009](ADR-0009-replacement-api-raw-sql-migrations.md) | Replacement API: numbered raw-SQL migrations from a baseline |
 | [ADR-0010](ADR-0010-replacement-api-contract-and-testing.md) | Replacement API: wire contract, reuse, and how it is tested |
+| [ADR-0011](ADR-0011-season-year-rolls-over-october-1.md) | The season year rolls over on October 1 |
