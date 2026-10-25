@@ -1,15 +1,31 @@
 # Decisions
 
-The decisions that define this service were made in deejaytools-api, the
-service it replaces, and live there: ADR-005 (wire contract baseline),
-ADR-006 (the replacement), ADR-007 (authorization), ADR-008 (migrations)
-and ADR-009 (wire contract and testing). They are not copied here, so there
-is one place to change them.
+ADR-0002 to ADR-0010 were made in deejaytools-api, the service this one
+replaced, and ported here on 2026-10-25 when that repository was archived
+as [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api).
+Each was renumbered by one (deejaytools-api ADR-0001 is ADR-0002 here, and
+so on) and says so in its header. The ones that define this service are
+ADR-0006 (floor-trial queue model, as built), ADR-0007 (the replacement),
+ADR-0008 (authorization), ADR-0009 (migrations) and ADR-0010 (wire contract
+and testing).
 
-The records here are decisions this repository made on its own, where those
-ADRs leave room. Smaller choices of the same kind are listed in
+ADR-0001 is a decision this repository made on its own, where those ADRs
+leave room. Smaller choices of the same kind are listed in
 [../DESIGN.md](../DESIGN.md).
+
+Files are named `ADR-NNNN-short-slug.md` (ecosystem-standards DOC-005). An
+ADR in another repository is cited with that repository's name first, as in
+`ecosystem-standards ADR-0012`.
 
 | ADR | Decision |
 |-----|----------|
 | [ADR-0001](ADR-0001-durable-song-builds.md) | Song builds are durable, staged in `song_uploads` |
+| [ADR-0002](ADR-0002-drizzle-migrations-at-deploy.md) | Run Drizzle migrations at Railway deploy time |
+| [ADR-0003](ADR-0003-validation-envelope-shape.md) | Validation 400 responses use the canonical error envelope |
+| [ADR-0004](ADR-0004-jwt-only-clerk-verification.md) | Clerk verification: session JWTs only, no M2M |
+| [ADR-0005](ADR-0005-floor-trial-queue-model.md) | Floor-trial queue model — superseded by ADR-0006 |
+| [ADR-0006](ADR-0006-floor-trial-queue-model-as-built.md) | Floor-trial queue model, as built |
+| [ADR-0007](ADR-0007-replacement-api-fastapi-on-existing-database.md) | Replacement API: a FastAPI service on the existing database |
+| [ADR-0008](ADR-0008-replacement-api-identity-authorization.md) | Replacement API: authorization through the identity library |
+| [ADR-0009](ADR-0009-replacement-api-raw-sql-migrations.md) | Replacement API: numbered raw-SQL migrations from a baseline |
+| [ADR-0010](ADR-0010-replacement-api-contract-and-testing.md) | Replacement API: wire contract, reuse, and how it is tested |

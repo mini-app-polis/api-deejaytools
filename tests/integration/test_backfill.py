@@ -1,4 +1,4 @@
-"""scripts/backfill_principals.py: every users row becomes a principal (ADR-007)."""
+"""scripts/backfill_principals.py: every users row becomes a principal (ADR-0008)."""
 
 from __future__ import annotations
 

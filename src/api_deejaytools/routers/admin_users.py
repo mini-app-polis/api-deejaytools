@@ -2,7 +2,7 @@
 
 The admin user directory, role changes, and two per-user reads for the
 "Upload For" flow. Reads are behind ``deejaytools.users.read``, the role
-change behind ``deejaytools.users.write`` (ADR-007).
+change behind ``deejaytools.users.write`` (ADR-0008).
 
 ``role`` on the wire is derived from the identity store: ``"admin"`` when
 the user's principal holds ``deejaytools-admin``, else ``"user"``. The

@@ -73,7 +73,7 @@ async def test_rerun_applies_nothing(database: str) -> None:
 
 
 async def test_production_adopts_baseline_without_running_it(scratch: str) -> None:
-    """ADR-008 point 3: bootstrap marks 001 applied and runs everything after it."""
+    """ADR-0009 point 3: bootstrap marks 001 applied and runs everything after it."""
     await _build_like_production(scratch)
     exclude = {
         p.name

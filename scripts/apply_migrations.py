@@ -28,8 +28,8 @@ Manual escape hatches:
     already-applied without running them. BOOTSTRAP_EXCLUDE is required
     whenever there is more than one migration: see _check_bootstrap.
 
-Copied from api-kaianolevine-com (its ADR-0005), as deejaytools-api
-ADR-008 decides, with two changes: there is no default exclude list, and
+Copied from api-kaianolevine-com (api-kaianolevine-com ADR-0005), as
+ADR-0009 decides, with two changes: there is no default exclude list, and
 a bootstrap with no exclude list is refused. Production adopts
 001_baseline.sql through bootstrap with every later file excluded.
 """
@@ -63,7 +63,7 @@ NO_TRANSACTION_MARKER = "-- migration:notransaction"
 
 # Migrations NOT to mark as already-applied during a bootstrap. Empty: the
 # template's default named a file of its own history (deejaytools-api
-# ADR-008 point 1). The BOOTSTRAP_EXCLUDE env var supplies the list.
+# ADR-0009 point 1). The BOOTSTRAP_EXCLUDE env var supplies the list.
 DEFAULT_BOOTSTRAP_EXCLUDE: tuple[str, ...] = ()
 
 logger = logging.getLogger("apply_migrations")

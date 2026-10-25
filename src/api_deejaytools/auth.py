@@ -3,7 +3,7 @@
 Verification, the decision and the store come from the shared ``identity``
 library (AUTH-004); this module is configuration and thin FastAPI adapters,
 shaped like api-kaianolevine-com's ``auth.py``. Its answers are
-deejaytools-api's (ADR-009):
+deejaytools-api's (ADR-0010):
 
     no or bad credential              401 UNAUTHORIZED   "Authentication required"
     valid credential, no principal    401 USER_NOT_SYNCED "Call POST /v1/auth/sync first"
@@ -11,7 +11,7 @@ deejaytools-api's (ADR-009):
 
 ``require_scope(...)`` is the guard for every scoped route: verify, resolve,
 authorize, emit audit, once per request. Every decision is audited, allow and
-deny alike. The route-to-scope table is deejaytools-api ADR-007.
+deny alike. The route-to-scope table is ADR-0008.
 
 Public routes (API-008) — no credential required, none read except where
 noted:
@@ -369,7 +369,7 @@ async def optional_synced_user_id(
 
 
 # ---------------------------------------------------------------------------
-# Acting for another user (ADR-007, "Acting on another user's behalf")
+# Acting for another user (ADR-0008, "Acting on another user's behalf")
 # ---------------------------------------------------------------------------
 
 DELEGATION_SCOPE = "deejaytools.delegation.act"

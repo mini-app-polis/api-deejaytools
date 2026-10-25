@@ -5,7 +5,7 @@ batch the scheduler runs once per tick (``process_drive_jobs``), with the
 per-kind work for ``copy``, ``rename`` and ``trash``.
 
 Processing is deejaytools-api's ``processDriveJobs`` with the three "Known
-defects" in this area fixed rather than reproduced (ADR-006 point 4):
+defects" in this area fixed rather than reproduced (ADR-0007 point 4):
 
 - overlapping copy runs, and a copy followed by a failed DB write, no longer
   leave a duplicate copy: copies are tagged with their submission id and an

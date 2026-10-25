@@ -9,7 +9,7 @@ The background loop runs a pass at startup and then every ``TICK_INTERVAL_MS``
 deejaytools-api reads it: only ``"1"``), and never when ``ENVIRONMENT`` is
 ``test``, so no test, and no suite that builds the app, ever starts a
 background loop; tests drive ``run_tick`` directly. Only one scheduler may
-run against the database (ADR-006 point 5); since deejaytools-api's
+run against the database (ADR-0007 point 5); since deejaytools-api's
 retirement this loop is that scheduler.
 
 Several replicas are safe: session status updates are idempotent, the queue

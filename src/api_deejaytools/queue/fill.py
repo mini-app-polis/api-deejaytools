@@ -2,7 +2,7 @@
 
 Every queue transaction starts with ``lock_session_for_fill``: the session
 row is the first lock taken, before any queue_entries row, so all mutations
-of a session serialize in one lock order and cannot deadlock (ADR-005,
+of a session serialize in one lock order and cannot deadlock (ADR-0006,
 "Concurrency — pessimistic").
 """
 

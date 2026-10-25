@@ -1,6 +1,6 @@
 """Make every deejaytools user a principal in the identity store.
 
-The backfill deejaytools-api ADR-007 describes, moved out of migration 002
+The backfill ADR-0008 describes, moved out of migration 002
 because it depends on the environment: each environment has its own Clerk
 instance, so the issuer the principals belong to comes from settings
 (DEEJAYTOOLS_CLERK_ISSUER, DEEJAYTOOLS_CLERK_JWKS_URL), not from a file.

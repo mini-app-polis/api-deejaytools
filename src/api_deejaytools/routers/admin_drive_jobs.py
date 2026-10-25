@@ -3,7 +3,7 @@ src/routes/admin-drive-jobs.ts).
 
 The operator view of the ``drive_jobs`` queue: health summary and recent
 jobs behind ``deejaytools.drivejobs.read``; the rename backfill and the
-retry of an exhausted job behind ``deejaytools.drivejobs.write`` (ADR-007).
+retry of an exhausted job behind ``deejaytools.drivejobs.write`` (ADR-0008).
 """
 
 from __future__ import annotations

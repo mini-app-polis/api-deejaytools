@@ -1,10 +1,10 @@
 """Integration fixtures: real Postgres, a stand-in Clerk, and an HTTP client on the app.
 
-Tests run against Postgres, never SQLite (deejaytools-api ADR-009): the
+Tests run against Postgres, never SQLite (ADR-0010): the
 schema relies on Postgres enums and check constraints, and the queue and job
 queue on row locks. The database is built once per run the way production's
 history is: by scripts/apply_migrations.py from migrations/, so the baseline
-is exercised on every run (ADR-008 point 7).
+is exercised on every run (ADR-0009 point 7).
 
 TEST_DATABASE_URL names the database. It must be local and end in _test:
 the fixtures drop its public schema.
@@ -71,7 +71,7 @@ for _name in (
 from api_deejaytools.main import app  # noqa: E402
 
 # Seed rows migration 002 writes; spared by the per-test reset, as the
-# conformance harness spares them (ADR-009).
+# conformance harness spares them (ADR-0010).
 SPARED_TABLES = {"schema_migrations", "identity_roles", "identity_role_scopes"}
 
 

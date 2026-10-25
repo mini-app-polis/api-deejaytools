@@ -2,7 +2,7 @@
 --
 -- The deejaytools schema exactly as deejaytools-api's drizzle migrations
 -- 0000-0015 leave it, enums, constraints, indexes and recorded drift
--- included (deejaytools-api ADR-008 point 2). Generated, never edited:
+-- included (ADR-0009 point 2). Generated, never edited:
 --
 --   REGENERATE=1 scripts/check_baseline.sh
 --

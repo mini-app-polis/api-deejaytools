@@ -16,7 +16,7 @@ name: deployed
 # short.
 #
 # The hostnames are repository variables, not literals: until the cutover
-# (deejaytools-api ADR-006) this service answers on its own Railway domains,
+# (ADR-0007) this service answers on its own Railway domains,
 # and api-dev.deejaytools.com / api.deejaytools.com still point at
 # deejaytools-api. At the cutover only the variables change.
 #   API_URL_DEVELOPMENT   e.g. https://api-dev.deejaytools.com

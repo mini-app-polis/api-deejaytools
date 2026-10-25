@@ -10,15 +10,15 @@ import { integrationBaseUrl } from "./target.js";
 
 /**
  * Copied from deejaytools-api's src/test/integration/harness.ts and adapted
- * for this repo (deejaytools-api ADR-009, Testing point 3):
+ * for this repo (ADR-0010, Testing point 3):
  *
  * - HTTP only. There is no in-process app here, so INTEGRATION_BASE_URL is
  *   required, and direct database writes use a plain Postgres client
  *   instead of the Node app's drizzle schema.
  * - Reset spares the identity seed tables and the migration runner's
- *   schema_migrations (ADR-009 harness change 2).
+ *   schema_migrations (ADR-0010 harness change 2).
  * - `actor({ admin: true })` grants deejaytools-admin to the actor's
- *   principal when the identity tables exist (ADR-009 harness change 3).
+ *   principal when the identity tables exist (ADR-0010 harness change 3).
  */
 
 const target = integrationBaseUrl();

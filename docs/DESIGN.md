@@ -1,7 +1,8 @@
 # Design
 
-The settled decisions are deejaytools-api's ADR-006 to ADR-009; they remain
-the spec now that deejaytools-api is retired (2026-10-02). This file
+The settled decisions are ADR-0007 to ADR-0010, made in deejaytools-api and
+ported to [decisions/](decisions/); they remain the spec now that
+deejaytools-api is retired (2026-10-02). This file
 records how this repository carries them out, and the places where it had
 to decide something they leave open.
 
@@ -22,7 +23,7 @@ deejaytools-api's codes and shapes (`errors.py`).
   the wrong issuer.
 - **The issuer is per environment.** Each environment has its own Clerk
   instance, so neither the issuer row nor the principal backfill is in
-  migration 002 (ADR-007 put them there). `scripts/backfill_principals.py`
+  migration 002 (ADR-0008 put them there). `scripts/backfill_principals.py`
   writes both from settings on every deploy, and `POST /v1/auth/sync` writes
   the issuer row if it is missing (the conformance suite rebuilds the schema
   under a running service).
@@ -32,9 +33,9 @@ deejaytools-api's codes and shapes (`errors.py`).
   is given and taken only through `PATCH /v1/admin/users/{id}/role`.
 - **`/internal/tick` fails closed** with `403 FORBIDDEN` "Admin access
   required" when `TICK_SECRET` is unset, the answer deejaytools-api gives
-  for a wrong secret (ADR-007 leaves the status open).
+  for a wrong secret (ADR-0008 leaves the status open).
 - **Bootstrap needs an exclude list.** The runner has no default
-  `BOOTSTRAP_EXCLUDE` (ADR-008) and refuses a bootstrap without one when
+  `BOOTSTRAP_EXCLUDE` (ADR-0009) and refuses a bootstrap without one when
   there is more than one migration, which would otherwise mark the identity
   store applied without creating it.
 - **Wire details.** `meta.version` is `"v1"`; errors carry `code` and
@@ -103,6 +104,6 @@ Tests build a real Postgres database from `migrations/` with the runner, so
 the baseline is exercised on every run. `scripts/check_baseline.sh` checks
 the baseline against drizzle's result in CI. The conformance suite
 (deejaytools-api's integration suite, copied into `conformance/` with
-ADR-009's three harness changes) runs in CI against this service. Its one
+ADR-0010's three harness changes) runs in CI against this service. Its one
 further change: the tick test sends `x-tick-secret`, since `/internal/tick`
 fails closed here (see `conformance/README.md`).

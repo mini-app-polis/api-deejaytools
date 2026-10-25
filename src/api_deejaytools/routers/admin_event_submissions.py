@@ -2,7 +2,7 @@
 src/routes/admin-event-submissions.ts).
 
 Every submission to one event, for the Manager's Event Songs tab, behind
-``deejaytools.entries.read`` (ADR-007).
+``deejaytools.entries.read`` (ADR-0008).
 """
 
 from __future__ import annotations
