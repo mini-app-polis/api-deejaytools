@@ -25,10 +25,10 @@ Constraints:
   and ecosystem-standards. The new service follows them rather than porting
   this repo's local choices.
 
-What this service does is specified in this repo: [API.md](https://github.com/legacy-graveyard/deejaytools-api/blob/main/docs/API.md),
-[SCHEMA.md](https://github.com/legacy-graveyard/deejaytools-api/blob/main/docs/SCHEMA.md), [DRIVE.md](https://github.com/legacy-graveyard/deejaytools-api/blob/main/docs/DRIVE.md),
-[AUDIO-TAGGING.md](https://github.com/legacy-graveyard/deejaytools-api/blob/main/docs/AUDIO-TAGGING.md), [ADR-0006](./ADR-0006-floor-trial-queue-model-as-built.md)
-and [CONFORMANCE.md](https://github.com/legacy-graveyard/deejaytools-api/blob/main/docs/CONFORMANCE.md).
+What this service does is specified in this repo: [API.md](../API.md),
+[SCHEMA.md](../SCHEMA.md), [DRIVE.md](../DRIVE.md),
+[AUDIO-TAGGING.md](../AUDIO-TAGGING.md), [ADR-0006](./ADR-0006-floor-trial-queue-model-as-built.md)
+and [CONFORMANCE.md](../CONFORMANCE.md).
 
 ## Decision
 
@@ -44,12 +44,12 @@ and [CONFORMANCE.md](https://github.com/legacy-graveyard/deejaytools-api/blob/ma
    service reads or writes changes shape, so traffic can go back to this API
    at any point until it is retired.
 3. **The wire contract is preserved for the cutover.** Paths, request and
-   response shapes, status codes and error **codes** match API.md, including
+   response shapes, status codes and error **codes** match [API.md](../API.md), including
    its quirks, so the web app does not change at the switch.
    [ADR-0010](./ADR-0010-replacement-api-contract-and-testing.md) has the details
    and the exceptions. Cleanup is a later, coordinated change on both sides.
 4. **Known defects are not carried over.** Everything listed under "Known
-   defects" in DRIVE.md and AUDIO-TAGGING.md is fixed in the new service, not
+   defects" in [DRIVE.md](../DRIVE.md) and [AUDIO-TAGGING.md](../AUDIO-TAGGING.md) is fixed in the new service, not
    reproduced.
 5. **Cutover is a traffic switch, not a migration.**
    - Deploy the new service against the shared database with its scheduler

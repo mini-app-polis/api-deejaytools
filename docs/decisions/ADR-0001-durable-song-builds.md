@@ -16,7 +16,7 @@ deejaytools-api ignores it) lapsed when deejaytools-api was retired on
 An uploaded song is built in the background after the upload answers: it
 is named, tagged, uploaded to Google Drive and recorded on the song.
 deejaytools-api runs that build in a fire-and-forget promise holding the
-bytes in memory. DRIVE.md lists what that loses:
+bytes in memory. [DRIVE.md](../DRIVE.md) lists what that loses:
 
 - a restart mid-build leaves the song with no file, and nothing resumes it;
 - a failed build of a song already submitted or checked in leaves it
@@ -24,7 +24,7 @@ bytes in memory. DRIVE.md lists what that loses:
 - a failure after the Drive upload orphans the file;
 - two uploads in flight for the same slot can get the same version number.
 
-The brief for this service is to fix DRIVE.md's known defects rather than
+The brief for this service is to fix [DRIVE.md](../DRIVE.md)'s known defects rather than
 reproduce them, without the web app noticing (ADR-0010), and with additive
 schema changes only while deejaytools-api may serve the database again
 (ADR-0009).

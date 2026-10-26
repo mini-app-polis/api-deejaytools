@@ -159,7 +159,7 @@ class Settings(BaseSettings):
         description="Per-environment allow-list of Discord notification events.",
     )
 
-    # Google Drive (deejaytools-api DRIVE.md, "Configuration"). The fleet's
+    # Google Drive (docs/DRIVE.md, "Configuration"). The fleet's
     # one service account, as the JSON key file Google issues — the same
     # GOOGLE_CREDENTIALS_JSON every cog reads. It and the parent folder are
     # required by every Drive call; an empty value counts as missing.
@@ -170,7 +170,7 @@ class Settings(BaseSettings):
         default=None, description="Root Drive folder every song file lives under."
     )
 
-    # Scheduler and its operator route (deejaytools-api DRIVE.md "Processing",
+    # Scheduler and its operator route (docs/DRIVE.md "Processing",
     # ADR-0007 point 5, ADR-0008). Unset TICK_SECRET makes GET /internal/tick
     # refuse every call; an empty string is a set secret.
     TICK_SECRET: str | None = Field(

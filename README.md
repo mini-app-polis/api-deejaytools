@@ -10,9 +10,10 @@ no traffic.
 The decisions behind it are in [docs/decisions/](docs/decisions/), ported
 from deejaytools-api when it was archived: ADR-0007 (the replacement),
 ADR-0008 (authorization), ADR-0009 (migrations) and ADR-0010 (wire contract
-and testing). The behavior spec is ADR-0006 and deejaytools-api's
-`docs/API.md`, `SCHEMA.md`, `DRIVE.md` and `AUDIO-TAGGING.md`, in the
-archived [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api). See
+and testing). The behavior spec is ADR-0006 and [docs/API.md](docs/API.md),
+[docs/SCHEMA.md](docs/SCHEMA.md), [docs/DRIVE.md](docs/DRIVE.md) and
+[docs/AUDIO-TAGGING.md](docs/AUDIO-TAGGING.md), ported from the archived
+[legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api). See
 [docs/DESIGN.md](docs/DESIGN.md) for how this repo is laid out against them.
 
 ## Inputs and outputs
@@ -25,7 +26,7 @@ archived [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/
 
 ## Endpoints
 
-Every route of deejaytools-api's `docs/API.md`, at the same path, with the
+Every route of [docs/API.md](docs/API.md), at the same path, with the
 scope ADR-0008 maps it to (`require_scope(...)` in
 `src/api_deejaytools/auth.py`). "public" routes need no token.
 

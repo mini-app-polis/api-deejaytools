@@ -1,9 +1,9 @@
 """Building an uploaded song: name it, tag it, upload it to Drive, record it.
 
-deejaytools-api DRIVE.md "Background build" is the behaviour. The steps,
+docs/DRIVE.md "Background build" is the behaviour. The steps,
 the filename rule, the tag contents, the sharing and the re-queued event
 copies are the same. What is different is that the build is durable, which
-fixes the four known defects DRIVE.md lists for it:
+fixes the four known defects docs/DRIVE.md lists for it:
 
 - **A restart mid-build** no longer leaves a song with no file and nothing
   to sweep it. The bytes wait in ``song_uploads`` (migration 003), and the
@@ -90,7 +90,7 @@ def _now_ms() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Naming (DRIVE.md "Background build", steps 2-5)
+# Naming (docs/DRIVE.md "Background build", steps 2-5)
 # ---------------------------------------------------------------------------
 
 

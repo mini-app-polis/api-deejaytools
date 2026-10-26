@@ -1,6 +1,6 @@
 """The response envelope and error helpers, on deejaytools-api's wire contract.
 
-Shapes (deejaytools-api docs/API.md, ADR-0010):
+Shapes (docs/API.md, ADR-0010):
 
     success       {"data": <object>, "meta": {"version": "v1"}}
     success list  {"data": [...],    "meta": {"version": "v1", "count": n}}
@@ -14,7 +14,7 @@ These are deejaytools-api's shapes rather than common-python-utils'
 writes, not the package version.
 
 Error codes are deejaytools-api's, not the Python house style: upper case
-for most, and the mixed-case ones API.md lists. Normalizing them is a later
+for most, and the mixed-case ones docs/API.md lists. Normalizing them is a later
 change made together with the web app.
 """
 

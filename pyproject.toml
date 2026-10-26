@@ -17,7 +17,7 @@ dependencies = [
   "sentry-sdk[fastapi]>=2.0,<3.0",
   "miniapppolis-common-utils>=6.6.0,<7",
   "miniapppolis-identity[store]>=2.1.6,<3",
-  # Audio tags written into uploaded songs (AUDIO-TAGGING.md; ADR-0010).
+  # Audio tags written into uploaded songs (docs/AUDIO-TAGGING.md; ADR-0010).
   "mutagen>=1.47,<2",
   # IANA zones for event timezones, independent of the host image.
   "tzdata>=2024.1",

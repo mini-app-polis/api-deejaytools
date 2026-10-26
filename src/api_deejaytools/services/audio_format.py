@@ -1,4 +1,4 @@
-"""Magic-byte detection of the audio formats uploads may use (deejaytools-api DRIVE.md).
+"""Magic-byte detection of the audio formats uploads may use (docs/DRIVE.md).
 
 The client's declared MIME type is unreliable (iOS Safari sends
 ``application/octet-stream`` for valid MP3s), so the bytes decide. The formats

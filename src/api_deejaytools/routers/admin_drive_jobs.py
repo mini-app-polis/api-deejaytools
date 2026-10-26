@@ -1,5 +1,5 @@
-"""``/v1/admin/drive-jobs`` (deejaytools-api docs/API.md and DRIVE.md,
-src/routes/admin-drive-jobs.ts).
+"""``/v1/admin/drive-jobs`` (docs/API.md and docs/DRIVE.md;
+deejaytools-api src/routes/admin-drive-jobs.ts).
 
 The operator view of the ``drive_jobs`` queue: health summary and recent
 jobs behind ``deejaytools.drivejobs.read``; the rename backfill and the

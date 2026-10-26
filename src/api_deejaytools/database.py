@@ -34,7 +34,7 @@ def _get_engine(database_url: str) -> AsyncEngine:
         # No prepared-statement caches, in asyncpg or in SQLAlchemy's adapter.
         # A cached statement pins the type ids it was planned with, so a
         # schema rebuilt under a running service (what the conformance suite
-        # does before every run, and what deejaytools-api CONFORMANCE.md
+        # does before every run, and what docs/CONFORMANCE.md
         # requires a target to survive) fails every later query with "cache
         # lookup failed for type". The cost is one extra round trip per
         # query, which this service's traffic does not notice.

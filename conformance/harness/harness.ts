@@ -39,7 +39,7 @@ const SPARED_TABLES = new Set([
 ]);
 
 /** Empty every table but the seeds. Runs before each test. The target's own
- * response cache (3–5 s TTLs) carries over between tests; see CONFORMANCE.md
+ * response cache (3–5 s TTLs) carries over between tests; see docs/CONFORMANCE.md
  * in deejaytools-api. */
 export async function resetDatabase(): Promise<void> {
   const rows = await db<{ tablename: string }[]>`

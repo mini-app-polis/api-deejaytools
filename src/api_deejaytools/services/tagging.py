@@ -1,4 +1,4 @@
-"""Tags written into every uploaded song file (deejaytools-api AUDIO-TAGGING.md).
+"""Tags written into every uploaded song file (docs/AUDIO-TAGGING.md).
 
 DJ software reads these tags straight from the event folders, so the fields
 are part of the contract: title, artist, the constant genre ``_Routine_``, the
@@ -470,7 +470,7 @@ def tag_song_bytes(
     year: str | None = None,
     mime_type: str | None = None,
 ) -> bytes:
-    """Return ``data`` with the song's tags written in, per AUDIO-TAGGING.md.
+    """Return ``data`` with the song's tags written in, per docs/AUDIO-TAGGING.md.
 
     The format comes from the leading bytes; ``mime_type`` is only a fallback
     when they are not recognised (a disagreement is logged and the bytes win).

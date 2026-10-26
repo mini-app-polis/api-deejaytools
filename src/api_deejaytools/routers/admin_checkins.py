@@ -1,4 +1,4 @@
-"""``/v1/admin/checkins`` (deejaytools-api docs/API.md, src/routes/admin-checkins.ts).
+"""``/v1/admin/checkins`` (docs/API.md; deejaytools-api src/routes/admin-checkins.ts).
 
 Synthetic test check-ins for exercising the floor without real dancers:
 inject one (stub leader user, follower partner, pair and placeholder song,

@@ -1,4 +1,4 @@
-"""``/v1/runs`` (deejaytools-api docs/API.md, src/routes/runs.ts).
+"""``/v1/runs`` (docs/API.md; deejaytools-api src/routes/runs.ts).
 
 Run history for the floor manager, behind ``deejaytools.runs.read``: each
 completed run with display-ready labels for its song, entity and the admin

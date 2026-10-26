@@ -1,4 +1,4 @@
-"""``/v1/feedback`` (deejaytools-api docs/API.md, src/routes/feedback.ts).
+"""``/v1/feedback`` (docs/API.md; deejaytools-api src/routes/feedback.ts).
 
 Public (API-008; listed in ``auth``): anyone can send site feedback. With a
 Brevo key configured it is emailed to the maintainer, with an optional PNG or

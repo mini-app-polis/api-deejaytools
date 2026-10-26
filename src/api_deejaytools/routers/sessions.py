@@ -1,4 +1,4 @@
-"""``/v1/sessions`` (deejaytools-api docs/API.md, src/routes/sessions.ts).
+"""``/v1/sessions`` (docs/API.md; deejaytools-api src/routes/sessions.ts).
 
 The two reads are public with an optional caller: a valid, synced caller
 also gets ``has_active_checkin`` (and on the detail, the division of their

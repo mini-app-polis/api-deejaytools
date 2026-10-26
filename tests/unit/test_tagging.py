@@ -1137,7 +1137,7 @@ def test_mp3_audio_after_the_tag_and_id3v1_are_left_untouched() -> None:
 
 
 def test_flac_spec_example_encoder_tagged_file() -> None:
-    """AUDIO-TAGGING.md's FLAC example: keys upper-cased, positions kept."""
+    """docs/AUDIO-TAGGING.md's FLAC example: keys upper-cased, positions kept."""
     data = build_minimal_flac(
         [
             "title=Old T",
