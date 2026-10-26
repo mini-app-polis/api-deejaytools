@@ -1,5 +1,5 @@
-"""``/v1/managed-partnerships`` (deejaytools-api docs/API.md,
-src/routes/managed-partnerships.ts).
+"""``/v1/managed-partnerships`` (docs/API.md;
+deejaytools-api src/routes/managed-partnerships.ts).
 
 Couples a user manages by name only. Reads are behind
 ``deejaytools.partnerships.read``, changes behind
@@ -347,7 +347,7 @@ async def delete_managed_partnership(
                 ).scalars()
                 if file_id is not None
             ]
-            # Fix of a DRIVE.md known defect: deejaytools-api never deprecated
+            # Fix of a docs/DRIVE.md known defect: deejaytools-api never deprecated
             # these songs' own files, only their event copies. They are queued
             # for trashing too, on the same condition as a song delete.
             orphaned += [

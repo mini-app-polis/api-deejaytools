@@ -1,6 +1,6 @@
 """The Drive layer (services/drive.py) over a real DriveFacade and a fake service.
 
-Covers DRIVE.md "Configuration", "Folder layout" (names, sanitizing,
+Covers docs/DRIVE.md "Configuration", "Folder layout" (names, sanitizing,
 find-or-create, the 1-hour cache and its clearing on a failed event copy) and
 ``softDeleteOnDrive``. No network: the Google client is the in-memory fake in
 drive_fakes.py.

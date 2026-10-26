@@ -1,4 +1,4 @@
-"""``/v1/songs`` (deejaytools-api docs/API.md, src/routes/songs.ts).
+"""``/v1/songs`` (docs/API.md; deejaytools-api src/routes/songs.ts).
 
 A user's song library. Reads are behind ``deejaytools.songs.read``, changes
 behind ``deejaytools.songs.write``; every route sees only the caller's own,
@@ -407,7 +407,7 @@ async def delete_song(
             "Complete or withdraw the check-in first.",
         )
 
-    # Fix of a DRIVE.md known defect: deejaytools-api moved the song's own
+    # Fix of a docs/DRIVE.md known defect: deejaytools-api moved the song's own
     # file to _deprecated inline, before the transaction, so a failed
     # transaction left a live song with a deprecated file. Its file is now
     # queued for trashing after commit, with the event copies.

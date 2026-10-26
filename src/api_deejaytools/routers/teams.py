@@ -1,4 +1,4 @@
-"""``/v1/teams`` (deejaytools-api docs/API.md, src/routes/teams.ts).
+"""``/v1/teams`` (docs/API.md; deejaytools-api src/routes/teams.ts).
 
 Team names a user competes under. Reads are behind ``deejaytools.teams.read``,
 changes behind ``deejaytools.teams.write``; every route sees only the

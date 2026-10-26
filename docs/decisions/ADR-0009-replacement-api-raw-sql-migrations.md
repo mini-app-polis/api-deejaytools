@@ -31,7 +31,7 @@ precedent in this ecosystem's one Python API.
    a file of that repo's own history.
 2. **`001_baseline.sql` is the current schema**, exactly as drizzle's
    0000–0015 leave it: tables, enums (including `moved_within_queue`),
-   constraints, indexes, and the drift SCHEMA.md records (for example
+   constraints, indexes, and the drift [SCHEMA.md](../SCHEMA.md) records (for example
    `fk_checkins_session_division`, which exists in the database but not in
    `schema.ts`). Generate it from a database built by those migrations
    (`pg_dump --schema-only`), not by hand, and check it by diffing a database

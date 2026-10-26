@@ -1,4 +1,4 @@
-"""``/v1/auth`` — sync and the caller's own record (deejaytools-api docs/API.md).
+"""``/v1/auth`` — sync and the caller's own record (docs/API.md).
 
 Both routes here are authenticated-only (see ``auth``'s module docstring):
 they verify the credential and require no scope. The credential is the

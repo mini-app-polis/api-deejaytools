@@ -52,7 +52,7 @@ the same shape, sharing the schema and never the rows.
 
 ### Route classification
 
-All 70 routes, from API.md. "Owner" means the handler also restricts rows to
+All 70 routes, from [API.md](../API.md). "Owner" means the handler also restricts rows to
 the caller's own, as today; the scope says what *kind* of action is allowed,
 the query still says *whose* rows.
 

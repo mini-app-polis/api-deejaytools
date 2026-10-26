@@ -69,7 +69,7 @@ deejaytools-api's codes and shapes (`errors.py`).
   a lease it renews every minute and identifies itself with a `claim_id`; a
   build that stops renewing is taken over, and its later writes match
   nothing. The tick starts due builds in the background, at most
-  `MAX_IN_FLIGHT` at once. This fixes DRIVE.md's known defects; the wire
+  `MAX_IN_FLIGHT` at once. This fixes [DRIVE.md](DRIVE.md)'s known defects; the wire
   behaviour (an unreferenced song vanishing when its build fails) is kept.
 - **Drive clients are per thread** (`services/drive.py`): Drive calls run in
   worker threads, and googleapiclient's transport is not thread-safe.
@@ -96,7 +96,7 @@ deejaytools-api's codes and shapes (`errors.py`).
   queue, check-in and run entity labels.
 - **No prepared-statement caching** (`database.py`): the service survives
   its schema being rebuilt underneath it, which deejaytools-api's
-  CONFORMANCE.md requires of a target, for one extra round trip per query.
+  [CONFORMANCE.md](CONFORMANCE.md) requires of a target, for one extra round trip per query.
 
 ## Testing
 

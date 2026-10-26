@@ -1,4 +1,4 @@
-"""``/v1/partners`` (deejaytools-api docs/API.md, src/routes/partners.ts).
+"""``/v1/partners`` (docs/API.md; deejaytools-api src/routes/partners.ts).
 
 A user's address book of dance partners. Reads are behind
 ``deejaytools.partners.read``, changes behind ``deejaytools.partners.write``;

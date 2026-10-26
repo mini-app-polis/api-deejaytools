@@ -1,4 +1,4 @@
-"""``/v1/admin/users`` (deejaytools-api docs/API.md, src/routes/admin-users.ts).
+"""``/v1/admin/users`` (docs/API.md; deejaytools-api src/routes/admin-users.ts).
 
 The admin user directory, role changes, and two per-user reads for the
 "Upload For" flow. Reads are behind ``deejaytools.users.read``, the role

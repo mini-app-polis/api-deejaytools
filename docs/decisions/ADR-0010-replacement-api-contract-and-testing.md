@@ -21,18 +21,18 @@ SQLite-backed tests). This ADR settles each difference and says how
 ### Wire contract
 
 - **Envelope:** `{ data, meta: { version, ... } }` and
-  `{ error: { code, message } }` as API.md describes, `meta.count` on lists.
+  `{ error: { code, message } }` as [API.md](../API.md) describes, `meta.count` on lists.
   API-005 and XSTACK-002 are already satisfied by this shape.
 - **Error codes are this API's, not the Python house style.** The new service
   answers `UNAUTHORIZED`, `USER_NOT_SYNCED`, `FORBIDDEN`, `NOT_FOUND`,
-  `BAD_REQUEST`, `VALIDATION_ERROR`, `INTERNAL`, and the mixed-case ones API.md
+  `BAD_REQUEST`, `VALIDATION_ERROR`, `INTERNAL`, and the mixed-case ones [API.md](../API.md)
   lists (`conflict`, `forbidden` on self-demotion, `too_many_requests`,
   `request_timeout`, `payload_too_large`, `SONG_IN_ACTIVE_CHECKIN`, `CHUNK_*`,
   `UNSUPPORTED_FORMAT`), not api-kaianolevine-com's lowercase
   `unauthorized` / `forbidden`. The identity library's deny maps to
   `401 UNAUTHORIZED` / `403 FORBIDDEN`. Normalizing codes is a later change
   made together with the web app.
-- **Messages:** fixed messages in API.md's error tables are reproduced word
+- **Messages:** fixed messages in [API.md](../API.md)'s error tables are reproduced word
   for word. Validation (`VALIDATION_ERROR`) messages are the exception: they
   come from zod today and will come from pydantic, so their text will
   differ. The code, status and envelope are the contract; the web app must
@@ -56,7 +56,7 @@ SQLite-backed tests). This ADR settles each difference and says how
 | Layout, settings, logger, Sentry, `api_error`, Railway config | api-kaianolevine-com | Copy the shape, not the routes |
 | Authorization | `identity` (`ClerkVerifier`, store, policy, audit) | ADR-0008 |
 | Drive folders, copy, move, rename, upload, trash | `mini_app_polis.google.DriveFacade` | Synchronous: call it off the event loop. Add the missing reader-share call (`permissions.create`, no notification email) to common-python-utils with its own tests, rather than calling Drive directly here |
-| Audio tagging | `mutagen`, written to AUDIO-TAGGING.md | **Not** `mini_app_polis.mp3.Mp3Tagger`: it is MP3-only and path-based, and its routine title/artist builders produce different tags (artist carries version and season; no ProAm FollowerAm swap) |
+| Audio tagging | `mutagen`, written to [AUDIO-TAGGING.md](../AUDIO-TAGGING.md) | **Not** `mini_app_polis.mp3.Mp3Tagger`: it is MP3-only and path-based, and its routine title/artist builders produce different tags (artist carries version and season; no ProAm FollowerAm swap) |
 | Migrations | api-kaianolevine-com's runner | ADR-0009 |
 
 ### Testing
@@ -70,7 +70,7 @@ SQLite-backed tests). This ADR settles each difference and says how
    containers, fast-start offsets, 64-bit atoms, the WAV overrun cases) and
    the behavior cases in `src/services/driveJobs.test.ts` become pytest cases
    with the same inputs and expected fields.
-3. **This repo's integration suite is the conformance suite** (CONFORMANCE.md):
+3. **This repo's integration suite is the conformance suite** ([CONFORMANCE.md](../CONFORMANCE.md)):
    the new service's CI checks out this repo at a pinned commit and runs
    `pnpm test:integration` with `INTEGRATION_BASE_URL` pointed at the new
    service. Every route must be hit (the route ledger) and every assertion

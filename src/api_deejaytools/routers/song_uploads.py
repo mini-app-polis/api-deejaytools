@@ -1,4 +1,4 @@
-"""``POST /v1/songs/upload/chunk`` (deejaytools-api docs/API.md, DRIVE.md "Upload pipeline").
+"""``POST /v1/songs/upload/chunk`` (docs/API.md, docs/DRIVE.md "Upload pipeline").
 
 Chunks are staged on local disk exactly as deejaytools-api stages them; the
 final chunk is checked, assembled and turned into a song row, which is
@@ -7,7 +7,7 @@ record) then runs in the background from durable staging: see
 ``services/song_builds.py`` for how it differs from deejaytools-api's.
 
 The body is ``multipart/form-data`` with no zod schema: fields are read and
-checked by hand, in the order and with the messages API.md lists.
+checked by hand, in the order and with the messages docs/API.md lists.
 """
 
 from __future__ import annotations

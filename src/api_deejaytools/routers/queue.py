@@ -1,4 +1,4 @@
-"""``/v1/queue`` (deejaytools-api docs/API.md, src/routes/queue.ts).
+"""``/v1/queue`` (docs/API.md; deejaytools-api src/routes/queue.ts).
 
 Floor-manager actions on a session's queues, and the queue reads.
 

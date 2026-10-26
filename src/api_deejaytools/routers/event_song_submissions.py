@@ -1,5 +1,5 @@
-"""``/v1/event-song-submissions`` (deejaytools-api docs/API.md,
-src/routes/event-song-submissions.ts).
+"""``/v1/event-song-submissions`` (docs/API.md;
+deejaytools-api src/routes/event-song-submissions.ts).
 
 A user's songs entered in events. The list is behind
 ``deejaytools.submissions.read``, create and delete behind

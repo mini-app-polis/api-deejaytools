@@ -1,4 +1,4 @@
-"""``/v1/events`` (deejaytools-api docs/API.md, src/routes/events.ts).
+"""``/v1/events`` (docs/API.md; deejaytools-api src/routes/events.ts).
 
 Reads of an event are public; who is entered is behind
 ``deejaytools.entities.read``; changes are behind ``deejaytools.events.write``.

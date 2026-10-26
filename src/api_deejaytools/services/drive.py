@@ -1,4 +1,4 @@
-"""The Google Drive layer (deejaytools-api DRIVE.md, src/services/drive.ts).
+"""The Google Drive layer (docs/DRIVE.md; deejaytools-api src/services/drive.ts).
 
 Every Drive call in this service goes through ``mini_app_polis.google.drive.
 DriveFacade`` (ADR-0010 "Reuse from the ecosystem"); nothing here or elsewhere
@@ -6,7 +6,7 @@ calls googleapiclient directly. The facade is synchronous, so each call runs
 in a worker thread with ``asyncio.to_thread`` and the event loop never blocks
 on Google.
 
-Folder layout, as DRIVE.md "Folder layout"::
+Folder layout, as docs/DRIVE.md "Folder layout"::
 
     <root>/
     ├── <seasonYear>/<division>/<processed_filename>          uploads
@@ -82,7 +82,7 @@ DEPRECATED_FOLDER = "_deprecated"
 SUBMISSION_APP_PROPERTY = "deejaytools_submission_id"
 """Drive appProperty every event copy carries, valued with its submission id.
 
-It is how a copy job finds a copy an earlier run already made (DRIVE.md
+It is how a copy job finds a copy an earlier run already made (docs/DRIVE.md
 "Known defects": overlapping runs and copy-then-DB-failure duplicated it).
 """
 
@@ -97,7 +97,7 @@ class DriveNotConfiguredError(RuntimeError):
 
 
 def sanitize_folder_name(name: str) -> str:
-    """A folder name as DRIVE.md specifies: ``/`` and ``\\`` become ``-``, runs
+    """A folder name as docs/DRIVE.md specifies: ``/`` and ``\\`` become ``-``, runs
     of whitespace collapse to one space, the ends are trimmed, and an empty
     result becomes ``unknown``.
 
@@ -310,7 +310,7 @@ async def soft_delete(file_id: str) -> None:
     """Move a file into ``<root>/_deprecated``, removing all its current parents.
 
     Nothing is permanently deleted or put in the Drive trash. ``_deprecated``
-    is created if missing. (DRIVE.md "softDeleteOnDrive".)
+    is created if missing. (docs/DRIVE.md "softDeleteOnDrive".)
     """
     facade, root = _drive()
     deprecated_id = await _ensure_folder(facade, root, DEPRECATED_FOLDER)
@@ -381,7 +381,7 @@ async def copy_song_to_event_folder(
                 facade, destination_id, sanitize_folder_name(subfolder)
             )
 
-        # Fix for DRIVE.md "Known defects" (overlapping copy runs after a
+        # Fix for docs/DRIVE.md "Known defects" (overlapping copy runs after a
         # lease reclaim, and a copy followed by a failed DB write, both made a
         # second copy): a copy this submission already has is found by its
         # tag and reused.

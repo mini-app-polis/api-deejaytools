@@ -1,4 +1,4 @@
-"""Request limits, as deejaytools-api applies them (API.md, ADR-0010).
+"""Request limits, as deejaytools-api applies them (docs/API.md, ADR-0010).
 
     body limit   every path   11 MiB      413 payload_too_large
     rate limit   /v1/* only   300 / min   429 too_many_requests   per client IP

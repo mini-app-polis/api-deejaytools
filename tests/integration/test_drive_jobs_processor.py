@@ -1,4 +1,4 @@
-"""``process_drive_jobs`` against real Postgres (deejaytools-api DRIVE.md "Processing").
+"""``process_drive_jobs`` against real Postgres (docs/DRIVE.md "Processing").
 
 The behaviour cases are deejaytools-api's src/services/driveJobs.test.ts,
 ported with the same inputs and expected outcomes (ADR-0010 "golden cases are
@@ -755,7 +755,7 @@ async def test_concurrent_passes_take_disjoint_batches(
     assert sorted(fake_drive.soft_deletes) == [f"f{i}" for i in range(6)]
 
 
-# --- fixed defects (DRIVE.md "Known defects") ---------------------------------------
+# --- fixed defects (docs/DRIVE.md "Known defects") ---------------------------------------
 
 
 def tagged_copies(svc: FakeDriveService, submission_id: str) -> list[str]:

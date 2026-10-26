@@ -2,7 +2,7 @@
 --
 -- deejaytools-api builds an uploaded song (tag, Drive upload, record the
 -- Drive fields) in a fire-and-forget promise holding the bytes in memory.
--- DRIVE.md "Known defects" lists what that loses: a process restart leaves
+-- docs/DRIVE.md "Known defects" lists what that loses: a process restart leaves
 -- the song with no file and nothing sweeps it; a failed build of a song that
 -- was already submitted or checked in leaves it without a file for good; a
 -- failure after the Drive upload orphans the file; two uploads in flight for

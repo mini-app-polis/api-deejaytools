@@ -1,4 +1,4 @@
-"""``GET /internal/tick`` — the operator route (deejaytools-api API.md, ADR-0008).
+"""``GET /internal/tick`` — the operator route (docs/API.md, ADR-0008).
 
 Runs one scheduler pass (``services.scheduler.run_tick``: session status
 advance, active-queue auto-fill, starting due song builds in the background,

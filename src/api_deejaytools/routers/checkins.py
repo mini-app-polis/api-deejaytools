@@ -1,4 +1,4 @@
-"""``/v1/checkins`` (deejaytools-api docs/API.md, src/routes/checkins.ts).
+"""``/v1/checkins`` (docs/API.md; deejaytools-api src/routes/checkins.ts).
 
 A dancer checks an entity into a session's waiting queue, lists their live
 check-ins, and withdraws their own. Writes are behind

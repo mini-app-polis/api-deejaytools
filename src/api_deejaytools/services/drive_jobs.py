@@ -1,4 +1,4 @@
-"""The ``drive_jobs`` queue (deejaytools-api DRIVE.md, "drive_jobs queue").
+"""The ``drive_jobs`` queue (docs/DRIVE.md, "drive_jobs queue").
 
 Enqueueing (best-effort, after the request's own commit) and processing: the
 batch the scheduler runs once per tick (``process_drive_jobs``), with the
@@ -330,7 +330,7 @@ async def _record_copy(
 ) -> None:
     """Store a copy's id on its submission, or discard the copy if it lost.
 
-    Fix for DRIVE.md "Known defects" (a copy finishing after its submission
+    Fix for docs/DRIVE.md "Known defects" (a copy finishing after its submission
     was deleted was orphaned; the old update had no IS NULL guard): the id is
     written only into a still-empty column. When nothing is updated, the
     submission is gone or holds another copy, so this copy is soft-deleted,
@@ -451,7 +451,7 @@ async def _mark_done(db: AsyncSession, job: _Job) -> bool:
 async def _record_failure(db: AsyncSession, job: _Job, exc: Exception) -> None:
     """Reschedule (or fail) a job after its run raised, then log and report.
 
-    Fix for DRIVE.md "Known defects" (a DB error here escaped and left the
+    Fix for docs/DRIVE.md "Known defects" (a DB error here escaped and left the
     rest of the batch in ``running`` for the whole lease): the update is
     guarded on its own. If it fails the error is logged and the batch goes on;
     the job stays ``running`` until the lease reclaims it.
