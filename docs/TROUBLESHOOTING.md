@@ -2,7 +2,7 @@
 
 Symptom-first guide to this service's problems: deploys, configuration, the database, Drive, email, the scheduler and CORS. Headings match **exact error text or observable behaviour**. Each entry: **Cause** → **Fix**. Problems a person meets in the web app (uploads, sign-in, sync) are in [deejaytools-com's troubleshooting guide](https://github.com/mini-app-polis/deejaytools-com/blob/main/docs/TROUBLESHOOTING.md).
 
-This service's configuration lives in the shared Doppler config (`mini-app-polis-ecosystem`: `dev` locally, `prd` synced to Railway) under the names in [`.env.example`](../.env.example). A variable the Railway service reads must also be listed in [`.railway/railway.ts`](../.railway/README.md), or the next apply removes it.
+This service's configuration lives in its own Doppler project (`api-deejaytools`: `dev` locally, `prd` synced to Railway), under the names in [`.env.example`](../.env.example), each a reference to the value in `mini-app-polis-ecosystem`. A variable the Railway service reads must also be listed in [`.railway/railway.ts`](../.railway/README.md), or the next apply removes it.
 
 For procedures (retrying failed song builds, Discord notifications), see [`OPERATIONS.md`](OPERATIONS.md).
 
