@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.9.6...v1.10.0) (2026-10-27)
+
+
+### Features
+
+* **railway:** keep the variables Doppler syncs to the service itself ([a54847c](https://github.com/mini-app-polis/api-deejaytools/commit/a54847c816b688f8fe31756db7ebde9516cae9e1))
+
 ## [1.9.6](https://github.com/mini-app-polis/api-deejaytools/compare/v1.9.5...v1.9.6) (2026-10-26)
 
 
