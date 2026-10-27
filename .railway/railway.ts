@@ -29,8 +29,10 @@
 // the names the service reads are declared — the Settings fields in
 // src/api_deejaytools/config.py and what mini_app_polis reads on its
 // behalf. The database URLs are not in Doppler: they reference
-// Postgres-deejaytools, and are kept as Railway has them. The port is the
-// Dockerfile's default, 3001, which the domain below expects.
+// Postgres-deejaytools, and are kept as Railway has them. PORT is set on the
+// service to 3001, the port the domain below sends traffic to. Without it
+// Railway injects a PORT of its own (8080), the app listens there, the
+// health check still passes and the domain answers nothing.
 //
 // The rest of the Settings fields the service reads in production are
 // declared with preserve() too and are usually unset, so the code's default
@@ -94,6 +96,7 @@ export default defineRailway((ctx) => {
       // OPS-002: the schema-owning role's connection, read by
       // scripts/apply_migrations.py. Like the one above, a database URL.
       DEEJAYTOOLS_DATABASE_URL_MIGRATIONS: preserve(),
+      PORT: preserve(),
       // The fallback for every Discord channel without its own webhook.
       DISCORD_WEBHOOK_URL: preserve(),
       // Mutes the change feed without a deploy (docs/OPERATIONS.md).
