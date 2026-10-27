@@ -83,7 +83,7 @@ scheduler every `TICK_INTERVAL_MS`, or once per `GET /internal/tick`.
 
 Prerequisites: Python 3.11, [uv](https://docs.astral.sh/uv/), Postgres 16,
 and the [Doppler CLI](https://docs.doppler.com/docs/install-cli). Secrets come
-from Doppler's shared `dev` config — nothing reads a `.env` file, and local
+from this repo's own Doppler `dev` config — nothing reads a `.env` file, and local
 runs never use `prd`. `DEEJAYTOOLS_DATABASE_URL` is not in Doppler: set it in
 the shell for your local database. `doppler run` passes it through because
 Doppler holds no value for that name (if it did, Doppler's would win). The
@@ -166,8 +166,8 @@ declared in `.railway/railway.ts` and applied to production by CI, as infra
 applies Terraform: the `dev` → `main` pull request is planned and, once
 merged, applied — removals only with the `allow-destroy` label. Development
 keeps its dashboard settings (`.railway/README.md`).
-Configuration comes from the shared Doppler config under the
-`DEEJAYTOOLS_` names deejaytools-api read; see `.env.example`.
+Configuration comes from this repo's own Doppler project, whose configs
+reference the `DEEJAYTOOLS_` names deejaytools-api read; see `.env.example`.
 Discord notifications (`DISCORD_WEBHOOK_URL`, optionally
 `DISCORD_WEBHOOK_URL_ERRORS` and `DISCORD_WEBHOOK_URL_ACTIVITY`; off when
 unset), the change-feed switch `NOTIFY_DATA_CHANGES` and the

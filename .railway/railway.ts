@@ -28,14 +28,17 @@
 // what the sync wrote, and the next apply would remove one left out. Only
 // the names the service reads are declared — the Settings fields in
 // src/api_deejaytools/config.py and what mini_app_polis reads on its
-// behalf. The two that are not in Doppler, the
-// database URL (a reference to Postgres-deejaytools) and PORT, are kept as
-// Railway has them.
+// behalf. The database URLs are not in Doppler: they reference
+// Postgres-deejaytools, and are kept as Railway has them. PORT is set on the
+// service to 3001, the port the domain below sends traffic to. Without it
+// Railway injects a PORT of its own (8080), the app listens there, the
+// health check still passes and the domain answers nothing.
 //
-// The rest of the Settings fields the service reads in production are not
-// in Doppler either, and are kept as Railway has them with preserve(): set on
-// the service when needed and left unset otherwise, so the code's default
-// applies without Doppler holding every one of them.
+// The rest of the Settings fields the service reads in production are
+// declared with preserve() too and are usually unset, so the code's default
+// applies. To set one, add it to the service's own Doppler config, as a
+// value of its own or a reference into the vault; its sync puts it on the
+// service. Never set one on the service by hand.
 // tests/unit/test_railway_variables.py fails when a Settings field is
 // neither declared here nor listed there as deliberately left out.
 
