@@ -1,3 +1,11 @@
+## [1.10.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.10.0...v1.10.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **railway:** drop PORT and set optional settings through Doppler ([c32f769](https://github.com/mini-app-polis/api-deejaytools/commit/c32f76909ab445fdbedc72640977b638191914ed))
+* **railway:** keep PORT, which Railway otherwise replaces with its own ([6a93d8a](https://github.com/mini-app-polis/api-deejaytools/commit/6a93d8a473759bfae8d4d8ddb2805a0fe4c2ff50))
+
 # [1.10.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.9.6...v1.10.0) (2026-10-27)
 
 
