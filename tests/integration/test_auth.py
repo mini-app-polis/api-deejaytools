@@ -255,7 +255,8 @@ async def test_me_returns_the_synced_record(
     res = await client.get("/v1/auth/me", headers=bearer(clerk.token(uid)))
 
     assert res.status_code == 200
-    assert res.json() == synced
+    # /me adds the caller's per-event staff roles (ADR-0012), none here.
+    assert res.json() == {**synced, "data": {**synced["data"], "event_roles": []}}
 
 
 async def test_me_role_comes_from_the_grant(

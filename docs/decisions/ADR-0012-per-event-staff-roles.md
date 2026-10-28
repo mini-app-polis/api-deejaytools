@@ -40,7 +40,7 @@ their behaviour are unchanged.
 |------|---------|------------------------------|
 | Coordinator | Sees what has been entered | `deejaytools.entries.read` |
 | DJ | Runs the floor trials and plays the music | `deejaytools.entries.read`, `deejaytools.queue.read`, `deejaytools.queue.manage`, `deejaytools.runs.read`, `deejaytools.sessions.write`, `deejaytools.delegation.act`, plus read access to the event's Drive folder |
-| Event manager | Admin, limited to the events granted | everything the DJ has (Drive folder access included), plus `deejaytools.events.write` and `deejaytools.staff.write` |
+| Event manager | Admin, limited to the events granted | everything the DJ has (Drive folder access included), plus `deejaytools.events.write`, `deejaytools.staff.read` and `deejaytools.staff.write` |
 
 The role definitions live in data, not code. Each is an `identity_roles` row
 (`deejaytools-event-coordinator`, `deejaytools-event-dj`,

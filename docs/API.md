@@ -231,7 +231,7 @@ On conflict, only `email` and `updated_at` are updated — `firstName` / `lastNa
 
 **Request body:** none
 
-**Response:** Same shape as `POST /sync` `data`.
+**Response:** Same shape as `POST /sync` `data`, plus `event_roles`: the caller's per-event staff roles, `[{ "event_id": "…", "role": "coordinator" | "dj" | "event-manager" }]`, by event, empty when none (api-deejaytools, [ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)). `role` stays `user` or `admin`.
 
 **Errors:**
 
@@ -479,7 +479,7 @@ const patchEvent = z.object({
 
 **Auth:** requireAdmin
 
-**Purpose:** Delete an event and cascade-delete its sessions and all floor-trial data, its song submissions and its run limits. After commit, a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
+**Purpose:** Delete an event and cascade-delete its sessions and all floor-trial data, its song submissions and its run limits (and, in api-deejaytools, its staff roles with their explicit grants). After commit, a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
 
 **Path params:** `id`
 
@@ -498,6 +498,79 @@ const patchEvent = z.object({
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
 | 404 | `NOT_FOUND` | Event not found | Unknown id |
+
+---
+
+## Event staff — `/v1/events/:id/staff`
+
+api-deejaytools only, not in deejaytools-api: per-event staff roles ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)). A role is `coordinator`, `dj` or `event-manager`, held on one event. These routes are event-scoped: allowed by the scope held through a role (an admin's, on any event) or granted on the event in the path.
+
+A staff grant on the wire:
+
+```json
+{
+  "event_id": "…",
+  "user_id": "user_2abc…",
+  "role": "dj",
+  "email": "dj@example.com",
+  "first_name": "Ada",
+  "last_name": "Lovelace",
+  "granted_by": "user_2admin…",
+  "granted_at": 1710000000000
+}
+```
+
+### GET /v1/events/:id/staff
+
+**Auth:** `deejaytools.staff.read` on the event
+
+**Purpose:** The event's staff, ordered by role, then oldest grant first.
+
+**Response:** `successList` of staff grants.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+
+---
+
+### PUT /v1/events/:id/staff/:userId/:role
+
+**Auth:** `deejaytools.staff.write` on the event. Granting `event-manager` needs the scope through a role (admin).
+
+**Purpose:** Grant the role on the event: the staff row plus the role's scopes as explicit grants on `event:<id>`. Idempotent: a grant already held is returned unchanged.
+
+**Request body:** none
+
+**Response:** `success` with the staff grant.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` | … | `role` is not one of the three |
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event, or `event-manager` without it through a role |
+| 404 | `NOT_FOUND` | Event not found | Unknown event id |
+| 404 | `NOT_FOUND` | User not found | No `users` row for `userId` |
+
+---
+
+### DELETE /v1/events/:id/staff/:userId/:role
+
+**Auth:** as `PUT`.
+
+**Purpose:** Revoke the role on the event, with each of its explicit grants no other role the person still holds on the event carries. Idempotent.
+
+**Response:**
+
+```json
+{ "data": { "deleted": true }, "meta": { "version": "…" } }
+```
+
+**Errors:** as `PUT`.
 
 ---
 
