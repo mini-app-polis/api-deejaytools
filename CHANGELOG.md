@@ -1,3 +1,15 @@
+# [1.13.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.12.0...v1.13.0) (2026-10-28)
+
+
+### Bug Fixes
+
+* **auth:** pass literal scope strings to route guards so AUTH-003 can read them ([19c5114](https://github.com/mini-app-polis/api-deejaytools/commit/19c5114417265c1e6cb6672cb34cbd81f5639361))
+
+
+### Features
+
+* **events:** find an event's people by name for its staff ([9cd09a1](https://github.com/mini-app-polis/api-deejaytools/commit/9cd09a1c5991464615a895bbb4e40e766c835323))
+
 # [1.12.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.11.0...v1.12.0) (2026-10-28)
 
 
