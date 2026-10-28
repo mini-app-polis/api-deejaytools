@@ -6,6 +6,7 @@ import uuid
 
 from identity.policy import authorize
 from identity.types import Principal, Role
+from starlette.datastructures import QueryParams
 
 from api_deejaytools.auth import STAFF_ROLES, EventRef, event_resource, ref_value
 from api_deejaytools.staff import grant_source, role_scopes, scopes_to_remove
@@ -71,6 +72,16 @@ def test_ref_value_reads_the_named_place() -> None:
     assert ref_value(body, {}, {"queueEntryId": "q1"}) == "q1"
     for bad in (None, [], {"queueEntryId": 5}, {"queueEntryId": ""}, {}):
         assert ref_value(body, {}, bad) is None
+
+
+def test_ref_value_reads_a_query_parameter_sent_once() -> None:
+    query = EventRef(source="query", name="event_id")
+    assert ref_value(query, {}, None, QueryParams("event_id=e1")) == "e1"
+    assert ref_value(query, {}, None, QueryParams("")) is None
+    assert ref_value(query, {}, None, QueryParams("event_id=")) is None
+    # Repeated, it names no event: the query validator refuses it.
+    assert ref_value(query, {}, None, QueryParams("event_id=a&event_id=b")) is None
+    assert ref_value(query, {"event_id": "e1"}, None) is None
 
 
 def test_a_grant_on_one_event_does_not_reach_another() -> None:

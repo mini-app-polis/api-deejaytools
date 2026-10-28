@@ -3,7 +3,10 @@
 The two reads are public with an optional caller: a valid, synced caller
 also gets ``has_active_checkin`` (and on the detail, the division of their
 live entry); anonymous responses omit those keys entirely. Changes are
-behind ``deejaytools.sessions.write``.
+behind ``deejaytools.sessions.write`` on the session's event (event-scoped,
+ADR-0012): the body's ``event_id`` for a create, the path session's for the
+rest. A session with no event, or a create without one, needs the scope
+through a role (an admin's).
 
 The shared part of each read is cached for 5 s; the caller's own fields are
 always computed fresh.
@@ -23,7 +26,13 @@ from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import Caller, optional_synced_user_id, require_scope
+from ..auth import (
+    Caller,
+    EventRef,
+    authorize_on_event,
+    optional_synced_user_id,
+    require_event_scope,
+)
 from ..cache import SESSION_TTL_SECONDS, invalidate_session_cache, response_cache
 from ..database import get_db_session
 from ..domain import ms_to_date_in_zone
@@ -388,8 +397,12 @@ NOT_FOUND: dict[int | str, dict[str, Any]] = {
 }
 ADMIN: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse, "description": "Missing or invalid token."},
-    403: {"model": ErrorResponse, "description": "Lacks deejaytools.sessions.write."},
+    403: {"model": ErrorResponse, "description": "Lacks the scope on this event."},
 }
+
+WRITE_SCOPE = "deejaytools.sessions.write"
+BODY_EVENT = EventRef(source="body", name="event_id")
+PATH_SESSION_EVENT = EventRef(source="path", name="id", kind="session")
 
 
 class SessionListQuery(ZodModel):
@@ -485,14 +498,15 @@ async def list_sessions(
     response_model=SessionResponse,
     summary="Create a session",
     description=(
-        "Requires deejaytools.sessions.write. The floor-trial window may not "
-        "overlap another session of the same event, and must fall within the "
-        "event's dates in its timezone."
+        "Requires deejaytools.sessions.write on the body's event_id (through "
+        "a role without one). The floor-trial window may not overlap another "
+        "session of the same event, and must fall within the event's dates "
+        "in its timezone."
     ),
     responses=ADMIN,
 )
 async def create_session(
-    caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
+    caller: Caller = Depends(require_event_scope(WRITE_SCOPE, BODY_EVENT)),
     body: CreateSessionBody = Depends(zod_body(CreateSessionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -564,14 +578,15 @@ async def create_session(
     response_model=SessionResponse,
     summary="Set a session's divisions",
     description=(
-        "Requires deejaytools.sessions.write. Upserts each division by name, "
-        "so divisions that check-ins reference keep their rows."
+        "Requires deejaytools.sessions.write on the session's event. Upserts "
+        "each division by name, so divisions that check-ins reference keep "
+        "their rows."
     ),
     responses={**ADMIN, **NOT_FOUND},
 )
 async def put_divisions(
     id: SessionId,
-    _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
+    _caller: Caller = Depends(require_event_scope(WRITE_SCOPE, PATH_SESSION_EVENT)),
     body: PutDivisionsBody = Depends(zod_body(PutDivisionsBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -622,14 +637,15 @@ async def put_divisions(
     response_model=SessionResponse,
     summary="Set a session's stored status",
     description=(
-        "Requires deejaytools.sessions.write. Reads derive status from the "
-        "clock, so only 'cancelled' is visible on the wire."
+        "Requires deejaytools.sessions.write on the session's event. Reads "
+        "derive status from the clock, so only 'cancelled' is visible on the "
+        "wire."
     ),
     responses={**ADMIN, **NOT_FOUND},
 )
 async def patch_status(
     id: SessionId,
-    _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
+    _caller: Caller = Depends(require_event_scope(WRITE_SCOPE, PATH_SESSION_EVENT)),
     body: StatusBody = Depends(zod_body(StatusBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -646,20 +662,29 @@ async def patch_status(
     response_model=SessionResponse,
     summary="Update a session",
     description=(
-        "Requires deejaytools.sessions.write. The result is checked as a whole: "
-        "window order, caps, overlap and the event's dates."
+        "Requires deejaytools.sessions.write on the session's event, and on "
+        "the event an event_id moves it to (through a role to detach it). "
+        "The result is checked as a whole: window order, caps, overlap and "
+        "the event's dates."
     ),
     responses={**ADMIN, **NOT_FOUND},
 )
 async def patch_session(
     id: SessionId,
-    _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
+    request: Request,
+    caller: Caller = Depends(require_event_scope(WRITE_SCOPE, PATH_SESSION_EVENT)),
     body: PatchSessionBody = Depends(zod_body(PatchSessionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Update a session."""
     row = await _load(db, id)
     sent = body.model_fields_set
+    if "event_id" in sent and (body.event_id or None) != row.event_id:
+        # A move needs the scope on the event it goes to as well; detaching
+        # it from any event needs the scope through a role.
+        await authorize_on_event(
+            caller, WRITE_SCOPE, body.event_id or None, db, request
+        )
 
     def next_value(field: str) -> Any:
         return getattr(body, field) if field in sent else getattr(row, field)
@@ -698,14 +723,15 @@ async def patch_session(
     response_model=DeletedResponse,
     summary="Delete a session",
     description=(
-        "Requires deejaytools.sessions.write. Deletes its queue entries, queue "
-        "events, runs, check-ins and divisions with it."
+        "Requires deejaytools.sessions.write on the session's event. Deletes "
+        "its queue entries, queue events, runs, check-ins and divisions with "
+        "it."
     ),
     responses={**ADMIN, **NOT_FOUND},
 )
 async def delete_session(
     id: SessionId,
-    _caller: Caller = Depends(require_scope("deejaytools.sessions.write")),
+    _caller: Caller = Depends(require_event_scope(WRITE_SCOPE, PATH_SESSION_EVENT)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Delete a session and everything hanging off it."""

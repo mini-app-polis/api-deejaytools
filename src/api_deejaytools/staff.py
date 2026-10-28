@@ -6,6 +6,12 @@ on the event is the identity store's explicit grants, one
 ``(scope, event:<event_id>)`` pair per scope of the role's definition in
 ``identity_role_scopes``. The two are only ever written together, here, in
 the caller's transaction: nothing in this module commits.
+
+A DJ or event manager also reads the event's Drive folder (ADR-0012, "The
+DJ's Drive folder"). The share and unshare are Drive jobs added here, in the
+same transaction: a share when someone first gets one of those roles on the
+event, an unshare when their last one is revoked or the event is deleted,
+and a re-share for all of them when the event's folder moves.
 """
 
 from __future__ import annotations
@@ -24,6 +30,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .auth import STAFF_ROLES, ensure_principal, event_resource, load_roles
 from .config import get_settings
 from .models import EventStaffGrant, User
+from .services.drive_jobs import (
+    DRIVE_FOLDER_ROLES,
+    SHARE_EVENT_FOLDER,
+    UNSHARE_EVENT_FOLDER,
+    add_drive_job,
+)
 
 
 def role_scopes(role: str, roles: Mapping[str, Role]) -> frozenset[str]:
@@ -133,28 +145,35 @@ async def grant_event_role(
     ``event:<event_id>``. A grant already held keeps its original
     ``granted_by`` and ``granted_at``. The person is provisioned as a
     principal first if they have a ``users`` row but no principal yet, as
-    the admin role change does.
+    the admin role change does. Their first DJ or event-manager role on the
+    event queues the share of the event's Drive folder with them.
     """
     principal_id = await ensure_principal(
         session, issuer=_issuer(), subject=user_id, email=email, granted_by=granter
     )
-    await session.execute(
-        insert(EventStaffGrant)
-        .values(
-            event_id=event_id,
-            user_id=user_id,
-            role=role,
-            granted_by=granter,
-            granted_at=int(time.time() * 1000),
+    folder_roles_before = await _folder_roles(session, event_id, user_id)
+    inserted = (
+        await session.execute(
+            insert(EventStaffGrant)
+            .values(
+                event_id=event_id,
+                user_id=user_id,
+                role=role,
+                granted_by=granter,
+                granted_at=int(time.time() * 1000),
+            )
+            .on_conflict_do_nothing(
+                index_elements=[
+                    EventStaffGrant.event_id,
+                    EventStaffGrant.user_id,
+                    EventStaffGrant.role,
+                ]
+            )
+            .returning(EventStaffGrant.role)
         )
-        .on_conflict_do_nothing(
-            index_elements=[
-                EventStaffGrant.event_id,
-                EventStaffGrant.user_id,
-                EventStaffGrant.role,
-            ]
-        )
-    )
+    ).first()
+    if inserted is not None and role in DRIVE_FOLDER_ROLES and not folder_roles_before:
+        add_drive_job(session, SHARE_EVENT_FOLDER, event_id=event_id, user_id=user_id)
     scopes = sorted(role_scopes(role, await load_roles(session)))
     if scopes:
         await session.execute(
@@ -200,7 +219,8 @@ async def revoke_event_role(
     Deletes the staff row and every explicit grant of the role's scopes on
     ``event:<event_id>`` that no other role they still hold there carries.
     The explicit grants are cleaned up even when the row is already gone.
-    Returns whether a staff row was deleted.
+    Revoking their last DJ or event-manager role on the event queues the
+    unshare of its Drive folder. Returns whether a staff row was deleted.
     """
     deleted = (
         await session.execute(
@@ -213,15 +233,23 @@ async def revoke_event_role(
             .returning(EventStaffGrant.role)
         )
     ).first()
-    remaining = (
-        await session.execute(
-            select(EventStaffGrant.role).where(
-                EventStaffGrant.event_id == event_id,
-                EventStaffGrant.user_id == user_id,
+    remaining = list(
+        (
+            await session.execute(
+                select(EventStaffGrant.role).where(
+                    EventStaffGrant.event_id == event_id,
+                    EventStaffGrant.user_id == user_id,
+                )
             )
-        )
-    ).scalars()
-    drop = scopes_to_remove(role, list(remaining), await load_roles(session))
+        ).scalars()
+    )
+    if (
+        deleted is not None
+        and role in DRIVE_FOLDER_ROLES
+        and not set(remaining) & set(DRIVE_FOLDER_ROLES)
+    ):
+        add_drive_job(session, UNSHARE_EVENT_FOLDER, event_id=event_id, user_id=user_id)
+    drop = scopes_to_remove(role, remaining, await load_roles(session))
     principal_id = (
         await session.execute(
             select(PrincipalRow.id).where(
@@ -240,8 +268,35 @@ async def revoke_event_role(
     return deleted is not None
 
 
+async def _folder_roles(
+    session: AsyncSession, event_id: str, user_id: str | None = None
+) -> list[tuple[str, str]]:
+    """(user_id, role) of the event's DJ and event-manager roles, for one
+    person or all of them."""
+    query = select(EventStaffGrant.user_id, EventStaffGrant.role).where(
+        EventStaffGrant.event_id == event_id,
+        EventStaffGrant.role.in_(DRIVE_FOLDER_ROLES),
+    )
+    if user_id is not None:
+        query = query.where(EventStaffGrant.user_id == user_id)
+    rows = (await session.execute(query.order_by(EventStaffGrant.user_id))).all()
+    return [(r.user_id, r.role) for r in rows]
+
+
+async def reshare_event_folder(session: AsyncSession, event_id: str) -> None:
+    """For an event change that moves its Drive folder (its name or season):
+    queue the share of the new folder with each of its DJs and event
+    managers."""
+    for user_id in dict.fromkeys(u for u, _ in await _folder_roles(session, event_id)):
+        add_drive_job(session, SHARE_EVENT_FOLDER, event_id=event_id, user_id=user_id)
+
+
 async def purge_event_staff(session: AsyncSession, event_id: str) -> None:
-    """For an event delete: its staff rows and every explicit grant on it."""
+    """For an event delete: its staff rows and every explicit grant on it,
+    and the unshare of its Drive folder with each of its DJs and event
+    managers."""
+    for user_id in dict.fromkeys(u for u, _ in await _folder_roles(session, event_id)):
+        add_drive_job(session, UNSHARE_EVENT_FOLDER, event_id=event_id, user_id=user_id)
     await session.execute(
         delete(EventStaffGrant).where(EventStaffGrant.event_id == event_id)
     )

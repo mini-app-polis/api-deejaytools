@@ -107,10 +107,10 @@ the new service **fails closed**: unset secret, endpoint refuses.
 | Scope | Routes |
 |-------|--------|
 | `deejaytools.events.write` | `POST /v1/events`, `PATCH`, `DELETE /v1/events/:id` |
-| `deejaytools.sessions.write` | `POST /v1/sessions`, `PUT /v1/sessions/:id/divisions`, `PATCH /v1/sessions/:id/status`, `PATCH`, `DELETE /v1/sessions/:id` |
-| `deejaytools.queue.read` | `GET /v1/queue/:sessionId/priority`, `GET /v1/queue/:sessionId/non-priority` |
-| `deejaytools.queue.manage` | `POST /v1/queue/promote`, `/complete`, `/incomplete`, `/move-down`, `/withdraw` |
-| `deejaytools.runs.read` | `GET /v1/runs` |
+| `deejaytools.sessions.write` | `POST /v1/sessions`, `PUT /v1/sessions/:id/divisions`, `PATCH /v1/sessions/:id/status`, `PATCH`, `DELETE /v1/sessions/:id` (event-scoped: the body's `event_id` for `POST`, the session's event for the rest; a `PATCH` that moves the session to another event needs the scope there too) |
+| `deejaytools.queue.read` | `GET /v1/queue/:sessionId/priority`, `GET /v1/queue/:sessionId/non-priority` (event-scoped: the session's event) |
+| `deejaytools.queue.manage` | `POST /v1/queue/promote`, `/complete`, `/incomplete`, `/move-down`, `/withdraw` (event-scoped: the event of the body's queue entry) |
+| `deejaytools.runs.read` | `GET /v1/runs` (event-scoped when `event_id`, or else `session_id`'s session, names an event; without either filter, through a role only) |
 | `deejaytools.library.read` | `GET /v1/admin/songs` (every user's songs) |
 | `deejaytools.entries.read` | `GET /v1/admin/event-song-submissions` (every submission for an event), `GET /v1/events/:id/song-submissions` (event-scoped, the same list for the event in the path) |
 | `deejaytools.users.read` | `GET /v1/admin/users`, `GET /v1/admin/users/:id/partners`, `GET /v1/admin/users/:id/event-song-submissions` |
@@ -119,7 +119,7 @@ the new service **fails closed**: unset secret, endpoint refuses.
 | `deejaytools.drivejobs.write` | `POST /v1/admin/drive-jobs/backfill-renames`, `POST /v1/admin/drive-jobs/:id/retry` |
 | `deejaytools.testdata.read` | `GET /v1/admin/checkins/test` |
 | `deejaytools.testdata.write` | `POST /v1/admin/checkins`, `DELETE /v1/admin/checkins/test` |
-| `deejaytools.delegation.act` | Acting for another user: `on_behalf_of_user_id` on `POST /v1/checkins` and `POST /v1/songs/upload/chunk` (see below) |
+| `deejaytools.delegation.act` | Acting for another user: `on_behalf_of_user_id` on `POST /v1/checkins` and `POST /v1/songs/upload/chunk` (see below; event-scoped: a check-in's session's event, an upload's `event_id`) |
 | `deejaytools.staff.read` | `GET /v1/events/:id/staff` (event-scoped) |
 | `deejaytools.staff.write` | `PUT`, `DELETE /v1/events/:id/staff/:userId/:role` (event-scoped; granting or revoking `event-manager` needs the scope through a role, ADR-0012) |
 
@@ -133,6 +133,14 @@ handler makes a **second** decision, `deejaytools.delegation.act`, through the
 same `identity` authorize-and-audit path, before reading the target user. The
 target id is the *subject of the action*, never the caller's identity
 (AUTH-003 point 3): the principal still comes only from the credential.
+
+The decision is event-scoped (ADR-0012): a check-in is decided on its
+session's event, and an upload on the event its optional `event_id` names,
+so the event's DJ or event manager may act for a dancer there. Without an
+event (an upload with no `event_id`, a session with no event) only the scope
+held through a role allows it. The audit record names the dancer acted for:
+its resource is the target id, or `event:<event_id>/on-behalf-of/<target>`
+when the decision was on an event.
 
 ### Provisioning, `USER_NOT_SYNCED`, and `role` on the wire
 
@@ -170,8 +178,9 @@ to the new service. Their next sync would also provision them.
 Owned tables keep pattern 1: `user_id` holds the Clerk subject, which is the
 principal's subject. `events`, `sessions`, `session_divisions`,
 `event_division_run_limits`, `queue_entries`, `queue_events`, `runs` and
-`drive_jobs` are shared operational data, written only under admin scopes or
-by the scheduler. They get an API-006 exemption with that reason, as
+`drive_jobs` are shared operational data, written only under admin scopes
+(held through the admin role, or on one event by its staff, ADR-0012) or by
+the scheduler. They get an API-006 exemption with that reason, as
 api-kaianolevine-com did for its operator-internal table.
 
 ## Consequences
@@ -184,6 +193,7 @@ api-kaianolevine-com did for its operator-internal table.
   in both places; the admin endpoint does both.
 - The scope table is the contract between routes and roles. A new route
   needs a row in it, enforced by the AUTH-003 evaluator check.
-- Two scopes are checked inside handlers rather than on the route, for
-  delegation only. Both go through the library, so they are audited like
+- Some decisions are made inside handlers, after the route's own:
+  delegation, a staff change (ADR-0012), and a session `PATCH` that moves
+  it to another event. All go through the library, so they are audited like
   every other decision.

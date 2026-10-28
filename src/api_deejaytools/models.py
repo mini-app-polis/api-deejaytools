@@ -316,7 +316,8 @@ class Run(Base):
 
 
 class DriveJob(Base):
-    """A pending or finished Drive operation (copy, trash, rename)."""
+    """A pending or finished Drive operation (copy, trash, rename, and the
+    share and unshare of an event's folder with its staff)."""
 
     __tablename__ = "drive_jobs"
 
@@ -324,6 +325,9 @@ class DriveJob(Base):
     kind: Mapped[str] = mapped_column(Text)
     submission_id: Mapped[str | None] = mapped_column(Text)
     file_id: Mapped[str | None] = mapped_column(Text)
+    # Migration 008: the event and person an event-folder share is about.
+    event_id: Mapped[str | None] = mapped_column(Text)
+    user_id: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, server_default="pending")
     attempts: Mapped[int] = mapped_column(Integer, server_default="0")
     next_attempt_at: Mapped[int] = mapped_column(BigInteger)

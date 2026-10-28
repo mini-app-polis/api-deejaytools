@@ -59,8 +59,8 @@ from ..models import (
     User,
     event_division_run_limits,
 )
-from ..services.drive_jobs import enqueue_trash_jobs
-from ..staff import purge_event_staff
+from ..services.drive_jobs import enqueue_trash_jobs, event_folder_path
+from ..staff import purge_event_staff, reshare_event_folder
 from ..validation import NonEmptyStr, ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import zod_body
@@ -443,7 +443,9 @@ async def create_event(
     summary="Update an event",
     description=(
         "Requires deejaytools.events.write. season_year changes only when sent; "
-        "moving start_date does not recompute it."
+        "moving start_date does not recompute it. A change that moves the "
+        "event's Drive folder (its name or season) queues sharing the new "
+        "folder with the event's DJs and event managers."
     ),
     responses={**ADMIN, **NOT_FOUND},
 )
@@ -459,11 +461,14 @@ async def patch_event(
         raise api_error(
             400, ErrorCode.BAD_REQUEST, "start_date must be on or before end_date"
         )
+    folder = event_folder_path(row.name, row.season_year, row.start_date)
     for field in ("name", "start_date", "end_date", "timezone", "season_year"):
         value = getattr(body, field)
         if value is not None:
             setattr(row, field, value)
     row.updated_at = _now_ms()
+    if event_folder_path(row.name, row.season_year, row.start_date) != folder:
+        await reshare_event_folder(session, id)
     await session.commit()
     invalidate_all_session_caches()
     return success(map_event(row))
@@ -476,7 +481,9 @@ async def patch_event(
     description=(
         "Requires deejaytools.events.write. Deletes its sessions with their "
         "check-ins, queues and runs, its song submissions, run limits and "
-        "staff roles, then queues the submissions' Drive copies for trashing."
+        "staff roles (queueing the unshare of its Drive folder with its DJs "
+        "and event managers), then queues the submissions' Drive copies for "
+        "trashing."
     ),
     responses={**ADMIN, **NOT_FOUND},
 )

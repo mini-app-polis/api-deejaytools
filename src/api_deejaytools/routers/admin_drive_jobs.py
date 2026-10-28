@@ -19,6 +19,7 @@ from mini_app_polis.logger import LOG_FAILURE, LOG_SUCCESS, get_logger, with_log
 from pydantic import BaseModel, BeforeValidator, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from ..auth import Caller, require_scope
 from ..database import get_db_session
@@ -118,7 +119,12 @@ class DriveJobData(BaseModel):
     """A job as the operator list returns it."""
 
     id: str = Field(..., description="Job id.")
-    kind: str = Field(..., description="copy, rename or trash.")
+    kind: str = Field(
+        ...,
+        description=(
+            "copy, rename, trash, share_event_folder or unshare_event_folder."
+        ),
+    )
     status: str = Field(..., description="pending, running, done or failed.")
     attempts: int = Field(..., description="Attempts made.")
     last_error: str | None = Field(None, description="Why the last attempt failed.")
@@ -126,9 +132,22 @@ class DriveJobData(BaseModel):
     created_at: int = Field(..., description="Enqueued, epoch ms.")
     updated_at: int = Field(..., description="Last changed, epoch ms.")
     submission_id: str | None = Field(None, description="Set for copy and rename.")
-    file_id: str | None = Field(None, description="Set for trash.")
+    file_id: str | None = Field(
+        None,
+        description="Set for trash; for a share, the folder it shared, once done.",
+    )
+    event_id: str | None = Field(
+        None, description="Set for share_event_folder and unshare_event_folder."
+    )
+    user_id: str | None = Field(
+        None, description="The person a share or unshare is for (users.id)."
+    )
     event_name: str | None = Field(
-        None, description="Through the submission; null for trash or a gone row."
+        None,
+        description=(
+            "Through the submission, or the job's event_id; null for trash or "
+            "a gone row."
+        ),
     )
 
 
@@ -248,6 +267,7 @@ async def list_jobs(
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Recent jobs."""
+    job_event = aliased(Event, name="job_event")
     try:
         stmt = (
             select(
@@ -261,7 +281,9 @@ async def list_jobs(
                 DriveJob.updated_at,
                 DriveJob.submission_id,
                 DriveJob.file_id,
-                Event.name.label("event_name"),
+                DriveJob.event_id,
+                DriveJob.user_id,
+                func.coalesce(Event.name, job_event.name).label("event_name"),
             )
             .select_from(DriveJob)
             .outerjoin(
@@ -269,6 +291,7 @@ async def list_jobs(
                 EventSongSubmission.id == DriveJob.submission_id,
             )
             .outerjoin(Event, Event.id == EventSongSubmission.event_id)
+            .outerjoin(job_event, job_event.id == DriveJob.event_id)
         )
         if query.status:
             stmt = stmt.where(DriveJob.status == query.status)

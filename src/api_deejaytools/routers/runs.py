@@ -3,6 +3,11 @@
 Run history for the floor manager, behind ``deejaytools.runs.read``: each
 completed run with display-ready labels for its song, entity and the admin
 who completed it.
+
+Event-scoped (ADR-0012): with ``event_id`` the decision is on that event,
+else with ``session_id`` on the session's event, so the event's DJ or event
+manager may read it. With neither filter only the scope held through a role
+(an admin's) allows: that is every event's history.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from ..auth import Caller, require_scope
+from ..auth import Caller, EventRef, require_event_scope
 from ..database import get_db_session
 from ..domain import full_name
 from ..errors import ErrorResponse, ListMeta, success_list
@@ -30,6 +35,11 @@ from ..zod_types import QueryStr, zod_query
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
 
 DEFAULT_LIMIT = 200
+
+RUNS_READ_SCOPE = "deejaytools.runs.read"
+# The query's event_id, else its session's event.
+QUERY_EVENT = EventRef(source="query", name="event_id")
+QUERY_SESSION_EVENT = EventRef(source="query", name="session_id", kind="session")
 
 
 def _limit(raw: object) -> int:
@@ -97,17 +107,21 @@ def _entity_key(r: Any) -> str:
     response_model=RunListResponse,
     summary="Run history",
     description=(
-        "Requires deejaytools.runs.read. Completed runs, most recent first, "
-        "optionally for one session or event, with song, entity and "
-        "completed-by labels. limit defaults to 200, at most 500."
+        "Requires deejaytools.runs.read: on the event named by event_id, or "
+        "else by session_id's session, and through a role (an admin's) "
+        "without either. Completed runs, most recent first, optionally for "
+        "one session or event, with song, entity and completed-by labels. "
+        "limit defaults to 200, at most 500."
     ),
     responses={
         401: {"model": ErrorResponse, "description": "Missing or invalid token."},
-        403: {"model": ErrorResponse, "description": "Lacks deejaytools.runs.read."},
+        403: {"model": ErrorResponse, "description": "Lacks the scope on this event."},
     },
 )
 async def list_runs(
-    _caller: Caller = Depends(require_scope("deejaytools.runs.read")),
+    _caller: Caller = Depends(
+        require_event_scope(RUNS_READ_SCOPE, QUERY_EVENT, QUERY_SESSION_EVENT)
+    ),
     query: ListRunsQuery = Depends(zod_query(ListRunsQuery)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:

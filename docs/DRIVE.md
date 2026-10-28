@@ -8,7 +8,7 @@ put it there, with different failure models:
 | Path | Trigger | Runs | On failure |
 |------|---------|------|------------|
 | **Upload pipeline** | Final chunk of `POST /v1/songs/upload/chunk` | Fire-and-forget promise in the request process, after the response is sent | Song row is hard-deleted; the user retries the upload |
-| **`drive_jobs` queue** | Event submission created, removed, or cascaded away; admin backfill | Scheduler tick (`runTick()` → `processDriveJobs()`) | Rescheduled with backoff; `failed` after 10 attempts; admin retry endpoint |
+| **`drive_jobs` queue** | Event submission created, removed, or cascaded away; admin backfill; in api-deejaytools, an event's DJs and event managers granted, revoked or moved to a new folder | Scheduler tick (`runTick()` → `processDriveJobs()`) | Rescheduled with backoff; `failed` after 10 attempts; admin retry endpoint |
 
 Song deletion also calls Drive directly (synchronously, best-effort) for the
 song's own file; see [Song deletion](#song-deletion).
@@ -248,8 +248,11 @@ permanently deleted or moved to the Drive trash.
 ## `drive_jobs` queue
 
 Per-event copies of submitted songs, renames of those copies, and deprecation of
-copies whose submission went away. These run off the request path so a Drive
-outage or a slow copy never fails or delays a submission during the pre-event rush.
+copies whose submission went away; in api-deejaytools also the share and unshare
+of an event's folder with its DJs and event managers
+([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md), "The DJ's Drive
+folder"). These run off the request path so a Drive outage or a slow copy never
+fails or delays a submission during the pre-event rush.
 
 Table: [`drive_jobs`](./SCHEMA.md#drive_jobs). Admin endpoints:
 [`/v1/admin/drive-jobs`](./API.md#admin-drive-jobsts--v1admindrive-jobs).
@@ -261,6 +264,8 @@ Table: [`drive_jobs`](./SCHEMA.md#drive_jobs). Admin endpoints:
 | `copy` | `submission_id` | Copies the song's Drive file into the event folder and records the copy's id on the submission |
 | `rename` | `submission_id` | Re-applies the current naming rule to an existing copy |
 | `trash` | `file_id` | Moves a copy into `_deprecated` (`softDeleteOnDrive`) |
+| `share_event_folder` | `event_id`, `user_id` | api-deejaytools only. Shares the event's folder, `<root>/<season>/Events/<event name>/` (created if missing), with the person's `users.email` as a reader, and records the folder's id in `file_id` |
+| `unshare_event_folder` | `event_id`, `user_id` | api-deejaytools only. Removes the person's reader permission from every folder a share for them on the event recorded |
 
 ### Where jobs are enqueued
 
@@ -273,6 +278,10 @@ Table: [`drive_jobs`](./SCHEMA.md#drive_jobs). Admin endpoints:
 | `DELETE /v1/managed-partnerships/:id` | `trash` per copy of each submission of the partnership's live songs | After the transaction commits |
 | `DELETE /v1/events/:id` | `trash` per copy of each of the event's submissions | After the transaction commits |
 | `POST /v1/admin/drive-jobs/backfill-renames` | `rename` for every submission that has a copy | Immediately |
+| `PUT /v1/events/:id/staff/:userId/:role` (api-deejaytools) | `share_event_folder`, when it gives the person their first `dj` or `event-manager` role on the event | In the grant's transaction |
+| `DELETE /v1/events/:id/staff/:userId/:role` (api-deejaytools) | `unshare_event_folder`, when it revokes their last `dj` or `event-manager` role on the event | In the revoke's transaction |
+| `PATCH /v1/events/:id` (api-deejaytools) | `share_event_folder` for each of the event's DJs and event managers, when the change moves the event's folder (its name or season) | In the update's transaction |
+| `DELETE /v1/events/:id` (api-deejaytools) | `unshare_event_folder` for each of the event's DJs and event managers | In the delete's transaction |
 
 In every case the file ids are captured **before** the rows that hold them are
 deleted, and the job is enqueued **after** the delete commits, so a failed delete
@@ -282,10 +291,14 @@ Enqueueing is outside the request's transaction and **best-effort**: an enqueue
 failure is logged (`drive_copy_enqueue_failed` / `drive_trash_enqueue_failed`)
 and reported to Sentry (tags `subsystem=drive_jobs`, `drive_job_kind`; context
 `drive_job` with `stage: "enqueue"` and the ids), and the request still succeeds.
-Nothing retries a lost enqueue.
+Nothing retries a lost enqueue. The folder jobs are the exception: they are
+written in the transaction of the staff or event change that calls for them, so
+they are lost only with it.
 
 Nothing else enqueues work: editing a submission, renaming an event, or changing
-a song's division does **not** move or rename existing copies. Run the rename
+a song's division does **not** move or rename existing copies. (A rename does
+share the event's new folder with its DJs and event managers; the copies made
+before it stay in the old folder, which they keep reading.) Run the rename
 backfill after changing `resolveSubmissionFilename`.
 
 A new job is inserted with `status = 'pending'`, `attempts = 0`,
@@ -300,6 +313,7 @@ A new job is inserted with `status = 'pending'`, `attempts = 0`,
 | `running` | `done` | Job succeeded | `last_error = null` |
 | `running` | `pending` | Job threw, `attempts + 1 < 10` | `attempts += 1`, `last_error`, `next_attempt_at = now + backoff` |
 | `running` | `failed` | Job threw, `attempts + 1 >= 10` | as above; reported to Sentry |
+| `running` | `failed` | api-deejaytools: job refused (retrying cannot help, e.g. the person has no email) | as above, after one attempt; reported to Sentry |
 | `running` | `pending` | Lease expired: `updated_at` older than 10 min | `attempts` unchanged |
 | `failed` | `pending` | `POST /v1/admin/drive-jobs/:id/retry` | `attempts = 0`, due now |
 
@@ -375,7 +389,7 @@ without raising the lease is unsafe.
 
 ### Per-kind behaviour
 
-All three throw (→ retry) when their required field is missing. Drive errors
+Every kind throws (→ retry) when a required field is missing. Drive errors
 propagate as job failures.
 
 **`copy`**
@@ -415,6 +429,36 @@ propagate as job failures.
 **`trash`**
 
 `softDeleteOnDrive(file_id)` (see [Song deletion](#song-deletion)).
+
+**`share_event_folder`** (api-deejaytools)
+
+1. The person no longer holds `dj` or `event-manager` on the event, or the event
+   is gone → success, nothing done (an unshare is, or was, queued).
+2. Their `users.email` is empty → the job is **refused**: `failed` at once, with
+   `last_error` naming the user id. The same for an address Drive cannot share
+   with. The admin retry runs it again once the address is fixed.
+3. Resolve the event's folder, `<root>/<season>/Events/<event name>/`, as a copy
+   does (season = the event's `season_year`, else from its `start_date`),
+   creating it if missing; on an error the folder cache is cleared.
+4. Grant `reader` to the address with no notification email, and record the
+   folder's id in the job's `file_id`.
+5. If the role was revoked while this ran, queue another `unshare_event_folder`,
+   which finds the folder just recorded.
+
+**`unshare_event_folder`** (api-deejaytools)
+
+1. The person holds `dj` or `event-manager` on the event again → success,
+   nothing done.
+2. The folders: every `file_id` a `share_event_folder` job for this person and
+   event recorded (so a folder the event has since moved from is included),
+   less any folder a share for them on another event they are still DJ or event
+   manager of recorded. None → success, nothing done.
+3. An empty `users.email` is refused, as for a share.
+4. Remove each `reader` permission the address holds directly on each folder.
+   Other people and other roles are left alone. Repeating it is safe.
+
+The address is the person's `users.email` when the job runs, so an address
+changed between the share and the unshare leaves the old one's access in place.
 
 ### Operating it
 

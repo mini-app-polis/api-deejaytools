@@ -126,7 +126,9 @@ def _is_int(value: float) -> bool:
         "returned at once. Tagging, the Drive upload and the Drive fields "
         "follow in the background; the song is removed again if that fails "
         "and nothing references it yet. Requires deejaytools.songs.write; "
-        "on_behalf_of_user_id also needs deejaytools.delegation.act."
+        "on_behalf_of_user_id also needs deejaytools.delegation.act: through "
+        "a role (an admin's), or on the event event_id names (that event's "
+        "DJ or event manager)."
     ),
     responses={
         200: {"model": ChunkResponse, "description": "Chunk received."},
@@ -167,6 +169,9 @@ async def upload_chunk(
     routine_name = _trimmed_or_none(form, "routine_name")
     personal_descriptor = _trimmed_or_none(form, "personal_descriptor")
     on_behalf_of = _trimmed_or_none(form, "on_behalf_of_user_id")
+    # The event an upload on behalf is for (ADR-0012): what the event's DJ or
+    # event manager is authorized against. Not stored, and ignored otherwise.
+    event_id = _trimmed_or_none(form, "event_id")
     entity_type = js_trim(_text(form, "entity_type") or "")
     entity_name = js_trim(_text(form, "entity_name") or "")
     team_id = js_trim(_text(form, "team_id") or "")
@@ -190,8 +195,9 @@ async def upload_chunk(
         raise bad("Missing chunk field")
     if on_behalf_of:
         # Where deejaytools-api checked the admin role: a second, audited
-        # decision (ADR-0008). On every chunk, as there.
-        await authorize_delegation(caller, on_behalf_of, db, request)
+        # decision (ADR-0008), on event_id's event when one is sent
+        # (ADR-0012). On every chunk, as there.
+        await authorize_delegation(caller, on_behalf_of, db, request, event_id=event_id)
 
     chunk_bytes = await chunk_file.read()
     if len(chunk_bytes) > MAX_CHUNK_BYTES:

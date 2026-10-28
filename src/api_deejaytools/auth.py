@@ -15,11 +15,11 @@ deny alike. The route-to-scope table is ADR-0008.
 
 ``require_event_scope(scope, EventRef(...))`` is the same guard for a route
 about one event (ADR-0012). The route says where the request names its event
-(a path parameter or a body field) and whether that names the event itself,
-a session or a queue entry; the guard resolves it to ``event:<event_id>`` and
-decides with the caller's explicit grants on it. The scope held through a
-role (an admin's) still allows anywhere; a per-event staff role allows only
-on the event it was granted for.
+(a path parameter, a query parameter or a body field) and whether that names
+the event itself, a session or a queue entry; the guard resolves it to
+``event:<event_id>`` and decides with the caller's explicit grants on it. The
+scope held through a role (an admin's) still allows anywhere; a per-event
+staff role allows only on the event it was granted for.
 
 Public routes (API-008) — no credential required, none read except where
 noted:
@@ -305,26 +305,33 @@ def event_resource(event_id: str) -> str:
 class EventRef:
     """Where a request names the event it is about.
 
-    ``source`` is ``"path"`` (a path parameter) or ``"body"`` (a field of
-    the JSON body); ``name`` is the parameter or field. ``kind`` says what
-    the value is the id of: the event itself, a session of it, or a queue
-    entry in one of its sessions. A session or queue entry is looked up to
-    its event before the decision.
+    ``source`` is ``"path"`` (a path parameter), ``"query"`` (a query
+    parameter, sent once) or ``"body"`` (a field of the JSON body); ``name``
+    is the parameter or field. ``kind`` says what the value is the id of:
+    the event itself, a session of it, or a queue entry in one of its
+    sessions. A session or queue entry is looked up to its event before the
+    decision.
     """
 
-    source: Literal["path", "body"]
+    source: Literal["path", "query", "body"]
     name: str
     kind: Literal["event", "session", "queue_entry"] = "event"
 
 
-def ref_value(ref: EventRef, path_params: Mapping[str, Any], body: Any) -> str | None:
+def ref_value(
+    ref: EventRef, path_params: Mapping[str, Any], body: Any, query: Any = None
+) -> str | None:
     """The id ``ref`` points at in a request, or None when it is not there.
 
-    Only a non-empty string counts: anything else is the body validator's
-    to refuse, and decides as if no event were named.
+    Only a non-empty string counts, and a query parameter only when it is
+    sent once (``query`` is the request's ``QueryParams``): anything else is
+    the validator's to refuse, and decides as if no event were named.
     """
     if ref.source == "path":
         raw = path_params.get(ref.name)
+    elif ref.source == "query":
+        values = query.getlist(ref.name) if query is not None else []
+        raw = values[0] if len(values) == 1 else None
     else:
         raw = body.get(ref.name) if isinstance(body, dict) else None
     return raw if isinstance(raw, str) and raw else None
@@ -351,7 +358,7 @@ async def resolve_event_id(
     to None.
     """
     body = await _json_body(request) if ref.source == "body" else None
-    value = ref_value(ref, request.path_params, body)
+    value = ref_value(ref, request.path_params, body, request.query_params)
     if value is None or ref.kind == "event":
         return value
     if ref.kind == "session":
@@ -364,6 +371,17 @@ async def resolve_event_id(
         )
     event_id: str | None = (await session.execute(query)).scalar_one_or_none()
     return event_id
+
+
+async def resolve_first_event_id(
+    refs: tuple[EventRef, ...], request: Request, session: AsyncSession
+) -> str | None:
+    """The event the first of ``refs`` that resolves names, or None."""
+    for ref in refs:
+        event_id = await resolve_event_id(ref, request, session)
+        if event_id is not None:
+            return event_id
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -401,47 +419,51 @@ def require_scope(scope: str):
         authorization: str | None = Header(default=None, alias="Authorization"),
         session: AsyncSession = Depends(get_db_session),
     ) -> Caller:
-        return await _authorize_request(request, authorization, session, scope, None)
+        return await _authorize_request(request, authorization, session, scope, ())
 
     return _dependency
 
 
-def require_event_scope(scope: str, event: EventRef):
+def require_event_scope(scope: str, event: EventRef, *fallbacks: EventRef):
     """Build a FastAPI dependency enforcing one scope on the event a request names.
 
     ``require_scope``'s contract, with the request's event as the decision's
-    resource: ``event`` says where the request names it. The caller is
-    allowed when a role they hold carries the scope (anywhere), or when they
-    hold an explicit grant of it on ``event:<event_id>`` (that event only).
-    An event that cannot be resolved (not named, or an unknown session or
-    queue entry) leaves the decision to roles alone; the handler then
-    answers its own 404. The audit record names the resource.
+    resource: ``event`` says where the request names it, and each of
+    ``fallbacks`` where to look when that does not resolve (the first that
+    resolves decides). The caller is allowed when a role they hold carries
+    the scope (anywhere), or when they hold an explicit grant of it on
+    ``event:<event_id>`` (that event only). An event that cannot be resolved
+    (not named, or an unknown session or queue entry) leaves the decision to
+    roles alone; the handler then answers its own 404. The audit record
+    names the resource.
     """
+    refs = (event, *fallbacks)
 
     async def _dependency(
         request: Request,
         authorization: str | None = Header(default=None, alias="Authorization"),
         session: AsyncSession = Depends(get_db_session),
     ) -> Caller:
-        return await _authorize_request(request, authorization, session, scope, event)
+        return await _authorize_request(request, authorization, session, scope, refs)
 
     return _dependency
 
 
-async def _authorize_request(
-    request: Request,
-    authorization: str | None,
+async def _decide_and_audit(
     session: AsyncSession,
+    request: Request,
+    *,
+    principal: Principal | None,
+    subject: VerifiedSubject,
     scope: str,
-    event: EventRef | None,
-) -> Caller:
-    """Verify, resolve, authorize and emit audit, for one scoped request."""
-    subject = await verify_bearer(authorization)
+    event_id: str | None,
+    audit_resource: str | None,
+) -> bool:
+    """One decision, on ``event:<event_id>`` when an event is given, audited.
+
+    The audit record names ``audit_resource``. Returns whether it allowed.
+    """
     store = _store(session)
-    principal = await store.resolve(subject)
-    event_id = (
-        await resolve_event_id(event, request, session) if event is not None else None
-    )
     resource = event_resource(event_id) if event_id is not None else None
     grants = (
         await store.load_explicit_grants(principal.id)
@@ -455,7 +477,6 @@ async def _authorize_request(
         resource=resource,
         explicit_grants=grants,
     )
-
     await SqlAlchemyAuditSink(session).emit_audit(
         new_audit_event(
             enforcement_point=ENFORCEMENT_POINT,
@@ -464,9 +485,32 @@ async def _authorize_request(
             reason=decision.reason,
             principal=principal,
             subject=subject,
-            resource=resource,
+            resource=audit_resource,
             request_id=request.headers.get("X-Request-Id"),
         )
+    )
+    return decision.allowed
+
+
+async def _authorize_request(
+    request: Request,
+    authorization: str | None,
+    session: AsyncSession,
+    scope: str,
+    refs: tuple[EventRef, ...],
+) -> Caller:
+    """Verify, resolve, authorize and emit audit, for one scoped request."""
+    subject = await verify_bearer(authorization)
+    principal = await _store(session).resolve(subject)
+    event_id = await resolve_first_event_id(refs, request, session) if refs else None
+    allowed = await _decide_and_audit(
+        session,
+        request,
+        principal=principal,
+        subject=subject,
+        scope=scope,
+        event_id=event_id,
+        audit_resource=event_resource(event_id) if event_id is not None else None,
     )
 
     if principal is None:
@@ -475,9 +519,35 @@ async def _authorize_request(
     # The actor the Discord change feed names (services/notifications):
     # what the principal already holds, so no extra query.
     request.state.caller = caller_name(principal)
-    if not decision.allowed:
+    if not allowed:
         raise forbidden()
     return Caller(principal=principal, subject=subject, event_id=event_id)
+
+
+async def authorize_on_event(
+    caller: Caller,
+    scope: str,
+    event_id: str | None,
+    session: AsyncSession,
+    request: Request,
+) -> None:
+    """A second decision of ``scope``, on another event than the route's.
+
+    For a change that also lands on a second event: a session moved to
+    another event needs the scope there too. ``event_id`` None (no event)
+    decides by roles alone, so only a scope held through a role allows it.
+    Audited like the route's own decision; a deny is 403 FORBIDDEN.
+    """
+    if not await _decide_and_audit(
+        session,
+        request,
+        principal=caller.principal,
+        subject=caller.subject,
+        scope=scope,
+        event_id=event_id,
+        audit_resource=event_resource(event_id) if event_id is not None else None,
+    ):
+        raise forbidden()
 
 
 def caller_name(principal: Principal) -> str:
@@ -529,32 +599,41 @@ DELEGATION_SCOPE = "deejaytools.delegation.act"
 
 
 async def authorize_delegation(
-    caller: Caller, target_user_id: str, session: AsyncSession, request: Request
+    caller: Caller,
+    target_user_id: str,
+    session: AsyncSession,
+    request: Request,
+    *,
+    event_id: str | None = None,
 ) -> None:
     """The second decision a handler makes when ``on_behalf_of_user_id`` is sent.
 
     The route's own scope has already allowed the caller to act at all; this
     decides whether they may act for someone else, through the same
-    authorize-and-audit path. The target is the subject of the action, never
-    the caller's identity: it is recorded as the audit event's resource. A
-    deny answers what deejaytools-api answers to a non-admin here, 403
-    FORBIDDEN "Admin access required". Call it before reading the target.
+    authorize-and-audit path. With ``event_id`` (the event the action is at)
+    the decision is on ``event:<event_id>``, so the event's DJ or event
+    manager is allowed there (ADR-0012); without one, only the scope held
+    through a role (an admin's) allows. The target is the subject of the
+    action, never the caller's identity: the audit event's resource names
+    it, as ``<target>`` or, with an event,
+    ``event:<event_id>/on-behalf-of/<target>``. A deny answers what
+    deejaytools-api answers to a non-admin here, 403 FORBIDDEN "Admin access
+    required". Call it before reading the target.
     """
-    store = _store(session)
-    decision = decide(caller.principal, DELEGATION_SCOPE, await store.load_roles())
-    await SqlAlchemyAuditSink(session).emit_audit(
-        new_audit_event(
-            enforcement_point=ENFORCEMENT_POINT,
-            scope=DELEGATION_SCOPE,
-            allowed=decision.allowed,
-            reason=decision.reason,
-            principal=caller.principal,
-            subject=caller.subject,
-            resource=target_user_id,
-            request_id=request.headers.get("X-Request-Id"),
-        )
+    audit_resource = (
+        f"{event_resource(event_id)}/on-behalf-of/{target_user_id}"
+        if event_id is not None
+        else target_user_id
     )
-    if not decision.allowed:
+    if not await _decide_and_audit(
+        session,
+        request,
+        principal=caller.principal,
+        subject=caller.subject,
+        scope=DELEGATION_SCOPE,
+        event_id=event_id,
+        audit_resource=audit_resource,
+    ):
         raise forbidden()
 
 

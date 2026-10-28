@@ -142,6 +142,11 @@ deejaytools-api possible, lapsed when deejaytools-api was retired on
 - `migrations/006_identity_audit_key_slot.sql` adds a nullable
   `identity_audit_events.key_slot`, where miniapppolis-identity records
   whether a machine's current or previous key proved it.
+- `migrations/007_event_staff_grants.sql` adds `event_staff_grants` and the
+  three per-event staff roles with their scopes (ADR-0012).
+- `migrations/008_drive_job_event_folder_access.sql` adds nullable
+  `drive_jobs.event_id` and `drive_jobs.user_id`, for the jobs that share and
+  unshare an event's Drive folder with its staff.
 - `scripts/apply_migrations.py` applies pending files on every deploy,
   tracked in `schema_migrations`, before the app starts.
 - `scripts/backfill_principals.py` runs next, on every deploy: it writes this
@@ -151,7 +156,7 @@ deejaytools-api possible, lapsed when deejaytools-api was retired on
 **First deploy against an existing database** (once per environment): set
 `BOOTSTRAP_MIGRATIONS=true` and `BOOTSTRAP_EXCLUDE` to every migration after
 the baseline (today:
-`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql,005_drop_users_role.sql,006_identity_audit_key_slot.sql`).
+`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql,005_drop_users_role.sql,006_identity_audit_key_slot.sql,007_event_staff_grants.sql,008_drive_job_event_folder_access.sql`).
 The runner records `001_baseline.sql` as applied without running it and
 runs the rest. Remove
 both variables after that deploy. A bootstrap without `BOOTSTRAP_EXCLUDE` is

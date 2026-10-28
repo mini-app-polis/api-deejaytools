@@ -16,7 +16,7 @@ from mini_app_polis.google.drive import DriveFacade
 FOLDER_MIME = "application/vnd.google-apps.folder"
 
 _FOLDER_QUERY = re.compile(
-    r"^'(?P<parent>[^']*)' in parents and name = '(?P<name>.*)' "
+    r"^'(?P<parent>[^']*)' in parents and name = '(?P<name>(?:\\.|[^'\\])*)' "
 )
 _APP_PROP_QUERY = re.compile(
     r"^'(?P<parent>[^']*)' in parents and appProperties has "
@@ -42,6 +42,10 @@ class FakeDriveService:
         self._next = 0
         self.fail_copy: Exception | None = None
         self.fail_list: Exception | None = None
+        # file id -> its permissions, as permissions.list returns them.
+        self.permissions_by_file: dict[str, list[dict[str, Any]]] = {}
+        # permissions.list answers this many per page.
+        self.permissions_page_size = 100
 
     # --- helpers for tests -------------------------------------------------
     def _new_id(self, prefix: str) -> str:
@@ -184,12 +188,46 @@ class FakeDriveService:
 
 
 class _Permissions:
+    """Permissions per file: create adds one, list pages them, delete
+    removes one."""
+
     def __init__(self, svc: FakeDriveService) -> None:
         self._svc = svc
 
     def create(self, **kw: Any) -> _Request:
         self._svc.calls.append(("permissions.create", kw))
-        return _Request(lambda: {"id": "perm"})
+
+        def run() -> Any:
+            perms = self._svc.permissions_by_file.setdefault(kw["fileId"], [])
+            perm = {"id": self._svc._new_id("perm"), **kw["body"]}
+            perms.append(perm)
+            return {"id": perm["id"]}
+
+        return _Request(run)
+
+    def list(self, **kw: Any) -> _Request:
+        self._svc.calls.append(("permissions.list", kw))
+
+        def run() -> Any:
+            perms = self._svc.permissions_by_file.get(kw["fileId"], [])
+            start = int(kw.get("pageToken") or 0)
+            end = start + self._svc.permissions_page_size
+            page: dict[str, Any] = {"permissions": [dict(p) for p in perms[start:end]]}
+            if end < len(perms):
+                page["nextPageToken"] = str(end)
+            return page
+
+        return _Request(run)
+
+    def delete(self, **kw: Any) -> _Request:
+        self._svc.calls.append(("permissions.delete", kw))
+
+        def run() -> Any:
+            perms = self._svc.permissions_by_file.get(kw["fileId"], [])
+            perms[:] = [p for p in perms if p["id"] != kw["permissionId"]]
+            return {}
+
+        return _Request(run)
 
 
 def fake_facade() -> tuple[DriveFacade, FakeDriveService]:
