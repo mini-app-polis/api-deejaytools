@@ -91,6 +91,23 @@ class Event(Base):
     season_year: Mapped[str | None] = mapped_column(Text)
 
 
+class EventStaffGrant(Base):
+    """A person's staff role on one event (ADR-0012).
+
+    This service's own table (migration 007). The role's authority is the
+    identity store's explicit grants on ``event:<event_id>``, written with
+    the row (see staff.py).
+    """
+
+    __tablename__ = "event_staff_grants"
+
+    event_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    role: Mapped[str] = mapped_column(Text, primary_key=True)
+    granted_by: Mapped[str] = mapped_column(Text)
+    granted_at: Mapped[int] = mapped_column(BigInteger)
+
+
 class Partner(Base):
     """An entry in a user's address book of dance partners and placeholders."""
 

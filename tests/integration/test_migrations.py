@@ -152,8 +152,49 @@ async def test_identity_store_seed_matches_adr_007(database: str) -> None:
     by_role: dict[str, set[str]] = {}
     for r in scopes:
         by_role.setdefault(r["role_name"], set()).add(r["scope"])
-    assert set(by_role) == {"deejaytools-dancer", "deejaytools-admin"}
+    assert set(by_role) == {
+        "deejaytools-dancer",
+        "deejaytools-admin",
+        "deejaytools-event-coordinator",
+        "deejaytools-event-dj",
+        "deejaytools-event-manager",
+    }
     assert len(by_role["deejaytools-dancer"]) == 14
-    assert len(by_role["deejaytools-admin"]) == 14
+    assert len(by_role["deejaytools-admin"]) == 16
     assert not by_role["deejaytools-dancer"] & by_role["deejaytools-admin"]
     assert "deejaytools.delegation.act" in by_role["deejaytools-admin"]
+    assert {"deejaytools.staff.read", "deejaytools.staff.write"} <= by_role[
+        "deejaytools-admin"
+    ]
+
+
+async def test_event_staff_roles_seed_matches_adr_0012(database: str) -> None:
+    conn = await asyncpg.connect(database)
+    try:
+        scopes = await conn.fetch(
+            "SELECT role_name, scope FROM identity_role_scopes"
+            " WHERE role_name LIKE 'deejaytools-event-%'"
+        )
+    finally:
+        await conn.close()
+    by_role: dict[str, set[str]] = {}
+    for r in scopes:
+        by_role.setdefault(r["role_name"], set()).add(r["scope"])
+    dj = {
+        "deejaytools.entries.read",
+        "deejaytools.queue.read",
+        "deejaytools.queue.manage",
+        "deejaytools.runs.read",
+        "deejaytools.sessions.write",
+        "deejaytools.delegation.act",
+    }
+    assert by_role == {
+        "deejaytools-event-coordinator": {"deejaytools.entries.read"},
+        "deejaytools-event-dj": dj,
+        "deejaytools-event-manager": dj
+        | {
+            "deejaytools.events.write",
+            "deejaytools.staff.read",
+            "deejaytools.staff.write",
+        },
+    }

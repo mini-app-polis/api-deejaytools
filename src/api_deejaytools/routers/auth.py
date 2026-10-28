@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import (
     Caller,
+    StaffRole,
     provision_principal,
     require_scope,
     resolve_principal,
@@ -35,6 +36,7 @@ from ..errors import (
     user_not_synced,
 )
 from ..models import User
+from ..staff import event_roles_for
 from ..validation import Email, ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import documents_zod_body, parse_zod_body, zod_body
@@ -89,6 +91,32 @@ class UserResponse(BaseModel):
     """Success envelope carrying one user."""
 
     data: UserData = Field(..., description="The caller's record.")
+    meta: Meta = Field(..., description="Response metadata.")
+
+
+class EventRoleData(BaseModel):
+    """One staff role the caller holds on one event (ADR-0012)."""
+
+    event_id: str = Field(..., description="Event id.")
+    role: StaffRole = Field(..., description="coordinator, dj or event-manager.")
+
+
+class MeData(UserData):
+    """The caller's record as ``GET /v1/auth/me`` returns it."""
+
+    event_roles: list[EventRoleData] = Field(
+        ...,
+        description=(
+            "The caller's per-event staff roles, by event; empty when none. "
+            "Independent of role, which stays user or admin."
+        ),
+    )
+
+
+class MeResponse(BaseModel):
+    """Success envelope carrying the caller's record and event roles."""
+
+    data: MeData = Field(..., description="The caller's record.")
     meta: Meta = Field(..., description="Response metadata.")
 
 
@@ -196,11 +224,12 @@ async def sync(
 
 @router.get(
     "/me",
-    response_model=UserResponse,
+    response_model=MeResponse,
     summary="The caller's user record",
     description=(
         "Returns the caller's users row, with role derived from their "
-        "principal's grants. A valid token with no users row answers 401 "
+        "principal's grants, and the staff roles they hold per event "
+        "(event_roles). A valid token with no users row answers 401 "
         "USER_NOT_SYNCED. Authenticated-only: a verified credential, no scope."
     ),
     responses={
@@ -220,7 +249,12 @@ async def me(
     if row is None:
         raise user_not_synced()
     principal = await resolve_principal(subject, session)
-    return success(_user_data(row, wire_role(principal)))
+    return success(
+        {
+            **_user_data(row, wire_role(principal)),
+            "event_roles": await event_roles_for(session, row.id),
+        }
+    )
 
 
 @router.patch(

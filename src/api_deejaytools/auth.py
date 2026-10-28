@@ -13,6 +13,14 @@ deejaytools-api's (ADR-0010):
 authorize, emit audit, once per request. Every decision is audited, allow and
 deny alike. The route-to-scope table is ADR-0008.
 
+``require_event_scope(scope, EventRef(...))`` is the same guard for a route
+about one event (ADR-0012). The route says where the request names its event
+(a path parameter or a body field) and whether that names the event itself,
+a session or a queue entry; the guard resolves it to ``event:<event_id>`` and
+decides with the caller's explicit grants on it. The scope held through a
+role (an admin's) still allows anywhere; a per-event staff role allows only
+on the event it was granted for.
+
 Public routes (API-008) — no credential required, none read except where
 noted:
 
@@ -47,10 +55,12 @@ caller is the web app; a cog calling this API would use that client.
 
 from __future__ import annotations
 
+import json
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import Depends, Header, Request
 from identity.clerk import ClerkIssuer, ClerkVerifier
@@ -64,7 +74,7 @@ from identity.store import (
     new_audit_event,
 )
 from identity.store import Principal as PrincipalRow
-from identity.types import Principal, VerifiedSubject
+from identity.types import Principal, Role, VerifiedSubject
 from mini_app_polis.logger import LOG_START, LOG_WARNING, get_logger, with_log_prefix
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -73,7 +83,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .config import get_settings
 from .database import get_db_session
 from .errors import api_error, forbidden, unauthorized, user_not_synced
-from .models import User
+from .models import QueueEntry, User
+from .models import Session as FloorSession
 
 logger = get_logger()
 
@@ -81,6 +92,18 @@ ENFORCEMENT_POINT = "api-deejaytools"
 
 ROLE_DANCER = "deejaytools-dancer"
 ROLE_ADMIN = "deejaytools-admin"
+
+# Per-event staff roles (ADR-0012): the name on the wire and in
+# event_staff_grants.role, and the identity role that defines its scopes.
+# Granted on one event only, as explicit grants; never a principal role.
+StaffRole = Literal["coordinator", "dj", "event-manager"]
+STAFF_ROLES: dict[str, str] = {
+    "coordinator": "deejaytools-event-coordinator",
+    "dj": "deejaytools-event-dj",
+    "event-manager": "deejaytools-event-manager",
+}
+EVENT_MANAGER = "event-manager"
+STAFF_WRITE_SCOPE = "deejaytools.staff.write"
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +290,83 @@ async def ensure_principal(
 
 
 # ---------------------------------------------------------------------------
+# The event a request is about (ADR-0012)
+# ---------------------------------------------------------------------------
+
+EVENT_RESOURCE_PREFIX = "event:"
+
+
+def event_resource(event_id: str) -> str:
+    """The identity resource an event's staff grants are held on."""
+    return f"{EVENT_RESOURCE_PREFIX}{event_id}"
+
+
+@dataclass(frozen=True, slots=True)
+class EventRef:
+    """Where a request names the event it is about.
+
+    ``source`` is ``"path"`` (a path parameter) or ``"body"`` (a field of
+    the JSON body); ``name`` is the parameter or field. ``kind`` says what
+    the value is the id of: the event itself, a session of it, or a queue
+    entry in one of its sessions. A session or queue entry is looked up to
+    its event before the decision.
+    """
+
+    source: Literal["path", "body"]
+    name: str
+    kind: Literal["event", "session", "queue_entry"] = "event"
+
+
+def ref_value(ref: EventRef, path_params: Mapping[str, Any], body: Any) -> str | None:
+    """The id ``ref`` points at in a request, or None when it is not there.
+
+    Only a non-empty string counts: anything else is the body validator's
+    to refuse, and decides as if no event were named.
+    """
+    if ref.source == "path":
+        raw = path_params.get(ref.name)
+    else:
+        raw = body.get(ref.name) if isinstance(body, dict) else None
+    return raw if isinstance(raw, str) and raw else None
+
+
+async def _json_body(request: Request) -> Any:
+    """The request's JSON body, or None. Starlette caches the bytes, so the
+    route's own body validator reads them again."""
+    try:
+        raw = await request.body()
+        return json.loads(raw) if raw else None
+    except ValueError:  # UnicodeDecodeError and JSONDecodeError alike
+        return None
+
+
+async def resolve_event_id(
+    ref: EventRef, request: Request, session: AsyncSession
+) -> str | None:
+    """The id of the event a request names through ``ref``, or None.
+
+    An event id is taken as named, not looked up: no grant can exist on an
+    event that does not, and the handler answers 404 for it. A session or
+    queue entry that does not exist, or a session with no event, resolves
+    to None.
+    """
+    body = await _json_body(request) if ref.source == "body" else None
+    value = ref_value(ref, request.path_params, body)
+    if value is None or ref.kind == "event":
+        return value
+    if ref.kind == "session":
+        query = select(FloorSession.event_id).where(FloorSession.id == value)
+    else:
+        query = (
+            select(FloorSession.event_id)
+            .join(QueueEntry, QueueEntry.session_id == FloorSession.id)
+            .where(QueueEntry.id == value)
+        )
+    event_id: str | None = (await session.execute(query)).scalar_one_or_none()
+    return event_id
+
+
+# ---------------------------------------------------------------------------
 # Authorize + audit
 # ---------------------------------------------------------------------------
 
@@ -277,6 +377,9 @@ class Caller:
 
     principal: Principal
     subject: VerifiedSubject
+    # Set by require_event_scope: the event the request was decided for,
+    # when it named one that resolved.
+    event_id: str | None = None
 
     @property
     def user_id(self) -> str:
@@ -298,34 +401,83 @@ def require_scope(scope: str):
         authorization: str | None = Header(default=None, alias="Authorization"),
         session: AsyncSession = Depends(get_db_session),
     ) -> Caller:
-        subject = await verify_bearer(authorization)
-        store = _store(session)
-        principal = await store.resolve(subject)
-        decision = decide(principal, scope, await store.load_roles())
-
-        await SqlAlchemyAuditSink(session).emit_audit(
-            new_audit_event(
-                enforcement_point=ENFORCEMENT_POINT,
-                scope=scope,
-                allowed=decision.allowed,
-                reason=decision.reason,
-                principal=principal,
-                subject=subject,
-                request_id=request.headers.get("X-Request-Id"),
-            )
-        )
-
-        if principal is None:
-            # deejaytools-api's answer for a valid token with no users row.
-            raise user_not_synced()
-        # The actor the Discord change feed names (services/notifications):
-        # what the principal already holds, so no extra query.
-        request.state.caller = caller_name(principal)
-        if not decision.allowed:
-            raise forbidden()
-        return Caller(principal=principal, subject=subject)
+        return await _authorize_request(request, authorization, session, scope, None)
 
     return _dependency
+
+
+def require_event_scope(scope: str, event: EventRef):
+    """Build a FastAPI dependency enforcing one scope on the event a request names.
+
+    ``require_scope``'s contract, with the request's event as the decision's
+    resource: ``event`` says where the request names it. The caller is
+    allowed when a role they hold carries the scope (anywhere), or when they
+    hold an explicit grant of it on ``event:<event_id>`` (that event only).
+    An event that cannot be resolved (not named, or an unknown session or
+    queue entry) leaves the decision to roles alone; the handler then
+    answers its own 404. The audit record names the resource.
+    """
+
+    async def _dependency(
+        request: Request,
+        authorization: str | None = Header(default=None, alias="Authorization"),
+        session: AsyncSession = Depends(get_db_session),
+    ) -> Caller:
+        return await _authorize_request(request, authorization, session, scope, event)
+
+    return _dependency
+
+
+async def _authorize_request(
+    request: Request,
+    authorization: str | None,
+    session: AsyncSession,
+    scope: str,
+    event: EventRef | None,
+) -> Caller:
+    """Verify, resolve, authorize and emit audit, for one scoped request."""
+    subject = await verify_bearer(authorization)
+    store = _store(session)
+    principal = await store.resolve(subject)
+    event_id = (
+        await resolve_event_id(event, request, session) if event is not None else None
+    )
+    resource = event_resource(event_id) if event_id is not None else None
+    grants = (
+        await store.load_explicit_grants(principal.id)
+        if resource is not None and principal is not None
+        else None
+    )
+    decision = decide(
+        principal,
+        scope,
+        await store.load_roles(),
+        resource=resource,
+        explicit_grants=grants,
+    )
+
+    await SqlAlchemyAuditSink(session).emit_audit(
+        new_audit_event(
+            enforcement_point=ENFORCEMENT_POINT,
+            scope=scope,
+            allowed=decision.allowed,
+            reason=decision.reason,
+            principal=principal,
+            subject=subject,
+            resource=resource,
+            request_id=request.headers.get("X-Request-Id"),
+        )
+    )
+
+    if principal is None:
+        # deejaytools-api's answer for a valid token with no users row.
+        raise user_not_synced()
+    # The actor the Discord change feed names (services/notifications):
+    # what the principal already holds, so no extra query.
+    request.state.caller = caller_name(principal)
+    if not decision.allowed:
+        raise forbidden()
+    return Caller(principal=principal, subject=subject, event_id=event_id)
 
 
 def caller_name(principal: Principal) -> str:
@@ -399,6 +551,63 @@ async def authorize_delegation(
             principal=caller.principal,
             subject=caller.subject,
             resource=target_user_id,
+            request_id=request.headers.get("X-Request-Id"),
+        )
+    )
+    if not decision.allowed:
+        raise forbidden()
+
+
+# ---------------------------------------------------------------------------
+# Staff grants and revokes (ADR-0012)
+# ---------------------------------------------------------------------------
+
+
+async def load_roles(session: AsyncSession) -> dict[str, Role]:
+    """The role table, as the decisions here see it."""
+    return await _store(session).load_roles()
+
+
+async def authorize_staff_change(
+    caller: Caller,
+    *,
+    event_id: str,
+    user_id: str,
+    role: str,
+    session: AsyncSession,
+    request: Request,
+) -> None:
+    """The second decision a staff grant or revoke makes, on the change itself.
+
+    The route has allowed ``deejaytools.staff.write`` on the event. This
+    decides the particular change, through the same authorize-and-audit
+    path: granting or revoking ``event-manager`` needs the scope through a
+    role (an admin's), not through a grant on the event, so an event
+    manager cannot make another. The audit record's resource names the
+    change: ``event:<event_id>/staff/<user_id>/<role>``. A deny is 403
+    FORBIDDEN, as for any missing scope. Call it before any write.
+    """
+    store = _store(session)
+    roles = await store.load_roles()
+    if role == EVENT_MANAGER:
+        decision = decide(caller.principal, STAFF_WRITE_SCOPE, roles)
+    else:
+        decision = decide(
+            caller.principal,
+            STAFF_WRITE_SCOPE,
+            roles,
+            resource=event_resource(event_id),
+            explicit_grants=await store.load_explicit_grants(caller.principal.id),
+        )
+    await SqlAlchemyAuditSink(session).emit_audit(
+        new_audit_event(
+            enforcement_point=ENFORCEMENT_POINT,
+            scope=STAFF_WRITE_SCOPE,
+            allowed=decision.allowed,
+            reason=decision.reason,
+            principal=caller.principal,
+            subject=caller.subject,
+            resource=f"{event_resource(event_id)}/staff/{user_id}/{role}",
             request_id=request.headers.get("X-Request-Id"),
         )
     )

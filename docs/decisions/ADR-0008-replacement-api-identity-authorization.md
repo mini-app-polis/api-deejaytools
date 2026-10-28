@@ -49,10 +49,20 @@ the same shape, sharing the schema and never the rows.
 |------|-----------|--------|
 | `deejaytools-dancer` | Every signed-in person, on first sync | the dancer scopes below |
 | `deejaytools-admin` | Admins, in addition to `deejaytools-dancer` | the admin scopes below |
+| `deejaytools-event-coordinator` | One person on one event, by an admin | ADR-0012's role table |
+| `deejaytools-event-dj` | One person on one event, by an admin | ADR-0012's role table |
+| `deejaytools-event-manager` | One person on one event, by an admin | ADR-0012's role table |
+
+The three event roles are per-event staff roles, defined in
+[ADR-0012](ADR-0012-per-event-staff-roles.md). They are never granted as a
+principal role: a grant writes the role's scopes as explicit grants on
+`event:<event_id>`, so they hold only on that event. A route marked
+**event-scoped** below names its event, and is allowed by its scope held
+through a role (anywhere) or as an explicit grant on that event.
 
 ### Route classification
 
-All 70 routes, from [API.md](../API.md). "Owner" means the handler also restricts rows to
+All 73 routes, from [API.md](../API.md). "Owner" means the handler also restricts rows to
 the caller's own, as today; the scope says what *kind* of action is allowed,
 the query still says *whose* rows.
 
@@ -110,9 +120,11 @@ the new service **fails closed**: unset secret, endpoint refuses.
 | `deejaytools.testdata.read` | `GET /v1/admin/checkins/test` |
 | `deejaytools.testdata.write` | `POST /v1/admin/checkins`, `DELETE /v1/admin/checkins/test` |
 | `deejaytools.delegation.act` | Acting for another user: `on_behalf_of_user_id` on `POST /v1/checkins` and `POST /v1/songs/upload/chunk` (see below) |
+| `deejaytools.staff.read` | `GET /v1/events/:id/staff` (event-scoped) |
+| `deejaytools.staff.write` | `PUT`, `DELETE /v1/events/:id/staff/:userId/:role` (event-scoped; granting or revoking `event-manager` needs the scope through a role, ADR-0012) |
 
-That is 8 public, 1 operator, 2 authenticated-only, 30 dancer and 29 admin:
-all 70.
+That is 8 public, 1 operator, 2 authenticated-only, 30 dancer and 32 admin:
+all 73.
 
 ### Acting on another user's behalf
 

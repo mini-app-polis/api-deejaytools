@@ -60,6 +60,7 @@ from ..models import (
     event_division_run_limits,
 )
 from ..services.drive_jobs import enqueue_trash_jobs
+from ..staff import purge_event_staff
 from ..validation import NonEmptyStr, ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import zod_body
@@ -474,8 +475,8 @@ async def patch_event(
     summary="Delete an event",
     description=(
         "Requires deejaytools.events.write. Deletes its sessions with their "
-        "check-ins, queues and runs, its song submissions and run limits, "
-        "then queues the submissions' Drive copies for trashing."
+        "check-ins, queues and runs, its song submissions, run limits and "
+        "staff roles, then queues the submissions' Drive copies for trashing."
     ),
     responses={**ADMIN, **NOT_FOUND},
 )
@@ -515,6 +516,8 @@ async def delete_event(
             event_division_run_limits.c.event_id == id
         )
     )
+    # Its staff rows and every explicit grant on event:<id>, together.
+    await purge_event_staff(session, id)
     await session.execute(delete(Event).where(Event.id == id))
     await session.commit()
     invalidate_all_session_caches()
