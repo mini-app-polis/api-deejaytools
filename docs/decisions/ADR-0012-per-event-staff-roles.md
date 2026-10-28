@@ -56,6 +56,8 @@ them global.
   includes each submission's song label and division. The admin route stays
   admin-only. The event's songs are seen through its submissions:
   `deejaytools.library.read` (every user's songs) stays admin-only.
+  Staff also find the event's own people by name, with their email masked,
+  through `GET /v1/events/:id/people`.
 - `deejaytools.queue.read` and `deejaytools.queue.manage`: the queue views
   and the promote, complete, incomplete, move-down and withdraw actions, for
   sessions of the event. A body or path that names a session or queue entry

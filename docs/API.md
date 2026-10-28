@@ -2574,6 +2574,59 @@ api-deejaytools only, not in deejaytools-api: the same list for an event's staff
 
 ---
 
+### GET /v1/events/:id/people
+
+api-deejaytools only, not in deejaytools-api: the staff portals' person picker ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
+
+**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+
+**Purpose:** Find a person connected to the event by name. Only the event's own people are searched, never every user:
+
+- on a song submitted to it: the submitter, the song's owner, and the account linked to the song's partner;
+- checked in at, or with a queue entry in, one of its sessions: the solo dancer, the pair's leader and the account linked to its partner, or the user who manages the managed partnership;
+- on its staff.
+
+A person connected in several ways is listed once. Emails are never matched and never returned in full.
+
+**Path params:** `id` — event id
+
+**Query params:**
+
+```typescript
+const query = z.object({
+  q: z.string().trim().min(2), // part of the name, case-insensitive
+});
+```
+
+`q` is matched as a substring of the person's display name or their first and last name.
+
+**Request body:** none
+
+**Response:** at most 20 people, ordered by name. `display_name` is the person's display name, or else their first and last name. `email_masked` is the first character of the email's local part, `•••`, then `@` and the domain; null when there is nothing to mask.
+
+```json
+{
+  "data": [
+    {
+      "user_id": "user_2abc…",
+      "display_name": "Ada Lovelace",
+      "email_masked": "a•••@example.com"
+    }
+  ],
+  "meta": { "version": "…", "count": 1 }
+}
+```
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` | … | `q` missing, repeated, or shorter than 2 characters once trimmed |
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+
+---
+
 ## `admin-users.ts` — `/v1/admin/users`
 
 ### GET /v1/admin/users
