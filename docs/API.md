@@ -414,7 +414,7 @@ than summing group sizes.
 
 ### POST /v1/events
 
-**Auth:** requireAdmin
+**Auth:** requireAdmin. In api-deejaytools, `deejaytools.events.write` through a role only: a new event names no event to hold a grant on, so an event manager cannot create events
 
 **Purpose:** Create an event.
 
@@ -445,7 +445,7 @@ const createEvent = z.object({
 
 ### PATCH /v1/events/:id
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.events.write` on the event in the path: held through a role (an admin's, on any event) or granted on the event (its event manager). An unknown id, through a role only
 
 **Purpose:** Partially update an event. In api-deejaytools, a change that moves the event's Drive folder (`<root>/<season_year>/Events/<name>/`: its name or season) queues a `share_event_folder` Drive job for each of the event's DJs and event managers, so they can read the new folder ([DRIVE.md](./DRIVE.md#job-kinds)).
 
@@ -477,7 +477,7 @@ const patchEvent = z.object({
 
 ### DELETE /v1/events/:id
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.events.write` on the event in the path: held through a role (an admin's, on any event) or granted on the event (its event manager). An unknown id, through a role only
 
 **Purpose:** Delete an event and cascade-delete its sessions and all floor-trial data, its song submissions and its run limits (and, in api-deejaytools, its staff roles with their explicit grants, queueing an `unshare_event_folder` Drive job for each DJ and event manager). After commit, a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
 

@@ -106,7 +106,7 @@ the new service **fails closed**: unset secret, endpoint refuses.
 
 | Scope | Routes |
 |-------|--------|
-| `deejaytools.events.write` | `POST /v1/events`, `PATCH`, `DELETE /v1/events/:id` |
+| `deejaytools.events.write` | `POST /v1/events`, `PATCH`, `DELETE /v1/events/:id` (event-scoped for `PATCH` and `DELETE`: the event in the path; `POST` names no event, so through a role only) |
 | `deejaytools.sessions.write` | `POST /v1/sessions`, `PUT /v1/sessions/:id/divisions`, `PATCH /v1/sessions/:id/status`, `PATCH`, `DELETE /v1/sessions/:id` (event-scoped: the body's `event_id` for `POST`, the session's event for the rest; a `PATCH` that moves the session to another event needs the scope there too) |
 | `deejaytools.queue.read` | `GET /v1/queue/:sessionId/priority`, `GET /v1/queue/:sessionId/non-priority` (event-scoped: the session's event) |
 | `deejaytools.queue.manage` | `POST /v1/queue/promote`, `/complete`, `/incomplete`, `/move-down`, `/withdraw` (event-scoped: the event of the body's queue entry) |

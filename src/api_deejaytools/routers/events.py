@@ -2,6 +2,10 @@
 
 Reads of an event are public; who is entered is behind
 ``deejaytools.entities.read``; changes are behind ``deejaytools.events.write``.
+Editing and deleting an event are event-scoped (ADR-0012): the scope held
+through a role (an admin's) allows on any event, a grant of it on
+``event:<id>`` (its event manager's) on that event only. Creating one names
+no event, so it needs the scope through a role.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from ..auth import Caller, require_scope
+from ..auth import Caller, EventRef, require_event_scope, require_scope
 from ..cache import invalidate_all_session_caches
 from ..database import get_db_session
 from ..domain import (
@@ -229,12 +233,21 @@ async def _load(session: AsyncSession, event_id: str) -> Event:
 
 
 EventId = Annotated[str, Path(description="Event id.")]
+THIS_EVENT = EventRef(source="path", name="id")
+EVENTS_WRITE_SCOPE = "deejaytools.events.write"
 NOT_FOUND: dict[int | str, dict[str, Any]] = {
     404: {"model": ErrorResponse, "description": "No such event."}
 }
 ADMIN: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse, "description": "Missing or invalid token."},
     403: {"model": ErrorResponse, "description": "Lacks deejaytools.events.write."},
+}
+ON_EVENT: dict[int | str, dict[str, Any]] = {
+    **ADMIN,
+    403: {
+        "model": ErrorResponse,
+        "description": "Lacks deejaytools.events.write on this event.",
+    },
 }
 
 
@@ -407,11 +420,14 @@ async def event_entities(
     status_code=201,
     response_model=EventResponse,
     summary="Create an event",
-    description="Requires deejaytools.events.write. season_year defaults from start_date.",
+    description=(
+        "Requires deejaytools.events.write through a role: a new event names "
+        "no event to hold it on. season_year defaults from start_date."
+    ),
     responses=ADMIN,
 )
 async def create_event(
-    caller: Caller = Depends(require_scope("deejaytools.events.write")),
+    caller: Caller = Depends(require_scope(EVENTS_WRITE_SCOPE)),
     body: CreateEventBody = Depends(zod_body(CreateEventBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -442,16 +458,17 @@ async def create_event(
     response_model=EventResponse,
     summary="Update an event",
     description=(
-        "Requires deejaytools.events.write. season_year changes only when sent; "
-        "moving start_date does not recompute it. A change that moves the "
+        "Requires deejaytools.events.write on the event. season_year changes "
+        "only when sent; moving start_date does not recompute it. A change "
+        "that moves the "
         "event's Drive folder (its name or season) queues sharing the new "
         "folder with the event's DJs and event managers."
     ),
-    responses={**ADMIN, **NOT_FOUND},
+    responses={**ON_EVENT, **NOT_FOUND},
 )
 async def patch_event(
     id: EventId,
-    _caller: Caller = Depends(require_scope("deejaytools.events.write")),
+    _caller: Caller = Depends(require_event_scope(EVENTS_WRITE_SCOPE, THIS_EVENT)),
     body: PatchEventBody = Depends(zod_body(PatchEventBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -479,17 +496,17 @@ async def patch_event(
     response_model=DeletedResponse,
     summary="Delete an event",
     description=(
-        "Requires deejaytools.events.write. Deletes its sessions with their "
-        "check-ins, queues and runs, its song submissions, run limits and "
+        "Requires deejaytools.events.write on the event. Deletes its sessions "
+        "with their check-ins, queues and runs, its song submissions, run limits and "
         "staff roles (queueing the unshare of its Drive folder with its DJs "
         "and event managers), then queues the submissions' Drive copies for "
         "trashing."
     ),
-    responses={**ADMIN, **NOT_FOUND},
+    responses={**ON_EVENT, **NOT_FOUND},
 )
 async def delete_event(
     id: EventId,
-    _caller: Caller = Depends(require_scope("deejaytools.events.write")),
+    _caller: Caller = Depends(require_event_scope(EVENTS_WRITE_SCOPE, THIS_EVENT)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Delete an event and everything hanging off it."""
