@@ -1,3 +1,10 @@
+## [1.13.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.13.1...v1.13.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **config:** treat an empty setting as unset so its default applies ([a309860](https://github.com/mini-app-polis/api-deejaytools/commit/a309860994aa45dd5456ed17f9607a046df415d5))
+
 ## [1.13.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.13.0...v1.13.1) (2026-10-28)
 
 
