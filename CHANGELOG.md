@@ -1,3 +1,12 @@
+# [1.12.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.11.0...v1.12.0) (2026-10-28)
+
+
+### Features
+
+* **auth:** event-scope events.write on event PATCH and DELETE for event managers ([a353779](https://github.com/mini-app-polis/api-deejaytools/commit/a3537795f5480c416b9a85f7bcd318f99896bdec))
+* **auth:** give event staff read access to their event's song submissions ([7258c8a](https://github.com/mini-app-polis/api-deejaytools/commit/7258c8aaafa105fd19f4218a526fc162ddf04672))
+* **auth:** give the per-event DJ role its API permissions ([711d404](https://github.com/mini-app-polis/api-deejaytools/commit/711d404dd0efcbb692bdb03c944a48f251f4b574))
+
 # [1.11.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.10.2...v1.11.0) (2026-10-28)
 
 
