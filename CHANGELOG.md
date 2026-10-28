@@ -1,3 +1,15 @@
+# [1.11.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.10.2...v1.11.0) (2026-10-28)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 6.32.0 ([0f8f55d](https://github.com/mini-app-polis/api-deejaytools/commit/0f8f55d3dc89601f5b988eb16d60f16dfb0e4758))
+
+
+### Features
+
+* **auth:** per-event staff roles with event-scoped authorization and grant endpoints ([0399e1e](https://github.com/mini-app-polis/api-deejaytools/commit/0399e1ee0d8bf853c56cfa69f2cb31cc5ecd76d3))
+
 ## [1.10.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.10.1...v1.10.2) (2026-10-28)
 
 
