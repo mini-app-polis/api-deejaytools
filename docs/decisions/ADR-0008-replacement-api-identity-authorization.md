@@ -62,7 +62,7 @@ through a role (anywhere) or as an explicit grant on that event.
 
 ### Route classification
 
-All 74 routes, from [API.md](../API.md). "Owner" means the handler also restricts rows to
+All 75 routes, from [API.md](../API.md). "Owner" means the handler also restricts rows to
 the caller's own, as today; the scope says what *kind* of action is allowed,
 the query still says *whose* rows.
 
@@ -112,7 +112,7 @@ the new service **fails closed**: unset secret, endpoint refuses.
 | `deejaytools.queue.manage` | `POST /v1/queue/promote`, `/complete`, `/incomplete`, `/move-down`, `/withdraw` (event-scoped: the event of the body's queue entry) |
 | `deejaytools.runs.read` | `GET /v1/runs` (event-scoped when `event_id`, or else `session_id`'s session, names an event; without either filter, through a role only) |
 | `deejaytools.library.read` | `GET /v1/admin/songs` (every user's songs) |
-| `deejaytools.entries.read` | `GET /v1/admin/event-song-submissions` (every submission for an event), `GET /v1/events/:id/song-submissions` (event-scoped, the same list for the event in the path) |
+| `deejaytools.entries.read` | `GET /v1/admin/event-song-submissions` (every submission for an event), `GET /v1/events/:id/song-submissions` (event-scoped, the same list for the event in the path), `GET /v1/events/:id/people` (event-scoped: the event's own people, found by name) |
 | `deejaytools.users.read` | `GET /v1/admin/users`, `GET /v1/admin/users/:id/partners`, `GET /v1/admin/users/:id/event-song-submissions` |
 | `deejaytools.users.write` | `PATCH /v1/admin/users/:id/role` |
 | `deejaytools.drivejobs.read` | `GET /v1/admin/drive-jobs`, `GET /v1/admin/drive-jobs/summary` |
@@ -123,8 +123,8 @@ the new service **fails closed**: unset secret, endpoint refuses.
 | `deejaytools.staff.read` | `GET /v1/events/:id/staff` (event-scoped) |
 | `deejaytools.staff.write` | `PUT`, `DELETE /v1/events/:id/staff/:userId/:role` (event-scoped; granting or revoking `event-manager` needs the scope through a role, ADR-0012) |
 
-That is 8 public, 1 operator, 2 authenticated-only, 30 dancer and 33 admin:
-all 74.
+That is 8 public, 1 operator, 2 authenticated-only, 30 dancer and 34 admin:
+all 75.
 
 ### Acting on another user's behalf
 

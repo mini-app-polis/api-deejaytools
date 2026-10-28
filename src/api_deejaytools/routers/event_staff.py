@@ -20,7 +20,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import (
-    STAFF_WRITE_SCOPE,
     Caller,
     EventRef,
     StaffRole,
@@ -42,7 +41,6 @@ from ..staff import grant_event_role, list_event_staff, revoke_event_role
 
 router = APIRouter(prefix="/v1/events", tags=["event-staff"])
 
-STAFF_READ_SCOPE = "deejaytools.staff.read"
 THIS_EVENT = EventRef(source="path", name="id")
 
 
@@ -130,7 +128,9 @@ async def _target_email(session: AsyncSession, user_id: str) -> str:
 )
 async def list_staff(
     id: EventId,
-    _caller: Caller = Depends(require_event_scope(STAFF_READ_SCOPE, THIS_EVENT)),
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.staff.read", THIS_EVENT)
+    ),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the event's staff."""
@@ -155,7 +155,9 @@ async def grant_staff(
     user_id: UserId,
     role: RoleName,
     request: Request,
-    caller: Caller = Depends(require_event_scope(STAFF_WRITE_SCOPE, THIS_EVENT)),
+    caller: Caller = Depends(
+        require_event_scope("deejaytools.staff.write", THIS_EVENT)
+    ),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Grant a staff role."""
@@ -202,7 +204,9 @@ async def revoke_staff(
     user_id: UserId,
     role: RoleName,
     request: Request,
-    caller: Caller = Depends(require_event_scope(STAFF_WRITE_SCOPE, THIS_EVENT)),
+    caller: Caller = Depends(
+        require_event_scope("deejaytools.staff.write", THIS_EVENT)
+    ),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Revoke a staff role."""

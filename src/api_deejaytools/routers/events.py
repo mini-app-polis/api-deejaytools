@@ -234,7 +234,6 @@ async def _load(session: AsyncSession, event_id: str) -> Event:
 
 EventId = Annotated[str, Path(description="Event id.")]
 THIS_EVENT = EventRef(source="path", name="id")
-EVENTS_WRITE_SCOPE = "deejaytools.events.write"
 NOT_FOUND: dict[int | str, dict[str, Any]] = {
     404: {"model": ErrorResponse, "description": "No such event."}
 }
@@ -427,7 +426,7 @@ async def event_entities(
     responses=ADMIN,
 )
 async def create_event(
-    caller: Caller = Depends(require_scope(EVENTS_WRITE_SCOPE)),
+    caller: Caller = Depends(require_scope("deejaytools.events.write")),
     body: CreateEventBody = Depends(zod_body(CreateEventBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -468,7 +467,9 @@ async def create_event(
 )
 async def patch_event(
     id: EventId,
-    _caller: Caller = Depends(require_event_scope(EVENTS_WRITE_SCOPE, THIS_EVENT)),
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.events.write", THIS_EVENT)
+    ),
     body: PatchEventBody = Depends(zod_body(PatchEventBody)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -506,7 +507,9 @@ async def patch_event(
 )
 async def delete_event(
     id: EventId,
-    _caller: Caller = Depends(require_event_scope(EVENTS_WRITE_SCOPE, THIS_EVENT)),
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.events.write", THIS_EVENT)
+    ),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Delete an event and everything hanging off it."""
