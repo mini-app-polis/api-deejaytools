@@ -2541,6 +2541,32 @@ const listQuery = z.object({
 
 ---
 
+### GET /v1/events/:id/song-submissions
+
+api-deejaytools only, not in deejaytools-api: the same list for an event's staff, outside `/v1/admin` ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
+
+**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+
+**Purpose:** Every submission to the event, for the coordinator portal.
+
+**Path params:** `id` — event id
+
+**Query params:** none
+
+**Request body:** none
+
+**Response:** As `GET /v1/admin/event-song-submissions` for `event_id` = `id`.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 500 | `INTERNAL` | … | Query failed |
+
+---
+
 ## `admin-users.ts` — `/v1/admin/users`
 
 ### GET /v1/admin/users
