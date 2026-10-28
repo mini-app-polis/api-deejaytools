@@ -71,8 +71,6 @@ router = APIRouter(prefix="/v1/queue", tags=["queue"])
 # the path session's. The scope through a role (an admin's) allows anywhere.
 ENTRY_EVENT = EventRef(source="body", name="queueEntryId", kind="queue_entry")
 SESSION_EVENT = EventRef(source="path", name="session_id", kind="session")
-MANAGE_SCOPE = "deejaytools.queue.manage"
-READ_SCOPE = "deejaytools.queue.read"
 
 # Out of range of any real position, for rotate and move-down.
 SWAP_SENTINEL = 2_000_000
@@ -223,7 +221,9 @@ MANAGE: dict[int | str, dict[str, Any]] = {
     },
 )
 async def promote(
-    caller: Caller = Depends(require_event_scope(MANAGE_SCOPE, ENTRY_EVENT)),
+    caller: Caller = Depends(
+        require_event_scope("deejaytools.queue.manage", ENTRY_EVENT)
+    ),
     body: PromoteBody = Depends(zod_body(PromoteBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -376,7 +376,9 @@ async def _load_active_entry(db: AsyncSession, queue_entry_id: str) -> Any:
     },
 )
 async def complete(
-    caller: Caller = Depends(require_event_scope(MANAGE_SCOPE, ENTRY_EVENT)),
+    caller: Caller = Depends(
+        require_event_scope("deejaytools.queue.manage", ENTRY_EVENT)
+    ),
     body: EntryActionBody = Depends(zod_body(EntryActionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -473,7 +475,9 @@ class _EntryMissing(Exception):
     },
 )
 async def incomplete(
-    caller: Caller = Depends(require_event_scope(MANAGE_SCOPE, ENTRY_EVENT)),
+    caller: Caller = Depends(
+        require_event_scope("deejaytools.queue.manage", ENTRY_EVENT)
+    ),
     body: EntryActionBody = Depends(zod_body(EntryActionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -568,7 +572,9 @@ async def incomplete(
     },
 )
 async def move_down(
-    caller: Caller = Depends(require_event_scope(MANAGE_SCOPE, ENTRY_EVENT)),
+    caller: Caller = Depends(
+        require_event_scope("deejaytools.queue.manage", ENTRY_EVENT)
+    ),
     body: PromoteBody = Depends(zod_body(PromoteBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -653,7 +659,9 @@ async def move_down(
     },
 )
 async def withdraw(
-    caller: Caller = Depends(require_event_scope(MANAGE_SCOPE, ENTRY_EVENT)),
+    caller: Caller = Depends(
+        require_event_scope("deejaytools.queue.manage", ENTRY_EVENT)
+    ),
     body: EntryActionBody = Depends(zod_body(EntryActionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -892,7 +900,9 @@ async def waiting_queue(
 )
 async def priority_queue(
     session_id: SessionId,
-    _caller: Caller = Depends(require_event_scope(READ_SCOPE, SESSION_EVENT)),
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.queue.read", SESSION_EVENT)
+    ),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the priority queue."""
@@ -913,7 +923,9 @@ async def priority_queue(
 )
 async def non_priority_queue(
     session_id: SessionId,
-    _caller: Caller = Depends(require_event_scope(READ_SCOPE, SESSION_EVENT)),
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.queue.read", SESSION_EVENT)
+    ),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the standard queue."""

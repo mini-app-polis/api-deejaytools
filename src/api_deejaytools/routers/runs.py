@@ -36,7 +36,6 @@ router = APIRouter(prefix="/v1/runs", tags=["runs"])
 
 DEFAULT_LIMIT = 200
 
-RUNS_READ_SCOPE = "deejaytools.runs.read"
 # The query's event_id, else its session's event.
 QUERY_EVENT = EventRef(source="query", name="event_id")
 QUERY_SESSION_EVENT = EventRef(source="query", name="session_id", kind="session")
@@ -120,7 +119,7 @@ def _entity_key(r: Any) -> str:
 )
 async def list_runs(
     _caller: Caller = Depends(
-        require_event_scope(RUNS_READ_SCOPE, QUERY_EVENT, QUERY_SESSION_EVENT)
+        require_event_scope("deejaytools.runs.read", QUERY_EVENT, QUERY_SESSION_EVENT)
     ),
     query: ListRunsQuery = Depends(zod_query(ListRunsQuery)),
     db: AsyncSession = Depends(get_db_session),

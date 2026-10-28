@@ -48,7 +48,6 @@ from ..zod_types import QueryStr, trimmed, zod_query
 
 router = APIRouter(prefix="/v1/events", tags=["event-people"])
 
-ENTRIES_READ_SCOPE = "deejaytools.entries.read"
 THIS_EVENT = EventRef(source="path", name="id")
 
 MIN_QUERY_LENGTH = 2
@@ -157,7 +156,9 @@ def connected_user_ids(event_id: str) -> CompoundSelect:
 )
 async def find_event_people(
     id: Annotated[str, Path(description="Event id.")],
-    _caller: Caller = Depends(require_event_scope(ENTRIES_READ_SCOPE, THIS_EVENT)),
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.entries.read", THIS_EVENT)
+    ),
     query: PeopleQuery = Depends(zod_query(PeopleQuery)),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:

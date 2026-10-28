@@ -25,7 +25,6 @@ from .admin_event_submissions import (
 
 router = APIRouter(prefix="/v1/events", tags=["event-entries"])
 
-ENTRIES_READ_SCOPE = "deejaytools.entries.read"
 THIS_EVENT = EventRef(source="path", name="id")
 
 
@@ -47,7 +46,9 @@ THIS_EVENT = EventRef(source="path", name="id")
 )
 async def list_event_entries(
     id: Annotated[str, Path(description="Event id.")],
-    _caller: Caller = Depends(require_event_scope(ENTRIES_READ_SCOPE, THIS_EVENT)),
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.entries.read", THIS_EVENT)
+    ),
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """List the event's submissions."""

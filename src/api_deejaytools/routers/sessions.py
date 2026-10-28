@@ -400,7 +400,6 @@ ADMIN: dict[int | str, dict[str, Any]] = {
     403: {"model": ErrorResponse, "description": "Lacks the scope on this event."},
 }
 
-WRITE_SCOPE = "deejaytools.sessions.write"
 BODY_EVENT = EventRef(source="body", name="event_id")
 PATH_SESSION_EVENT = EventRef(source="path", name="id", kind="session")
 
@@ -506,7 +505,9 @@ async def list_sessions(
     responses=ADMIN,
 )
 async def create_session(
-    caller: Caller = Depends(require_event_scope(WRITE_SCOPE, BODY_EVENT)),
+    caller: Caller = Depends(
+        require_event_scope("deejaytools.sessions.write", BODY_EVENT)
+    ),
     body: CreateSessionBody = Depends(zod_body(CreateSessionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -586,7 +587,9 @@ async def create_session(
 )
 async def put_divisions(
     id: SessionId,
-    _caller: Caller = Depends(require_event_scope(WRITE_SCOPE, PATH_SESSION_EVENT)),
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.sessions.write", PATH_SESSION_EVENT)
+    ),
     body: PutDivisionsBody = Depends(zod_body(PutDivisionsBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
@@ -645,7 +648,9 @@ async def put_divisions(
 )
 async def patch_status(
     id: SessionId,
-    _caller: Caller = Depends(require_event_scope(WRITE_SCOPE, PATH_SESSION_EVENT)),
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.sessions.write", PATH_SESSION_EVENT)
+    ),
     body: StatusBody = Depends(zod_body(StatusBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -672,7 +677,9 @@ async def patch_status(
 async def patch_session(
     id: SessionId,
     request: Request,
-    caller: Caller = Depends(require_event_scope(WRITE_SCOPE, PATH_SESSION_EVENT)),
+    caller: Caller = Depends(
+        require_event_scope("deejaytools.sessions.write", PATH_SESSION_EVENT)
+    ),
     body: PatchSessionBody = Depends(zod_body(PatchSessionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -683,7 +690,7 @@ async def patch_session(
         # A move needs the scope on the event it goes to as well; detaching
         # it from any event needs the scope through a role.
         await authorize_on_event(
-            caller, WRITE_SCOPE, body.event_id or None, db, request
+            caller, "deejaytools.sessions.write", body.event_id or None, db, request
         )
 
     def next_value(field: str) -> Any:
@@ -731,7 +738,9 @@ async def patch_session(
 )
 async def delete_session(
     id: SessionId,
-    _caller: Caller = Depends(require_event_scope(WRITE_SCOPE, PATH_SESSION_EVENT)),
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.sessions.write", PATH_SESSION_EVENT)
+    ),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Delete a session and everything hanging off it."""
