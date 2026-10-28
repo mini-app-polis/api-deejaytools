@@ -3,13 +3,14 @@
 Floor-manager actions on a session's queues, and the queue reads.
 
 - promote, complete, incomplete, move-down, withdraw: behind
-  ``deejaytools.queue.manage``. Each is one transaction that starts by
+  ``deejaytools.queue.manage`` on the event of the body's queue entry
+  (event-scoped, ADR-0012). Each is one transaction that starts by
   locking the session row (ADR-0006, "Concurrency — pessimistic"), except
   move-down, which Node runs without the lock. A failed transaction answers
   409 ``conflict``; there is no server-side retry.
 - active and waiting: public (API-008). priority and non-priority: behind
-  ``deejaytools.queue.read``. All four are cached for 3 s per session and
-  invalidated by every mutation of that session.
+  ``deejaytools.queue.read`` on the path session's event. All four are
+  cached for 3 s per session and invalidated by every mutation of that session.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from ..auth import Caller, require_scope
+from ..auth import Caller, EventRef, require_event_scope
 from ..cache import QUEUE_TTL_SECONDS, invalidate_queue_cache, response_cache
 from ..database import get_db_session
 from ..domain import full_name
@@ -65,6 +66,13 @@ logger = get_logger()
 
 router = APIRouter(prefix="/v1/queue", tags=["queue"])
 
+
+# The event a request is decided on (ADR-0012): the body's queue entry's, or
+# the path session's. The scope through a role (an admin's) allows anywhere.
+ENTRY_EVENT = EventRef(source="body", name="queueEntryId", kind="queue_entry")
+SESSION_EVENT = EventRef(source="path", name="session_id", kind="session")
+MANAGE_SCOPE = "deejaytools.queue.manage"
+READ_SCOPE = "deejaytools.queue.read"
 
 # Out of range of any real position, for rotate and move-down.
 SWAP_SENTINEL = 2_000_000
@@ -192,7 +200,7 @@ def _promote_refusal(exc: _PromoteAbort) -> Exception | None:
 
 MANAGE: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse, "description": "Missing or invalid token."},
-    403: {"model": ErrorResponse, "description": "Lacks deejaytools.queue.manage."},
+    403: {"model": ErrorResponse, "description": "Lacks the scope on this event."},
     409: {"model": ErrorResponse, "description": "Concurrent activity; retry."},
 }
 
@@ -202,11 +210,11 @@ MANAGE: dict[int | str, dict[str, Any]] = {
     response_model=ActionResponse,
     summary="Promote a waiting entry",
     description=(
-        "Requires deejaytools.queue.manage. Moves a priority or standard entry "
-        "to the bottom of the active queue. While the session is live the caps "
-        "apply: priority needs room under the priority cap; standard needs an "
-        "empty priority queue and room under the standard cap. A completed or "
-        "cancelled session skips the caps."
+        "Requires deejaytools.queue.manage on the entry's event. Moves a "
+        "priority or standard entry to the bottom of the active queue. While the "
+        "session is live the caps apply: priority needs room under the priority "
+        "cap; standard needs an empty priority queue and room under the standard "
+        "cap. A completed or cancelled session skips the caps."
     ),
     responses={
         **MANAGE,
@@ -215,7 +223,7 @@ MANAGE: dict[int | str, dict[str, Any]] = {
     },
 )
 async def promote(
-    caller: Caller = Depends(require_scope("deejaytools.queue.manage")),
+    caller: Caller = Depends(require_event_scope(MANAGE_SCOPE, ENTRY_EVENT)),
     body: PromoteBody = Depends(zod_body(PromoteBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -357,9 +365,9 @@ async def _load_active_entry(db: AsyncSession, queue_entry_id: str) -> Any:
     response_model=ActionResponse,
     summary="Run complete",
     description=(
-        "Requires deejaytools.queue.manage. Any active entry, not only "
-        "position 1: records a run, removes the entry, closes the gap and "
-        "auto-fills."
+        "Requires deejaytools.queue.manage on the entry's event. Any active "
+        "entry, not only position 1: records a run, removes the entry, closes "
+        "the gap and auto-fills."
     ),
     responses={
         **MANAGE,
@@ -368,7 +376,7 @@ async def _load_active_entry(db: AsyncSession, queue_entry_id: str) -> Any:
     },
 )
 async def complete(
-    caller: Caller = Depends(require_scope("deejaytools.queue.manage")),
+    caller: Caller = Depends(require_event_scope(MANAGE_SCOPE, ENTRY_EVENT)),
     body: EntryActionBody = Depends(zod_body(EntryActionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -455,9 +463,9 @@ class _EntryMissing(Exception):
     response_model=ActionResponse,
     summary="Run incomplete",
     description=(
-        "Requires deejaytools.queue.manage. Rotates an active entry to the "
-        "bottom of the active queue (no run recorded) and auto-fills. An entry "
-        "already at the bottom is left where it is."
+        "Requires deejaytools.queue.manage on the entry's event. Rotates an "
+        "active entry to the bottom of the active queue (no run recorded) and "
+        "auto-fills. An entry already at the bottom is left where it is."
     ),
     responses={
         **MANAGE,
@@ -465,7 +473,7 @@ class _EntryMissing(Exception):
     },
 )
 async def incomplete(
-    caller: Caller = Depends(require_scope("deejaytools.queue.manage")),
+    caller: Caller = Depends(require_event_scope(MANAGE_SCOPE, ENTRY_EVENT)),
     body: EntryActionBody = Depends(zod_body(EntryActionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -548,9 +556,10 @@ async def incomplete(
     response_model=ActionResponse,
     summary="Move an entry down one place",
     description=(
-        "Requires deejaytools.queue.manage. Swaps the entry with the one at "
-        "position + 1 in the same queue; entries never move between queues. "
-        "One moved_within_queue audit row is written, for the initiating entry."
+        "Requires deejaytools.queue.manage on the entry's event. Swaps the entry "
+        "with the one at position + 1 in the same queue; entries never move "
+        "between queues. One moved_within_queue audit row is written, for the "
+        "initiating entry."
     ),
     responses={
         **MANAGE,
@@ -559,7 +568,7 @@ async def incomplete(
     },
 )
 async def move_down(
-    caller: Caller = Depends(require_scope("deejaytools.queue.manage")),
+    caller: Caller = Depends(require_event_scope(MANAGE_SCOPE, ENTRY_EVENT)),
     body: PromoteBody = Depends(zod_body(PromoteBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -634,8 +643,9 @@ async def move_down(
     response_model=ActionResponse,
     summary="Withdraw an entry",
     description=(
-        "Requires deejaytools.queue.manage. Removes an entry from any queue "
-        "without recording a run, closes the gap and auto-fills."
+        "Requires deejaytools.queue.manage on the entry's event. Removes an "
+        "entry from any queue without recording a run, closes the gap and "
+        "auto-fills."
     ),
     responses={
         **MANAGE,
@@ -643,7 +653,7 @@ async def move_down(
     },
 )
 async def withdraw(
-    caller: Caller = Depends(require_scope("deejaytools.queue.manage")),
+    caller: Caller = Depends(require_event_scope(MANAGE_SCOPE, ENTRY_EVENT)),
     body: EntryActionBody = Depends(zod_body(EntryActionBody)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -822,7 +832,7 @@ async def _cached(key: str, build: Any) -> dict[str, Any]:
 SessionId = Annotated[str, Path(description="Session id.")]
 READ: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse, "description": "Missing or invalid token."},
-    403: {"model": ErrorResponse, "description": "Lacks deejaytools.queue.read."},
+    403: {"model": ErrorResponse, "description": "Lacks the scope on this event."},
 }
 
 
@@ -874,12 +884,15 @@ async def waiting_queue(
     "/{session_id}/priority",
     response_model=QueueListResponse,
     summary="Priority queue",
-    description="Requires deejaytools.queue.read. The priority queue. Cached for 3 s.",
+    description=(
+        "Requires deejaytools.queue.read on the session's event. The priority "
+        "queue. Cached for 3 s."
+    ),
     responses=READ,
 )
 async def priority_queue(
     session_id: SessionId,
-    _caller: Caller = Depends(require_scope("deejaytools.queue.read")),
+    _caller: Caller = Depends(require_event_scope(READ_SCOPE, SESSION_EVENT)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the priority queue."""
@@ -892,12 +905,15 @@ async def priority_queue(
     "/{session_id}/non-priority",
     response_model=QueueListResponse,
     summary="Standard queue",
-    description="Requires deejaytools.queue.read. The standard queue. Cached for 3 s.",
+    description=(
+        "Requires deejaytools.queue.read on the session's event. The standard "
+        "queue. Cached for 3 s."
+    ),
     responses=READ,
 )
 async def non_priority_queue(
     session_id: SessionId,
-    _caller: Caller = Depends(require_scope("deejaytools.queue.read")),
+    _caller: Caller = Depends(require_event_scope(READ_SCOPE, SESSION_EVENT)),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the standard queue."""

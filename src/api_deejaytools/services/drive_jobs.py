@@ -4,6 +4,13 @@ Enqueueing (best-effort, after the request's own commit) and processing: the
 batch the scheduler runs once per tick (``process_drive_jobs``), with the
 per-kind work for ``copy``, ``rename`` and ``trash``.
 
+``share_event_folder`` and ``unshare_event_folder`` give an event's DJs and
+event managers read access to the event's folder, and take it away again
+(ADR-0012, "The DJ's Drive folder"). They are added in the transaction of
+the staff change or event change that calls for them (``add_drive_job``),
+so they are as durable as that change. Each checks the staff list when it
+runs, so jobs that run out of order still leave access matching it.
+
 Processing is deejaytools-api's ``processDriveJobs`` with the three "Known
 defects" in this area fixed rather than reproduced (ADR-0007 point 4):
 
@@ -37,13 +44,49 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain import season_year_from_date_string
-from ..models import DriveJob, Event, EventSongSubmission, Song
+from ..models import DriveJob, Event, EventSongSubmission, EventStaffGrant, Song, User
 from ..zod_coerce import js_trim
 from . import drive, notifications
 
 logger = get_logger()
 
-DriveJobKind = Literal["copy", "trash", "rename"]
+DriveJobKind = Literal[
+    "copy", "trash", "rename", "share_event_folder", "unshare_event_folder"
+]
+SHARE_EVENT_FOLDER: DriveJobKind = "share_event_folder"
+UNSHARE_EVENT_FOLDER: DriveJobKind = "unshare_event_folder"
+
+DRIVE_FOLDER_ROLES = ("dj", "event-manager")
+"""The staff roles that carry read access to the event's Drive folder."""
+
+
+def add_drive_job(
+    session: AsyncSession,
+    kind: DriveJobKind,
+    *,
+    submission_id: str | None = None,
+    file_id: str | None = None,
+    event_id: str | None = None,
+    user_id: str | None = None,
+) -> None:
+    """Add one pending job, due now, to the session's transaction. Does not
+    commit: the caller's commit makes it durable with the change it is for."""
+    now = int(time.time() * 1000)
+    session.add(
+        DriveJob(
+            id=str(uuid.uuid4()),
+            kind=kind,
+            submission_id=submission_id,
+            file_id=file_id,
+            event_id=event_id,
+            user_id=user_id,
+            status="pending",
+            attempts=0,
+            next_attempt_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+    )
 
 
 async def enqueue_drive_job(
@@ -54,21 +97,21 @@ async def enqueue_drive_job(
     file_id: str | None = None,
 ) -> None:
     """Insert one pending job, due now, and commit it."""
-    now = int(time.time() * 1000)
-    session.add(
-        DriveJob(
-            id=str(uuid.uuid4()),
-            kind=kind,
-            submission_id=submission_id,
-            file_id=file_id,
-            status="pending",
-            attempts=0,
-            next_attempt_at=now,
-            created_at=now,
-            updated_at=now,
-        )
-    )
+    add_drive_job(session, kind, submission_id=submission_id, file_id=file_id)
     await session.commit()
+
+
+def event_folder_path(
+    name: str, season_year: str | None, start_date: str
+) -> tuple[str, str]:
+    """(season year, event name) of an event's Drive folder,
+    ``<root>/<season_year>/Events/<event_name>/``, as folder names.
+
+    The season is the event's, or else its start date's, as for the copies
+    that go into the folder.
+    """
+    season = js_trim(season_year or "") or season_year_from_date_string(start_date)
+    return drive.sanitize_folder_name(season), drive.sanitize_folder_name(name)
 
 
 async def enqueue_trash_jobs(
@@ -178,6 +221,14 @@ class _Job:
     attempts: int
     row_keys: tuple[str, ...]
     next_attempt_at: int
+    event_id: str | None = None
+    user_id: str | None = None
+
+
+class DriveJobRefused(Exception):
+    """A job that retrying cannot make succeed: it is failed at once, with
+    this as its ``last_error``. The admin retry runs it again once the cause
+    is fixed."""
 
 
 def _missing_field(job: _Job, field: str) -> RuntimeError:
@@ -220,6 +271,8 @@ async def _claim_jobs(db: AsyncSession, limit: int, now: int) -> list[_Job]:
             attempts=int(m["attempts"]),
             row_keys=tuple(m.keys()),
             next_attempt_at=int(m["next_attempt_at"]),
+            event_id=m.get("event_id"),
+            user_id=m.get("user_id"),
         )
         for m in result.mappings()
     ]
@@ -423,6 +476,182 @@ async def _run_trash_job(job: _Job) -> None:
     )
 
 
+async def _holds_folder_role(db: AsyncSession, event_id: str, user_id: str) -> bool:
+    """Whether the person is the event's DJ or event manager now."""
+    held = (
+        await db.execute(
+            select(EventStaffGrant.role)
+            .where(
+                EventStaffGrant.event_id == event_id,
+                EventStaffGrant.user_id == user_id,
+                EventStaffGrant.role.in_(DRIVE_FOLDER_ROLES),
+            )
+            .limit(1)
+        )
+    ).first()
+    return held is not None
+
+
+async def _share_email(db: AsyncSession, job: _Job, user_id: str) -> str:
+    """The address a folder is shared with: the person's ``users.email``.
+
+    Refused (failed at once) when they have none. The reason names the user
+    id, never the address: it reaches the shared Discord channel.
+    """
+    email = (
+        await db.execute(select(User.email).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if not js_trim(email or ""):
+        raise DriveJobRefused(
+            f"{job.kind}: user {user_id} has no email address to share the "
+            "event folder with"
+        )
+    return js_trim(email or "")
+
+
+def _event_folder_fields(job: _Job) -> tuple[str, str]:
+    if not job.event_id:
+        raise _missing_field(job, "event_id")
+    if not job.user_id:
+        raise _missing_field(job, "user_id")
+    return job.event_id, job.user_id
+
+
+async def _run_share_folder_job(db: AsyncSession, job: _Job) -> None:
+    """Share the event's folder with one of its DJs or event managers.
+
+    Nothing to do when they no longer hold either role (an unshare is, or
+    was, queued) or the event is gone. The folder is created if missing and
+    recorded on the job (``file_id``): that is what an unshare takes access
+    away from, wherever the event's folder is by then.
+    """
+    event_id, user_id = _event_folder_fields(job)
+    if not await _holds_folder_role(db, event_id, user_id):
+        await db.commit()
+        logger.info(
+            with_log_prefix(
+                LOG_SUCCESS,
+                f"drive_folder_share_skipped job={job.id} event={event_id} "
+                f"user={user_id} reason=no_folder_role",
+            )
+        )
+        return
+    event = (
+        await db.execute(
+            select(Event.name, Event.season_year, Event.start_date).where(
+                Event.id == event_id
+            )
+        )
+    ).first()
+    if event is None:
+        await db.commit()
+        return
+    email = await _share_email(db, job, user_id)
+    await db.commit()
+
+    season, name = event_folder_path(event.name, event.season_year, event.start_date)
+    folder_id = await drive.ensure_event_folder(season_year=season, event_name=name)
+    result = await drive.share_with_reader(folder_id, email)
+    if result.failed:
+        raise result.failed[0][1]
+    if not result.shared:
+        raise DriveJobRefused(
+            f"{job.kind}: the email address of user {user_id} is not one Drive "
+            "can share with"
+        )
+    await db.execute(
+        text("UPDATE drive_jobs SET file_id = :folder WHERE id = :id"),
+        {"folder": folder_id, "id": job.id},
+    )
+    await db.commit()
+    logger.info(
+        with_log_prefix(
+            LOG_SUCCESS,
+            f"drive_folder_shared job={job.id} event={event_id} user={user_id} "
+            f"folder={folder_id}",
+        )
+    )
+    # Revoked while the share was in flight: the unshare may have found
+    # nothing recorded yet, so queue another, which finds this folder.
+    if not await _holds_folder_role(db, event_id, user_id):
+        add_drive_job(db, UNSHARE_EVENT_FOLDER, event_id=event_id, user_id=user_id)
+    await db.commit()
+
+
+async def _run_unshare_folder_job(db: AsyncSession, job: _Job) -> None:
+    """Take a former DJ's or event manager's access to the event's folders.
+
+    Every folder a share for this person on this event recorded, so a folder
+    the event has since moved from is unshared too, except one they still
+    reach as staff of another event. Nothing to do when they hold the role
+    again (re-granted since).
+    """
+    event_id, user_id = _event_folder_fields(job)
+    if await _holds_folder_role(db, event_id, user_id):
+        await db.commit()
+        logger.info(
+            with_log_prefix(
+                LOG_SUCCESS,
+                f"drive_folder_unshare_skipped job={job.id} event={event_id} "
+                f"user={user_id} reason=folder_role_held",
+            )
+        )
+        return
+    still_held = (
+        select(DriveJob.file_id)
+        .join(
+            EventStaffGrant,
+            (EventStaffGrant.event_id == DriveJob.event_id)
+            & (EventStaffGrant.user_id == DriveJob.user_id),
+        )
+        .where(
+            DriveJob.kind == SHARE_EVENT_FOLDER,
+            DriveJob.user_id == user_id,
+            DriveJob.event_id != event_id,
+            DriveJob.file_id.is_not(None),
+            EventStaffGrant.role.in_(DRIVE_FOLDER_ROLES),
+        )
+    )
+    folders = sorted(
+        folder_id
+        for folder_id in (
+            await db.execute(
+                select(DriveJob.file_id)
+                .distinct()
+                .where(
+                    DriveJob.kind == SHARE_EVENT_FOLDER,
+                    DriveJob.event_id == event_id,
+                    DriveJob.user_id == user_id,
+                    DriveJob.file_id.is_not(None),
+                    DriveJob.file_id.not_in(still_held),
+                )
+            )
+        ).scalars()
+        if folder_id is not None
+    )
+    if not folders:
+        await db.commit()
+        logger.info(
+            with_log_prefix(
+                LOG_SUCCESS,
+                f"drive_folder_unshare_noop job={job.id} event={event_id} "
+                f"user={user_id}",
+            )
+        )
+        return
+    email = await _share_email(db, job, user_id)
+    await db.commit()
+    for folder_id in folders:
+        removed = await drive.remove_reader(folder_id, email)
+        logger.info(
+            with_log_prefix(
+                LOG_SUCCESS,
+                f"drive_folder_unshared job={job.id} event={event_id} "
+                f"user={user_id} folder={folder_id} removed={removed}",
+            )
+        )
+
+
 async def _run_job(db: AsyncSession, job: _Job) -> None:
     if job.kind == "copy":
         await _run_copy_job(db, job)
@@ -430,6 +659,10 @@ async def _run_job(db: AsyncSession, job: _Job) -> None:
         await _run_trash_job(job)
     elif job.kind == "rename":
         await _run_rename_job(db, job)
+    elif job.kind == SHARE_EVENT_FOLDER:
+        await _run_share_folder_job(db, job)
+    elif job.kind == UNSHARE_EVENT_FOLDER:
+        await _run_unshare_folder_job(db, job)
     else:
         raise RuntimeError(f"unknown drive job kind: {job.kind}")
 
@@ -457,7 +690,8 @@ async def _record_failure(db: AsyncSession, job: _Job, exc: Exception) -> None:
     the job stays ``running`` until the lease reclaims it.
     """
     attempts = job.attempts + 1
-    exhausted = attempts >= MAX_ATTEMPTS
+    # A refused job is failed at once: no retry would change its outcome.
+    exhausted = isinstance(exc, DriveJobRefused) or attempts >= MAX_ATTEMPTS
     message = str(exc) or type(exc).__name__
     now = _now_ms()
     next_attempt_at = now + backoff_ms(attempts)

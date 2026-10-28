@@ -414,7 +414,7 @@ than summing group sizes.
 
 ### POST /v1/events
 
-**Auth:** requireAdmin
+**Auth:** requireAdmin. In api-deejaytools, `deejaytools.events.write` through a role only: a new event names no event to hold a grant on, so an event manager cannot create events
 
 **Purpose:** Create an event.
 
@@ -445,9 +445,9 @@ const createEvent = z.object({
 
 ### PATCH /v1/events/:id
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.events.write` on the event in the path: held through a role (an admin's, on any event) or granted on the event (its event manager). An unknown id, through a role only
 
-**Purpose:** Partially update an event.
+**Purpose:** Partially update an event. In api-deejaytools, a change that moves the event's Drive folder (`<root>/<season_year>/Events/<name>/`: its name or season) queues a `share_event_folder` Drive job for each of the event's DJs and event managers, so they can read the new folder ([DRIVE.md](./DRIVE.md#job-kinds)).
 
 **Path params:** `id`
 
@@ -477,9 +477,9 @@ const patchEvent = z.object({
 
 ### DELETE /v1/events/:id
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.events.write` on the event in the path: held through a role (an admin's, on any event) or granted on the event (its event manager). An unknown id, through a role only
 
-**Purpose:** Delete an event and cascade-delete its sessions and all floor-trial data, its song submissions and its run limits (and, in api-deejaytools, its staff roles with their explicit grants). After commit, a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
+**Purpose:** Delete an event and cascade-delete its sessions and all floor-trial data, its song submissions and its run limits (and, in api-deejaytools, its staff roles with their explicit grants, queueing an `unshare_event_folder` Drive job for each DJ and event manager). After commit, a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
 
 **Path params:** `id`
 
@@ -541,7 +541,7 @@ A staff grant on the wire:
 
 **Auth:** `deejaytools.staff.write` on the event. Granting `event-manager` needs the scope through a role (admin).
 
-**Purpose:** Grant the role on the event: the staff row plus the role's scopes as explicit grants on `event:<id>`. Idempotent: a grant already held is returned unchanged.
+**Purpose:** Grant the role on the event: the staff row plus the role's scopes as explicit grants on `event:<id>`. A person's first `dj` or `event-manager` role on the event also queues a `share_event_folder` Drive job, which shares the event's Drive folder with their email as a reader ([DRIVE.md](./DRIVE.md#job-kinds)). Idempotent: a grant already held is returned unchanged.
 
 **Request body:** none
 
@@ -562,7 +562,7 @@ A staff grant on the wire:
 
 **Auth:** as `PUT`.
 
-**Purpose:** Revoke the role on the event, with each of its explicit grants no other role the person still holds on the event carries. Idempotent.
+**Purpose:** Revoke the role on the event, with each of its explicit grants no other role the person still holds on the event carries. Revoking their last `dj` or `event-manager` role on the event queues an `unshare_event_folder` Drive job. Idempotent.
 
 **Response:**
 
@@ -728,7 +728,7 @@ export const SessionStatusSchema = z.enum([
 
 ### POST /v1/sessions
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.sessions.write` on the body's `event_id`: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). Without `event_id`, through a role only
 
 **Purpose:** Create a session and its division rows.
 
@@ -753,7 +753,7 @@ export const SessionStatusSchema = z.enum([
 
 ### PUT /v1/sessions/:id/divisions
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). A session with no event, or an unknown id, through a role only
 
 **Purpose:** Upsert session divisions (priority flags and run limits).
 
@@ -776,7 +776,7 @@ export const SessionStatusSchema = z.enum([
 
 ### PATCH /v1/sessions/:id/status
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). A session with no event, or an unknown id, through a role only
 
 **Purpose:** Manually set persisted session status (e.g. `cancelled`).
 
@@ -798,7 +798,7 @@ export const SessionStatusSchema = z.enum([
 
 ### PATCH /v1/sessions/:id
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). Changing `event_id` also needs the scope on the event it moves to (`null`, out of every event: through a role only); both decisions are audited
 
 **Purpose:** Update session metadata and time window.
 
@@ -816,7 +816,7 @@ export const SessionStatusSchema = z.enum([
 
 ### DELETE /v1/sessions/:id
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). A session with no event, or an unknown id, through a role only
 
 **Purpose:** Delete session and all queue/check-in/run data.
 
@@ -840,7 +840,7 @@ export const SessionStatusSchema = z.enum([
 
 ### POST /v1/checkins
 
-**Auth:** requireAuth (admins may pass `on_behalf_of_user_id`)
+**Auth:** requireAuth. `on_behalf_of_user_id` also needs `deejaytools.delegation.act` on the session's event: through a role (admins) or granted on that event (its DJ or event manager)
 
 **Purpose:** Check in an entity for a session; creates `checkins`, `queue_entries`, and `queue_events` rows.
 
@@ -891,7 +891,7 @@ export const createCheckinBodySchema = z
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
-| 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` set by non-admin |
+| 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` on the session's event |
 | 400 | `BAD_REQUEST` | Target user not found | Invalid on-behalf user |
 | 404 | `NOT_FOUND` | Session not found | |
 | 400 | `BAD_REQUEST` | Check-in has not opened yet | Before `checkin_opens_at` |
@@ -1020,7 +1020,7 @@ Queue entry item shape (all GET queue endpoints):
 
 ### POST /v1/queue/promote
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.queue.manage` on the event of the body's `queueEntryId`: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). An unknown entry, through a role only
 
 **Purpose:** Move a priority or non-priority entry into the active queue.
 
@@ -1046,7 +1046,7 @@ Queue entry item shape (all GET queue endpoints):
 
 ### POST /v1/queue/complete
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.queue.manage` on the event of the body's `queueEntryId`: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). An unknown entry, through a role only
 
 **Purpose:** Mark active slot complete; record a `runs` row.
 
@@ -1068,7 +1068,7 @@ Queue entry item shape (all GET queue endpoints):
 
 ### POST /v1/queue/incomplete
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.queue.manage` on the event of the body's `queueEntryId`: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). An unknown entry, through a role only
 
 **Purpose:** Rotate active slot-1 entry to bottom of active queue.
 
@@ -1089,7 +1089,7 @@ Queue entry item shape (all GET queue endpoints):
 
 ### POST /v1/queue/move-down
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.queue.manage` on the event of the body's `queueEntryId`: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). An unknown entry, through a role only
 
 **Purpose:** Swap entry with the one at `position + 1` within the same queue.
 
@@ -1115,7 +1115,7 @@ z.object({ queueEntryId: z.string().min(1) })
 
 ### POST /v1/queue/withdraw
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.queue.manage` on the event of the body's `queueEntryId`: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). An unknown entry, through a role only
 
 **Purpose:** Remove any queue entry without recording a run.
 
@@ -1172,7 +1172,7 @@ z.object({ queueEntryId: z.string().min(1) })
 
 ### GET /v1/queue/:sessionId/priority
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.queue.read` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). An unknown session, through a role only
 
 **Purpose:** Priority queue only (admin Manager page).
 
@@ -1190,7 +1190,7 @@ z.object({ queueEntryId: z.string().min(1) })
 
 ### GET /v1/queue/:sessionId/non-priority
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.queue.read` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). An unknown session, through a role only
 
 **Purpose:** Non-priority queue only.
 
@@ -1210,7 +1210,7 @@ z.object({ queueEntryId: z.string().min(1) })
 
 ### GET /v1/runs
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.runs.read`, on the event `event_id` names, or else on `session_id`'s session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). With neither filter (every event's runs), through a role only
 
 **Purpose:** Admin run history with display labels.
 
@@ -2007,7 +2007,7 @@ Song object in responses:
 
 ### POST /v1/songs/upload/chunk
 
-**Auth:** requireAuth (admins may pass `on_behalf_of_user_id`)
+**Auth:** requireAuth. `on_behalf_of_user_id` also needs `deejaytools.delegation.act`: through a role (admins, `event_id` not needed), or granted on the event `event_id` names (its DJ or event manager)
 
 **Purpose:** Chunked upload. The song row is created when the final chunk arrives and returned at once; tagging, the Drive upload and the row's Drive fields happen in the background afterwards, and the row is deleted again if that fails. Staging, filename construction and the background steps are specified in [DRIVE.md](./DRIVE.md#upload-pipeline).
 
@@ -2028,7 +2028,8 @@ Song object in responses:
 | `managed_partnership_id` | string | optional | |
 | `routine_name` | string | optional | |
 | `personal_descriptor` | string | optional | |
-| `on_behalf_of_user_id` | string | admin only | Target owner |
+| `on_behalf_of_user_id` | string | admin, or event DJ / event manager | Target owner |
+| `event_id` | string | staff on behalf | api-deejaytools only. The event an upload on behalf is for: the delegation is decided on it ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)). Needed by a DJ or event manager, optional for an admin; not stored, and ignored without `on_behalf_of_user_id` |
 | `entity_type` | `team` \| `other` | portal uploads | Creates placeholder partner. Any other non-empty value, including `solo`, is rejected with `Invalid entity_type` (the handler's solo branch is unreachable) |
 | `entity_name` | string | `other` / optional solo | |
 | `team_id` | string | team uploads | Must own team |
@@ -2064,7 +2065,7 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 400 | `BAD_REQUEST` | Invalid total_chunks (max 30) | Not an integer in 1–30 |
 | 400 | `BAD_REQUEST` | chunk_index out of range | `chunk_index >= total_chunks` |
 | 400 | `BAD_REQUEST` | Missing chunk field | `chunk` absent or not a file |
-| 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` by non-admin |
+| 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` through a role or on `event_id`'s event (a DJ without `event_id` included) |
 | 400 | `BAD_REQUEST` | Chunk exceeds 10 MB limit | Chunk > 10 MiB |
 | 400 | `BAD_REQUEST` | Portal uploads cannot specify partner_id or managed_partnership_id | Final chunk: `entity_type` with a partner field |
 | 400 | `BAD_REQUEST` | Invalid entity_type | Not `team` / `other` |
@@ -2399,6 +2400,8 @@ const listQuery = z.object({
       "updated_at": 1759358200000,
       "submission_id": "sub_…",
       "file_id": null,
+      "event_id": null,
+      "user_id": null,
       "event_name": "Swingtacular 2027"
     }
   ],
@@ -2407,10 +2410,14 @@ const listQuery = z.object({
 ```
 
 - Ordered by `updated_at` descending, then truncated to `limit`.
-- `kind` is `copy` | `rename` | `trash`. `submission_id` is set for copy and rename,
-  `file_id` for trash.
-- `event_name` comes from a left join through the submission: `null` for trash
-  jobs and for jobs whose submission has since been deleted.
+- `kind` is `copy` | `rename` | `trash`, and in api-deejaytools also
+  `share_event_folder` | `unshare_event_folder` ([DRIVE.md](./DRIVE.md#job-kinds)).
+  `submission_id` is set for copy and rename, `file_id` for trash.
+  `event_id` and `user_id` (api-deejaytools only) are set for the two folder
+  kinds, and a share's `file_id` is the folder it shared once it ran.
+- `event_name` comes from a left join through the submission, or else through
+  the job's `event_id`: `null` for trash jobs and for jobs whose submission or
+  event has since been deleted.
 - Timestamps are epoch ms. `next_attempt_at` keeps its last value after a job
   reaches `done` or `failed` and means nothing there.
 
@@ -2537,6 +2544,32 @@ const listQuery = z.object({
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
 | 400 | `VALIDATION_ERROR` | … | Missing `event_id` |
+| 500 | `INTERNAL` | … | Query failed |
+
+---
+
+### GET /v1/events/:id/song-submissions
+
+api-deejaytools only, not in deejaytools-api: the same list for an event's staff, outside `/v1/admin` ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
+
+**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+
+**Purpose:** Every submission to the event, for the coordinator portal.
+
+**Path params:** `id` — event id
+
+**Query params:** none
+
+**Request body:** none
+
+**Response:** As `GET /v1/admin/event-song-submissions` for `event_id` = `id`.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
 | 500 | `INTERNAL` | … | Query failed |
 
 ---

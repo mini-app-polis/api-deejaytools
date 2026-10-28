@@ -174,6 +174,8 @@ async def test_list_shape_order_and_filter(
         "updated_at": 50,
         "submission_id": sid,
         "file_id": None,
+        "event_id": None,
+        "user_id": None,
         "event_name": "Swingtacular 2027",
     }
     assert body["data"][0]["event_name"] is None

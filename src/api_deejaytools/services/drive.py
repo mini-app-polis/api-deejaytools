@@ -2,7 +2,9 @@
 
 Every Drive call in this service goes through ``mini_app_polis.google.drive.
 DriveFacade`` (ADR-0010 "Reuse from the ecosystem"); nothing here or elsewhere
-calls googleapiclient directly. The facade is synchronous, so each call runs
+calls googleapiclient directly, with one exception: the facade has no call
+for removing a permission, so ``remove_reader`` uses the facade's own
+``service`` client for it. The facade is synchronous, so each call runs
 in a worker thread with ``asyncio.to_thread`` and the event loop never blocks
 on Google.
 
@@ -65,9 +67,12 @@ __all__ = [
     "clear_drive_folder_cache",
     "copy_song_to_event_folder",
     "drive_configured",
+    "ensure_event_folder",
+    "remove_reader",
     "rename_file",
     "sanitize_folder_name",
     "share_song_file",
+    "share_with_reader",
     "soft_delete",
     "upload_song_file",
 ]
@@ -415,3 +420,74 @@ async def copy_song_to_event_folder(
     if not file_id:
         raise RuntimeError("Drive copy did not return a file id")
     return EventCopyResult(file_id, destination_id, reused=False)
+
+
+async def ensure_event_folder(*, season_year: str, event_name: str) -> str:
+    """The event's folder, ``<root>/<season_year>/Events/<event_name>/``.
+
+    Created if it does not exist yet, as an event copy creates it. On any
+    error the whole folder cache is dropped before re-raising, as for a copy.
+    """
+    facade, root = _drive()
+    try:
+        year_id = await _ensure_folder(facade, root, sanitize_folder_name(season_year))
+        events_id = await _ensure_folder(facade, year_id, EVENTS_FOLDER)
+        return await _ensure_folder(facade, events_id, sanitize_folder_name(event_name))
+    except Exception:
+        clear_drive_folder_cache()
+        raise
+
+
+async def share_with_reader(file_id: str, email: str) -> ShareResult:
+    """Grant ``reader`` on a file or folder to one address, with no
+    notification email, as ``share_song_file`` does. A failure comes back in
+    ``ShareResult.failed``; an address the facade drops as invalid comes
+    back in neither list."""
+    return await share_song_file(file_id, [email])
+
+
+async def remove_reader(file_id: str, email: str) -> int:
+    """Remove every ``reader`` permission ``email`` holds directly on a file
+    or folder; returns how many were removed. Safe to repeat.
+
+    DriveFacade has no call for this, so it lists and deletes permissions
+    through the facade's ``service`` client, on the worker thread's own
+    facade. The address is compared trimmed and lowercased, as shares are
+    made. Other roles and other people's permissions are left alone. Drive
+    errors propagate (a Drive job retries them).
+    """
+    config = _config()
+    wanted = email.strip().lower()
+
+    def run() -> int:
+        service = _thread_facade(config.email, config.private_key).service
+        ids: list[str] = []
+        page_token: str | None = None
+        while True:
+            page = (
+                service.permissions()
+                .list(
+                    fileId=file_id,
+                    fields="nextPageToken, permissions(id, type, role, emailAddress)",
+                    supportsAllDrives=True,
+                    pageToken=page_token,
+                )
+                .execute()
+            )
+            ids += [
+                p["id"]
+                for p in page.get("permissions", [])
+                if p.get("type") == "user"
+                and p.get("role") == "reader"
+                and str(p.get("emailAddress") or "").strip().lower() == wanted
+            ]
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                break
+        for permission_id in ids:
+            service.permissions().delete(
+                fileId=file_id, permissionId=permission_id, supportsAllDrives=True
+            ).execute()
+        return len(ids)
+
+    return await asyncio.to_thread(run)

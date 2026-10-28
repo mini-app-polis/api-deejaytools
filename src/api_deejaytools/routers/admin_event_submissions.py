@@ -2,7 +2,9 @@
 deejaytools-api src/routes/admin-event-submissions.ts).
 
 Every submission to one event, for the Manager's Event Songs tab, behind
-``deejaytools.entries.read`` (ADR-0008).
+``deejaytools.entries.read`` (ADR-0008). The query and its answer are
+``event_submissions_response``, which the event staff's
+``GET /v1/events/{id}/song-submissions`` shares (ADR-0012).
 """
 
 from __future__ import annotations
@@ -82,6 +84,15 @@ async def list_event_submissions(
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """List an event's submissions."""
+    return await event_submissions_response(session, query.event_id)
+
+
+async def event_submissions_response(session: AsyncSession, event_id: str) -> Any:
+    """Every submission to ``event_id``, newest first, as the list answers it.
+
+    A ``successList`` of ``AdminSubmissionData``, or the 500 envelope when
+    the query fails. Authorization is the caller's.
+    """
     owner = aliased(User, name="song_owner")
     submitter = aliased(User, name="submitter")
     managed = aliased(ManagedPartnership, name="managed_partnership")
@@ -120,7 +131,7 @@ async def list_event_submissions(
                 .join(
                     submitter, submitter.id == EventSongSubmission.submitted_by_user_id
                 )
-                .where(EventSongSubmission.event_id == query.event_id)
+                .where(EventSongSubmission.event_id == event_id)
                 .order_by(EventSongSubmission.created_at.desc())
             )
         ).all()
@@ -166,8 +177,7 @@ async def list_event_submissions(
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,
-                f"admin_event_song_submission_list_failed event={query.event_id}: "
-                f"{exc!r}",
+                f"admin_event_song_submission_list_failed event={event_id}: {exc!r}",
             )
         )
         return JSONResponse(

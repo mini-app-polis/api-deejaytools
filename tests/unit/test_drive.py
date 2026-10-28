@@ -126,6 +126,9 @@ async def test_every_operation_fails_fast_when_unconfigured(
             event_name="E",
             division="C",
         ),
+        drive.ensure_event_folder(season_year="2027", event_name="E"),
+        drive.share_with_reader("f", "a@b.co"),
+        drive.remove_reader("f", "a@b.co"),
     ]
     for call in calls:
         with pytest.raises(drive.DriveNotConfiguredError) as info:
@@ -223,6 +226,66 @@ async def test_share_delegates_to_the_facade(svc: FakeDriveService) -> None:
     (perm,) = svc.ops("permissions.create")
     assert perm["body"] == {"role": "reader", "type": "user", "emailAddress": "a@b.co"}
     assert perm["sendNotificationEmail"] is False
+
+
+# --- event folder access ---------------------------------------------------------
+
+
+async def test_event_folder_is_created_where_copies_go(svc: FakeDriveService) -> None:
+    folder_id = await drive.ensure_event_folder(
+        season_year="2027", event_name="Swing / Fling"
+    )
+    assert svc.folder_path(folder_id) == ["2027", "Events", "Swing - Fling"]
+    # Found again, not made twice.
+    drive.clear_drive_folder_cache()
+    assert (
+        await drive.ensure_event_folder(season_year="2027", event_name="Swing / Fling")
+        == folder_id
+    )
+
+
+async def test_failed_event_folder_resolution_drops_the_cache(
+    svc: FakeDriveService,
+) -> None:
+    await drive.ensure_event_folder(season_year="2027", event_name="E")
+    svc.fail_list = RuntimeError("drive down")
+    with pytest.raises(RuntimeError):
+        await drive.ensure_event_folder(season_year="2028", event_name="E")
+    svc.fail_list = None
+    lookups = len(svc.ops("files.list"))
+    await drive.ensure_event_folder(season_year="2027", event_name="E")
+    assert len(svc.ops("files.list")) > lookups  # looked up again, not cached
+
+
+async def test_share_with_reader_shares_one_address(svc: FakeDriveService) -> None:
+    result = await drive.share_with_reader("folder_1", " DJ@Example.com ")
+    assert result.shared == ["dj@example.com"]
+    (perm,) = svc.ops("permissions.create")
+    assert perm["fileId"] == "folder_1"
+    assert perm["body"] == {
+        "role": "reader",
+        "type": "user",
+        "emailAddress": "dj@example.com",
+    }
+
+
+async def test_remove_reader_removes_only_that_readers_permission(
+    svc: FakeDriveService,
+) -> None:
+    svc.permissions_page_size = 2  # the permissions come back over pages
+    svc.permissions_by_file["folder_1"] = [
+        {"id": "p1", "type": "user", "role": "reader", "emailAddress": "dj@x.co"},
+        {"id": "p2", "type": "user", "role": "writer", "emailAddress": "dj@x.co"},
+        {"id": "p3", "type": "user", "role": "reader", "emailAddress": "other@x.co"},
+        {"id": "p4", "type": "domain", "role": "reader"},
+        {"id": "p5", "type": "user", "role": "reader", "emailAddress": "DJ@x.co"},
+    ]
+    assert await drive.remove_reader("folder_1", " dj@X.co") == 2
+    assert [p["id"] for p in svc.permissions_by_file["folder_1"]] == ["p2", "p3", "p4"]
+    assert {d["permissionId"] for d in svc.ops("permissions.delete")} == {"p1", "p5"}
+    assert all(d["supportsAllDrives"] for d in svc.ops("permissions.delete"))
+    # Nothing left to remove: safe to repeat.
+    assert await drive.remove_reader("folder_1", "dj@x.co") == 0
 
 
 # --- event copy -----------------------------------------------------------------

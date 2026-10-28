@@ -3,8 +3,10 @@
 A dancer checks an entity into a session's waiting queue, lists their live
 check-ins, and withdraws their own. Writes are behind
 ``deejaytools.checkins.write``, the list behind ``deejaytools.checkins.read``;
-an admin may check in for someone else with ``on_behalf_of_user_id``, which
-is a second decision (``deejaytools.delegation.act``, ADR-0008).
+an admin, or the DJ or event manager of the session's event, may check in
+for someone else with ``on_behalf_of_user_id``, which is a second decision
+(``deejaytools.delegation.act`` on the session's event, ADR-0008 and
+ADR-0012).
 
 Check-in and withdraw are queue transactions: they lock the session row
 first, change the queue, and auto-fill the active queue (ADR-0006).
@@ -224,8 +226,8 @@ AUTH: dict[int | str, dict[str, Any]] = {
         "priority or standard queue (admission rules, ADR-0006) and auto-fills "
         "the active queue. The song must belong to the user and, for an event "
         "session, be submitted to the event. With on_behalf_of_user_id the "
-        "caller also needs deejaytools.delegation.act, and the entity comes "
-        "from the song."
+        "caller also needs deejaytools.delegation.act on the session's event, "
+        "and the entity comes from the song."
     ),
     responses={
         **AUTH,
@@ -243,7 +245,17 @@ async def create_checkin(
     """Check an entity in."""
     on_behalf = js_trim(body.on_behalf_of_user_id or "") or None
     if on_behalf:
-        await authorize_delegation(caller, on_behalf, db, request)
+        # Decided on the session's event: its DJ or event manager may act
+        # for a dancer there. No such session, or one with no event, leaves
+        # it to roles (an admin's); the 404 follows.
+        session_event_id = (
+            await db.execute(
+                select(Session.event_id).where(Session.id == body.sessionId)
+            )
+        ).scalar_one_or_none()
+        await authorize_delegation(
+            caller, on_behalf, db, request, event_id=session_event_id
+        )
     effective_user_id = on_behalf or caller.user_id
     if on_behalf:
         target = (
