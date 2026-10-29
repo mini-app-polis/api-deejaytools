@@ -177,7 +177,7 @@ Discord notifications (`DISCORD_WEBHOOK_URL`, optionally
 `DISCORD_WEBHOOK_URL_ERRORS` and `DISCORD_WEBHOOK_URL_ACTIVITY`; off when
 unset), the change-feed switch `NOTIFY_DATA_CHANGES` and the
 per-environment event allow-list `DISCORD_NOTIFY_EVENTS` (events
-`data_changed` and `fault`; development posts `fault` only) are described in [docs/OPERATIONS.md](docs/OPERATIONS.md), with
+`data_changed` and `fault`, posted from production only) are described in [docs/OPERATIONS.md](docs/OPERATIONS.md), with
 retrying failed song builds.
 Symptoms and their fixes (failed deploys, 401s on every call, Drive,
 email, the scheduler, CORS) and the log events to grep for are in

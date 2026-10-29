@@ -39,10 +39,11 @@ ignored. Without `DEEJAYTOOLS_CORS_ORIGINS` the service allows only
 The service posts to the fleet's shared Discord channels through
 common-python-utils' `mini_app_polis.activity` and `mini_app_polis.discord`
 (`src/api_deejaytools/services/notifications.py`). Every message's footer
-says `api-deejaytools` and the environment; outside production every
-title also starts with `[DEVELOPMENT]` (or `[LOCAL]`) — `[DEVELOPMENT] song
-added`, `[DEVELOPMENT] fault · 500` — so dev's faults in the shared `errors`
-channel are not read as production's. Messages name people only where that
+says `api-deejaytools` and the environment. Only production posts the
+change feed and faults; development and local log them instead.
+"Song added" and "feedback" still post from development, with the title
+starting `[DEVELOPMENT]` (or `[LOCAL]`) — `[DEVELOPMENT] song added` — so
+they are not read as production's. Messages name people only where that
 is the point (the dancers in "song added"); the caller of a request is
 named by Clerk user id, never by email.
 
@@ -64,7 +65,8 @@ as api-kaianolevine-com's:
 An event left out of an environment's list is not sent, and an environment
 with no entry sends every event. The defaults (in `config.py`) send both in
 production and only `fault` in development, where the writes are
-contract-suite runs and test cleanup. `NOTIFY_DATA_CHANGES` still applies:
+contract-suite runs and test cleanup — but neither event posts outside
+production whatever the list says, so development's entry has no effect. `NOTIFY_DATA_CHANGES` still applies:
 a data change is posted only when both allow it. "Song added" and
 "feedback" are not in the list and post as before. Don't silence a channel
 by unsetting its webhook instead: it would fall back to

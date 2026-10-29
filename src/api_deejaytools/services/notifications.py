@@ -16,10 +16,11 @@ What stays here is this service's policy:
   fleet. The actor is ``request.state.caller``, which ``auth.require_scope``
   stamps with the caller's Clerk user id (the principal's subject) — never
   their email, which does not belong in a shared channel; no extra query.
-- **Titles say the environment** (``label=True`` on every producer here):
-  outside production they read ``[DEVELOPMENT] fault · 500``, so a
-  development fault in the shared ``errors`` channel is not mistaken for
-  production's.
+- **Only production posts changes and faults.** common-python-utils
+  posts no change summary and no fault from any other environment; a
+  development process says what it changed and what broke in its own logs.
+  "Song added" and "feedback" still post from development, and their titles
+  say the environment (``[DEVELOPMENT] song added``).
 - **What is not news** (``SUPPRESSED_TABLES``, ``EXCLUDED_PATHS``,
   ``CHANGES_NOT_REPORTED``), each with its reason. ``NOTIFY_DATA_CHANGES``
   turns the change feed off altogether without a deploy, as in
@@ -27,7 +28,9 @@ What stays here is this service's policy:
 - **Which events each environment posts** (``DISCORD_NOTIFY_EVENTS``,
   :func:`event_enabled`), named and shaped as in api-kaianolevine-com:
   ``data_changed`` is the change feed, ``fault`` is every fault, from a
-  request or from background work. Development posts faults only. "Song
+  request or from background work. Both only ever post from production
+  (above), so the list can narrow production's messages, not widen
+  development's. "Song
   added" and "feedback" are not events in the list and are unaffected.
 - **No machine callers.** The only caller is the web app, so a 4xx is a
   person meeting a guard and is never reported (``is_machine`` is None).

@@ -85,7 +85,7 @@ class Posts:
         return [
             e
             for e in await self.channel(discord.CHANNEL_ACTIVITY)
-            if e["title"].endswith("data changed")
+            if e["title"].startswith("data changed")
         ]
 
     async def songs_added(self) -> list[dict[str, Any]]:
@@ -100,6 +100,9 @@ class Posts:
 def discord_posts(monkeypatch: pytest.MonkeyPatch) -> Posts:
     """Webhooks configured for errors and activity, posts captured."""
     settings = get_settings()
+    # The channels are production's: nothing is posted from anywhere else.
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setattr(settings, "DISCORD_WEBHOOK_URL_ERRORS", ERRORS_URL)
     monkeypatch.setattr(settings, "DISCORD_WEBHOOK_URL_ACTIVITY", ACTIVITY_URL)
     posts = Posts()
@@ -137,11 +140,11 @@ async def test_successful_build_announces_one_song_added(
         "Jane Doe added 'Ballad' (Classic, with Pat Partner)\n"
         "[Drive file](https://drive.google.com/file/d/file-1/view)"
     )
-    assert added[0]["footer"]["text"] == "api-deejaytools · test"
+    assert added[0]["footer"]["text"] == "api-deejaytools · production"
     assert await discord_posts.channel(discord.CHANNEL_ERRORS) == []
     # The upload itself is not in the change feed: the build announced it.
     changes = await discord_posts.changes()
-    assert ["`partners` +1"] == [c["description"] for c in changes]
+    assert ["partners · 1 created"] == [c["description"] for c in changes]
     assert await db.fetchval(
         "SELECT drive_file_id FROM songs WHERE id = $1", song["id"]
     )
@@ -267,12 +270,12 @@ async def test_failed_build_reports_a_fault_and_announces_nothing(
     (fault,) = await discord_posts.channel(discord.CHANNEL_ERRORS)
     # Labelled: ENVIRONMENT=test is not production, and the errors channel
     # is shared with production.
-    assert fault["title"] == "[DEVELOPMENT] fault · background"
+    assert fault["title"] == "fault · background"
     assert fault["description"] == (
         f"`song build {song['id']} · failed, song removed`\n```RuntimeError```"
     )
     assert "secret" not in str(fault)
-    assert fault["footer"]["text"] == "api-deejaytools · test"
+    assert fault["footer"]["text"] == "api-deejaytools · production"
 
 
 class _SentryWithIds(Sentry):
@@ -405,17 +408,15 @@ async def test_rollup_names_the_caller_and_leaves_out_bookkeeping(
     )
     await client.post("/v1/teams", json={"identifier": "Two"}, headers=jane.headers)
 
-    first, second = await discord_posts.changes()
-    assert first["title"] == "[DEVELOPMENT] data changed"
-    assert first["description"] == "`teams` +1"
-    assert "identity_audit_events" not in str(first)
-    assert first["footer"]["text"] == (
-        f"POST /v1/teams · {jane.id} · api-deejaytools · test"
+    # One caller writing to one route within the window is one message.
+    (change,) = await discord_posts.changes()
+    assert change["title"] == "data changed · 2 writes"
+    assert change["description"] == "teams · 2 created"
+    assert "identity_audit_events" not in str(change)
+    assert change["footer"]["text"] == (
+        f"POST /v1/teams · {jane.id} · api-deejaytools · production"
     )
-    assert second["footer"]["text"] == (
-        f"POST /v1/teams · {jane.id} · api-deejaytools · test"
-    )
-    assert "@" not in str(first) + str(second)
+    assert "@" not in str(change)
 
 
 async def test_rolled_back_request_reports_no_change(
@@ -438,8 +439,9 @@ async def test_rolled_back_request_reports_no_change(
     )
     assert clash.status_code == 409, clash.text
     assert first.status_code == 201
-    paths = [c["footer"]["text"].split(" · ")[0] for c in await discord_posts.changes()]
-    assert paths == ["POST /v1/teams", "POST /v1/teams"]
+    (change,) = await discord_posts.changes()
+    assert change["footer"]["text"].split(" · ")[0] == "POST /v1/teams"
+    assert change["description"] == "teams · 2 created"  # the rename is not in it
     assert (
         await discord_posts.channel(discord.CHANNEL_ERRORS) == []
     )  # a 4xx is not a fault
@@ -456,7 +458,7 @@ async def test_operator_queue_changes_are_reported(
     res = await client.post("/v1/admin/drive-jobs/job_1/retry", headers=admin.headers)
     assert res.status_code == 200, res.text
     (change,) = await discord_posts.changes()
-    assert change["description"] == "`drive_jobs` *1"
+    assert change["description"] == "drive_jobs · 1 bulk write"
 
 
 async def test_change_feed_can_be_switched_off(
@@ -571,13 +573,14 @@ async def test_production_posts_the_same_data_changes(
     assert any(p.startswith("DELETE /v1/events/") for p in paths)
 
 
-async def test_development_still_posts_faults(
+async def test_development_posts_nothing(
     client: httpx.AsyncClient,
     person: Callable,
     monkeypatch: pytest.MonkeyPatch,
     discord_posts: Posts,
 ) -> None:
     monkeypatch.setattr(get_settings(), "ENVIRONMENT", "development")
+    monkeypatch.setenv("ENVIRONMENT", "development")
     jane = await person("jane")
 
     async def broken(*_: Any) -> Any:
@@ -588,8 +591,9 @@ async def test_development_still_posts_faults(
         "/v1/teams/t1", json={"identifier": "X"}, headers=jane.headers
     )
     assert res.status_code == 500
-    (fault,) = await discord_posts.channel(discord.CHANNEL_ERRORS)
-    assert fault["title"].endswith("fault · 500")
+    # The channels are production's record; development's faults stay in
+    # its logs.
+    assert await discord_posts.channel(discord.CHANNEL_ERRORS) == []
 
 
 async def test_a_fault_left_out_of_the_list_is_not_posted(
@@ -674,12 +678,12 @@ async def test_feedback_posts_its_type_and_subject_only(
     assert post["channel"] == discord.CHANNEL_ACTIVITY
     assert post["json"]["allowed_mentions"] == {"parse": []}
     (embed,) = await discord_posts.channel(discord.CHANNEL_ACTIVITY)
-    assert embed["title"] == "[DEVELOPMENT] feedback · bug"
+    assert embed["title"] == "feedback · bug"
     assert embed["description"] == (
         "Queue \\*froze\\* @everyone\n"
         "not emailed: no Brevo key is set, and the message was not kept"
     )
-    assert embed["footer"]["text"] == "api-deejaytools · test"
+    assert embed["footer"]["text"] == "api-deejaytools · production"
     # The sender and their message go by email, never to the shared channel.
     for private in ("Jane", "jane@example.test", "3pm"):
         assert private not in str(post)
@@ -719,7 +723,7 @@ async def test_feedback_brevo_refused_is_a_fault_not_feedback(
 
     assert await discord_posts.channel(discord.CHANNEL_ACTIVITY) == []
     (fault,) = await discord_posts.channel(discord.CHANNEL_ERRORS)
-    assert fault["title"] == "[DEVELOPMENT] fault · 502"
+    assert fault["title"] == "fault · 502"
 
 
 # --- faults -----------------------------------------------------------------------
@@ -744,10 +748,10 @@ async def test_unhandled_exception_posts_its_type_not_its_text(
     assert res.json()["error"]["code"] == "INTERNAL"  # the envelope, as before
 
     (fault,) = await discord_posts.channel(discord.CHANNEL_ERRORS)
-    assert fault["title"] == "[DEVELOPMENT] fault · 500"
+    assert fault["title"] == "fault · 500"
     assert fault["description"] == "`PATCH /v1/teams/t1`\n```RuntimeError```"
     assert "secret" not in str(fault)
-    assert fault["footer"]["text"] == f"{jane.id} · api-deejaytools · test"
+    assert fault["footer"]["text"] == f"{jane.id} · api-deejaytools · production"
 
 
 async def test_sync_fault_names_the_verified_subject_not_the_body_email(
@@ -772,7 +776,7 @@ async def test_sync_fault_names_the_verified_subject_not_the_body_email(
     assert res.status_code == 500
 
     (fault,) = await discord_posts.channel(discord.CHANNEL_ERRORS)
-    assert fault["footer"]["text"] == f"{uid} · api-deejaytools · test"
+    assert fault["footer"]["text"] == f"{uid} · api-deejaytools · production"
     assert "spoof" not in str(fault)
 
 
@@ -1035,6 +1039,8 @@ async def test_nothing_is_sent_without_webhooks(
         return True
 
     monkeypatch.setattr(discord, "post_webhook", post_webhook)
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "production")
+    monkeypatch.setenv("ENVIRONMENT", "production")
     jane = await person("jane")
     await client.post("/v1/teams", json={"identifier": "A"}, headers=jane.headers)
     await client.post("/v1/teams", json={"identifier": "B"}, headers=jane.headers)
