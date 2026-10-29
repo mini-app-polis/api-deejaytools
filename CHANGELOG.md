@@ -1,3 +1,12 @@
+## [1.14.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.14.0...v1.14.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **auth:** pass a literal scope to the drive-folder route guard so AUTH-003 can read it ([85e7304](https://github.com/mini-app-polis/api-deejaytools/commit/85e73041838b64b3d1ab88cab1957a1927174db2))
+* **deps:** bump miniapppolis-common-utils to 6.36.0 ([413dde9](https://github.com/mini-app-polis/api-deejaytools/commit/413dde9b732494782a64a76d5af492b601a295ef))
+* **deps:** move to common-python-utils 7.x, which posts changes and faults from production only ([81a50b4](https://github.com/mini-app-polis/api-deejaytools/commit/81a50b41449c6cc09bd09928bd15d647977e3d45))
+
 # [1.14.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.13.2...v1.14.0) (2026-10-29)
 
 
