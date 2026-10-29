@@ -1,3 +1,17 @@
+# [1.14.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.13.2...v1.14.0) (2026-10-29)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 6.34.0 ([c59af9b](https://github.com/mini-app-polis/api-deejaytools/commit/c59af9b60fbac61550b625608a42814e8b9b6d3e))
+* **deps:** bump miniapppolis-common-utils to 6.35.0 ([33a90ff](https://github.com/mini-app-polis/api-deejaytools/commit/33a90ffe9f1420590c57d4c1a1362799d616dcad))
+
+
+### Features
+
+* **events:** GET /v1/events/{id}/drive-folder returns the event's shared Drive folder ([cb8e39c](https://github.com/mini-app-polis/api-deejaytools/commit/cb8e39c7f2abc72e6c289fd1297632ea23de72ff))
+* **submissions:** return owner_user_id on each row of an event's song submissions ([321e0a7](https://github.com/mini-app-polis/api-deejaytools/commit/321e0a77a7760dd8c0fa612a3d1c28447f918014))
+
 ## [1.13.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.13.1...v1.13.2) (2026-10-28)
 
 
