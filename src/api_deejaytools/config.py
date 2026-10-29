@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Annotated
 
 from mini_app_polis.environment import current_environment
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -76,6 +76,16 @@ class Settings(BaseSettings):
         default=None, description="Brevo API key for feedback emails."
     )
 
+    # Who feedback emails come from and go to. Required in production (see
+    # _feedback_addresses_in_production); elsewhere either may be unset, and
+    # then no email is sent, as with no Brevo key. No address is a default.
+    FEEDBACK_FROM_EMAIL: str | None = Field(
+        default=None, description="Sender address for feedback emails."
+    )
+    FEEDBACK_TO_EMAIL: str | None = Field(
+        default=None, description="Recipient address for feedback emails."
+    )
+
     @property
     def clerk_issuer(self) -> str | None:
         """The trusted Clerk issuer (CLERK_ISSUER), read from
@@ -92,6 +102,14 @@ class Settings(BaseSettings):
     def brevo_api_key(self) -> str | None:
         """The Brevo key, or None when ``BREVO_API_KEY`` is unset or empty."""
         return self.BREVO_API_KEY or None
+
+    @property
+    def feedback_addresses(self) -> tuple[str, str] | None:
+        """``(sender, recipient)`` for feedback emails, or None when either
+        ``FEEDBACK_FROM_EMAIL`` or ``FEEDBACK_TO_EMAIL`` is unset or empty."""
+        sender = (self.FEEDBACK_FROM_EMAIL or "").strip()
+        recipient = (self.FEEDBACK_TO_EMAIL or "").strip()
+        return (sender, recipient) if sender and recipient else None
 
     @property
     def google_service_account(self) -> tuple[str, str] | None:
@@ -210,6 +228,21 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [s.strip() for s in v.split(",") if s.strip()]
         return v
+
+    @model_validator(mode="after")
+    def _feedback_addresses_in_production(self) -> Settings:
+        """Production must say where feedback emails come from and go to.
+
+        Elsewhere they are optional: without them feedback is accepted and
+        no email is sent. Production refuses to start without them rather
+        than drop feedback silently.
+        """
+        if self.ENVIRONMENT.lower() == "production" and self.feedback_addresses is None:
+            raise ValueError(
+                "FEEDBACK_FROM_EMAIL and FEEDBACK_TO_EMAIL must both be set in "
+                "production."
+            )
+        return self
 
     # The process environment only: Doppler supplies it (`doppler run`
     # locally, the Railway sync deployed). No .env file is read. An empty

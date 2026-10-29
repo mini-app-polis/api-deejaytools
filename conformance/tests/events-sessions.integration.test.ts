@@ -33,6 +33,13 @@ describe("events and sessions (integration)", () => {
     expect(tick.body.data).toEqual({ ticked: true });
   });
 
+  it("the division list is public", async () => {
+    const res = await request("GET", "/v1/divisions");
+    expect(res.status).toBe(200);
+    expect(res.body.data.divisions).toEqual(res.body.data.groups.flat());
+    expect(res.body.data.divisions).toContain("Classic");
+  });
+
   it("events are public to read and admin-only to change", async () => {
     const { admin, eventId } = await eventWithSession();
     const user = await actor("user");

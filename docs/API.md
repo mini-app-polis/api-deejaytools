@@ -2069,6 +2069,7 @@ Song object in responses:
 | `entity_type` | `team` \| `other` | portal uploads | Creates placeholder partner. Any other non-empty value, including `solo`, is rejected with `Invalid entity_type` (the handler's solo branch is unreachable) |
 | `entity_name` | string | `other` / optional solo | |
 | `team_id` | string | team uploads | Must own team |
+| `submit_to_event` | `"true"` | optional | api-deejaytools only. With `on_behalf_of_user_id` and `event_id`: also submits the song to that event in the same request, the dancer as submitter and the caller as uploader, with the song's own division and the default round (no override). `partner_id`, if sent, must be one of the dancer's partners of kind `partner` (`GET /v1/events/:id/people/:user_id/partners`). Not for portal uploads |
 
 **Response (non-final chunk):**
 
@@ -2083,11 +2084,14 @@ Song object in responses:
   "data": {
     "received": true,
     "complete": true,
-    "song": { }
+    "song": { },
+    "submission": { }
   },
   "meta": { "version": "…" }
 }
 ```
+
+`submission` is there only with `submit_to_event`: the submission as `POST /v1/event-song-submissions` answers it. Its Drive copy follows once the song's build has a file.
 
 In this response `processed_filename`, `season_year`, `drive_file_id` and `drive_folder_id` are always null, and the partner name fields are null. They are filled in when the background build finishes; poll `GET /v1/songs/:id` (it 404s if the build failed and the row was removed).
 
@@ -2101,6 +2105,7 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 400 | `BAD_REQUEST` | Invalid total_chunks (max 30) | Not an integer in 1–30 |
 | 400 | `BAD_REQUEST` | chunk_index out of range | `chunk_index >= total_chunks` |
 | 400 | `BAD_REQUEST` | Missing chunk field | `chunk` absent or not a file |
+| 400 | `BAD_REQUEST` | submit_to_event needs on_behalf_of_user_id and event_id | `submit_to_event` without either |
 | 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` through a role or on `event_id`'s event (a DJ without `event_id` included) |
 | 400 | `BAD_REQUEST` | Chunk exceeds 10 MB limit | Chunk > 10 MiB |
 | 400 | `BAD_REQUEST` | Portal uploads cannot specify partner_id or managed_partnership_id | Final chunk: `entity_type` with a partner field |
@@ -2113,6 +2118,10 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 400 | `BAD_REQUEST` | Specify either partner_id or managed_partnership_id, not both | |
 | 400 | `BAD_REQUEST` | Managed partnership not found or does not belong to you | |
 | 400 | `BAD_REQUEST` | Partner not found or does not belong to you | |
+| 400 | `BAD_REQUEST` | submit_to_event is not available for portal uploads | `submit_to_event` with `entity_type` (checked before the partner fields) |
+| 400 | `BAD_REQUEST` | Partner is not on the dancer's partner list | `submit_to_event`: the partner is the dancer's but not of kind `partner` |
+| 404 | `NOT_FOUND` | Event not found | `submit_to_event`: unknown `event_id` |
+| 409 | `ENTITY_SLOT_TAKEN` | This entity already has a song submitted for … | `submit_to_event`: the entity already has a song in that division at the event. Nothing is saved |
 | 500 | `CHUNK_ERROR` | Failed to read uploaded chunks | Upload directory can't be listed (directory is left in place) |
 | 409 | `CHUNK_MISSING` | Expected N chunks but only received M. Please retry the upload. | Chunk count ≠ `total_chunks` |
 | 400 | `BAD_REQUEST` | File exceeds 100 MB limit | Assembled size > 110 MiB |
@@ -2131,7 +2140,7 @@ Also from global middleware: `413 payload_too_large` for a request body over 11 
 
 **Auth:** public
 
-**Purpose:** Submit site feedback (optional Brevo email when `DEEJAYTOOLS_BREVO_API_KEY` set).
+**Purpose:** Submit site feedback (optional Brevo email when `BREVO_API_KEY`, `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL` are all set; api-deejaytools reads the sender and recipient from settings, where deejaytools-api had them in code).
 
 **Path params / Query params:** none
 
@@ -2176,7 +2185,37 @@ const feedbackBodySchema = z
 | 400 | `VALIDATION_ERROR` | … | Invalid body / screenshot format |
 | 502 | `EMAIL_FAILED` | Failed to send email. Please try again. | Brevo API error |
 
-If `DEEJAYTOOLS_BREVO_API_KEY` is unset, feedback is logged and **201** still returned.
+If `BREVO_API_KEY` or either feedback address is unset, feedback is logged and **201** still returned. Production refuses to start without both addresses.
+
+---
+
+## Divisions — `/v1/divisions`
+
+api-deejaytools only, not in deejaytools-api: the division list the web app used to keep its own copy of.
+
+### GET /v1/divisions
+
+**Auth:** public
+
+**Purpose:** The competition divisions, in their display groups and flat in the same order, from `DIVISION_GROUPS` in `src/api_deejaytools/domain.py` (the single source of truth).
+
+**Path params / Query params:** none
+
+**Request body:** none
+
+**Response:** **200**
+
+```json
+{
+  "data": {
+    "groups": [["Classic", "Showcase", "…"], ["ProAm LeaderAm", "…"]],
+    "divisions": ["Classic", "Showcase", "…"]
+  },
+  "meta": { "version": "v1" }
+}
+```
+
+**Errors:** none of its own.
 
 ---
 
@@ -2663,6 +2702,30 @@ const query = z.object({
 | 400 | `VALIDATION_ERROR` | … | `q` missing, repeated, or shorter than 2 characters once trimmed |
 | 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
 | 404 | `NOT_FOUND` | Event not found | Unknown id |
+
+---
+
+### GET /v1/events/:id/people/:user_id/partners
+
+api-deejaytools only, not in deejaytools-api: the partner list for a staff upload on behalf.
+
+**Auth:** `deejaytools.delegation.act` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its DJ or event manager). The admin-wide `GET /v1/admin/users/:id/partners` stays admin-only.
+
+**Purpose:** One person's partners of kind `partner`, by last then first name, to pick `partner_id` from for `POST /v1/songs/upload/chunk` with `submit_to_event`. Only for a person connected to the event, as `GET /v1/events/:id/people` finds them.
+
+**Path params:** `id` — event id; `user_id` — the person
+
+**Query params / Request body:** none
+
+**Response:** the partners, as `GET /v1/partners` returns them.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 404 | `NOT_FOUND` | Person not found at this event | The person is not connected to the event |
 
 ---
 

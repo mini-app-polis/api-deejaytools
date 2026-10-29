@@ -8,6 +8,11 @@ record) then runs in the background from durable staging: see
 
 The body is ``multipart/form-data`` with no zod schema: fields are read and
 checked by hand, in the order and with the messages docs/API.md lists.
+
+A staff upload on behalf can also submit the song to the event it is for
+(``submit_to_event``): the dancer is the submitter, the staff member the
+uploader, and a taken slot (ENTITY_SLOT_TAKEN) is refused before anything is
+saved. api-deejaytools only.
 """
 
 from __future__ import annotations
@@ -30,14 +35,23 @@ from starlette.datastructures import UploadFile
 
 from ..auth import Caller, authorize_delegation, require_scope
 from ..database import get_db_session
+from ..domain import song_entity_key
 from ..errors import ErrorCode, ErrorResponse, Meta, api_error, success
-from ..models import Partner, Song, SongUpload, Team, User
+from ..models import Event, EventSongSubmission, Partner, Song, SongUpload, Team, User
 from ..services import song_builds
 from ..services.audio_format import detect_audio_format
+from ..services.drive_jobs import enqueue_copy_job
 from ..song_records import (
     assert_managed_partnership_owned,
     assert_partner_owned,
     map_song,
+)
+from ..submissions import (
+    DEFAULT_ROUND,
+    entity_slot_taken,
+    fetch_user_submission_rows,
+    map_submission_row,
+    slot_taken_message,
 )
 from ..zod_coerce import js_number, js_trim
 
@@ -61,6 +75,13 @@ class ChunkReceived(BaseModel):
     complete: bool = Field(..., description="Whether this was the final chunk.")
     song: dict[str, Any] | None = Field(
         None, description="The new song (final chunk only); Drive fields null."
+    )
+    submission: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "The song's submission to the event (final chunk with "
+            "submit_to_event only)."
+        ),
     )
 
 
@@ -128,7 +149,10 @@ def _is_int(value: float) -> bool:
         "and nothing references it yet. Requires deejaytools.songs.write; "
         "on_behalf_of_user_id also needs deejaytools.delegation.act: through "
         "a role (an admin's), or on the event event_id names (that event's "
-        "DJ or event manager)."
+        "DJ or event manager). submit_to_event=true (with on_behalf_of_user_id "
+        "and event_id) also submits the song to that event in the same "
+        "request, the dancer as submitter, refused with 409 "
+        "ENTITY_SLOT_TAKEN before anything is saved when the slot is taken."
     ),
     responses={
         200: {"model": ChunkResponse, "description": "Chunk received."},
@@ -138,7 +162,17 @@ def _is_int(value: float) -> bool:
             "model": ErrorResponse,
             "description": "Acting for another user, not allowed.",
         },
-        409: {"model": ErrorResponse, "description": "Chunks missing (CHUNK_MISSING)."},
+        404: {
+            "model": ErrorResponse,
+            "description": "submit_to_event: no such event.",
+        },
+        409: {
+            "model": ErrorResponse,
+            "description": (
+                "Chunks missing (CHUNK_MISSING), or with submit_to_event the "
+                "entity's slot is taken (ENTITY_SLOT_TAKEN)."
+            ),
+        },
         500: {
             "model": ErrorResponse,
             "description": "Chunks unreadable (CHUNK_ERROR).",
@@ -175,6 +209,7 @@ async def upload_chunk(
     entity_type = js_trim(_text(form, "entity_type") or "")
     entity_name = js_trim(_text(form, "entity_name") or "")
     team_id = js_trim(_text(form, "team_id") or "")
+    submit_to_event = _text(form, "submit_to_event") == "true"
     chunk = form.get("chunk")
     chunk_file = chunk if isinstance(chunk, UploadFile) else None
 
@@ -193,6 +228,10 @@ async def upload_chunk(
         raise bad("chunk_index out of range")
     if chunk_file is None:
         raise bad("Missing chunk field")
+    if submit_to_event and not (on_behalf_of and event_id):
+        raise bad("submit_to_event needs on_behalf_of_user_id and event_id")
+    # The event the song is submitted to, or None when it is not submitted.
+    submit_event_id = event_id if submit_to_event else None
     if on_behalf_of:
         # Where deejaytools-api checked the admin role: a second, audited
         # decision (ADR-0008), on event_id's event when one is sent
@@ -220,6 +259,8 @@ async def upload_chunk(
         return bad(message)
 
     is_portal = entity_type != ""
+    if submit_to_event and is_portal:
+        raise refuse("submit_to_event is not available for portal uploads")
     if is_portal and (managed_partnership_id or partner_id):
         raise refuse(
             "Portal uploads cannot specify partner_id or managed_partnership_id"
@@ -267,6 +308,32 @@ async def upload_chunk(
         elif partner_id:
             if not await assert_partner_owned(db, effective_user_id, partner_id):
                 raise refuse("Partner not found or does not belong to you")
+
+    if submit_event_id is not None:
+        # The partner comes from the dancer's partner list (kind partner),
+        # and the slot is checked before anything is saved.
+        if partner_id:
+            kind = (
+                await db.execute(select(Partner.kind).where(Partner.id == partner_id))
+            ).scalar_one_or_none()
+            if kind != "partner":
+                raise refuse("Partner is not on the dancer's partner list")
+        if await db.get(Event, submit_event_id) is None:
+            _remove(upload_dir)
+            raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
+        if await entity_slot_taken(
+            db,
+            event_id=submit_event_id,
+            entity=song_entity_key(
+                effective_user_id,
+                None if managed_partnership_id else partner_id,
+                managed_partnership_id,
+            ),
+            division=division,
+            round_=DEFAULT_ROUND,
+        ):
+            _remove(upload_dir)
+            raise api_error(409, "ENTITY_SLOT_TAKEN", slot_taken_message(division))
 
     try:
         names = sorted(
@@ -377,9 +444,40 @@ async def upload_chunk(
             ),
         )
     )
+    submission_id: str | None = None
+    if submit_event_id is not None:
+        # The song's own division and the default round: no override.
+        submission_id = str(uuid.uuid4())
+        db.add(
+            EventSongSubmission(
+                id=submission_id,
+                event_id=submit_event_id,
+                song_id=song.id,
+                submitted_by_user_id=effective_user_id,
+                division=None,
+                round=None,
+                created_at=now,
+            )
+        )
     await db.commit()
 
     song_builds.start_build(song.id)
     # Partner names are null in this answer whatever the partner, as in
     # deejaytools-api.
-    return success({"received": True, "complete": True, "song": map_song(song)})
+    answer: dict[str, Any] = {
+        "received": True,
+        "complete": True,
+        "song": map_song(song),
+    }
+    if submission_id is not None:
+        # Finds no file until the build has one; the build re-queues it then.
+        await enqueue_copy_job(
+            db,
+            submission_id,
+            context={"submission_id": submission_id, "user_id": effective_user_id},
+        )
+        rows = await fetch_user_submission_rows(
+            db, effective_user_id, submission_id=submission_id
+        )
+        answer["submission"] = map_submission_row(rows[0])
+    return success(answer)

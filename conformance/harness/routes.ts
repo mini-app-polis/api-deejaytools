@@ -27,6 +27,7 @@ export const ROUTES: readonly string[] = [
   "POST /v1/checkins",
   "DELETE /v1/checkins/:id",
   "GET /v1/checkins/mine",
+  "GET /v1/divisions",
   "GET /v1/event-song-submissions",
   "POST /v1/event-song-submissions",
   "DELETE /v1/event-song-submissions/:id",

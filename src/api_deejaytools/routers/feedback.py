@@ -1,8 +1,9 @@
 """``/v1/feedback`` (docs/API.md; deejaytools-api src/routes/feedback.ts).
 
 Public (API-008; listed in ``auth``): anyone can send site feedback. With a
-Brevo key configured it is emailed to the maintainer, with an optional PNG or
-JPEG screenshot attached; without one it is accepted and only logged.
+Brevo key and both feedback addresses configured (``FEEDBACK_FROM_EMAIL``,
+``FEEDBACK_TO_EMAIL``) it is emailed, with an optional PNG or JPEG screenshot
+attached; without them it is accepted and only logged.
 """
 
 from __future__ import annotations
@@ -28,8 +29,7 @@ logger = get_logger()
 router = APIRouter(prefix="/v1/feedback", tags=["feedback"])
 
 BREVO_URL = "https://api.brevo.com/v3/smtp/email"
-SENDER = {"name": "DeejayTools Feedback", "email": "kaiano@kaianolevine.com"}
-RECIPIENT = "kaiano.levine@gmail.com"
+SENDER_NAME = "DeejayTools Feedback"
 
 DATA_URL_PREFIX = re.compile(r"^data:image/(png|jpeg);base64,", re.IGNORECASE)
 SCREENSHOT_MAX = 3 * 1024 * 1024
@@ -135,8 +135,9 @@ def _email_body(body: FeedbackBody, submitted_at: str) -> str:
     response_model=FeedbackResponse,
     summary="Send site feedback",
     description=(
-        "Intentionally public. Emails the feedback through Brevo when a key is configured, "
-        "with the screenshot attached; accepted without email otherwise."
+        "Intentionally public. Emails the feedback through Brevo when a key and "
+        "both feedback addresses are configured, with the screenshot attached; "
+        "accepted without email otherwise."
     ),
     responses={
         400: {"model": ErrorResponse, "description": "Invalid body or screenshot."},
@@ -153,11 +154,15 @@ async def send_feedback(request: Request) -> Any:
     )
     email_body = _email_body(body, _iso_now())
 
-    brevo_key = get_settings().brevo_api_key
-    if brevo_key:
+    settings = get_settings()
+    brevo_key = settings.brevo_api_key
+    addresses = settings.feedback_addresses
+    emailed = bool(brevo_key and addresses)
+    if brevo_key and addresses:
+        sender, recipient = addresses
         payload: dict[str, Any] = {
-            "sender": SENDER,
-            "to": [{"email": RECIPIENT}],
+            "sender": {"name": SENDER_NAME, "email": sender},
+            "to": [{"email": recipient}],
             "subject": f"[DeejayTools Feedback] {body.type}: {body.subject}",
             "textContent": email_body,
         }
@@ -190,11 +195,19 @@ async def send_feedback(request: Request) -> Any:
                     "EMAIL_FAILED", "Failed to send email. Please try again."
                 ),
             )
-    else:
+    elif not brevo_key:
         logger.warning(
             with_log_prefix(
                 LOG_WARNING,
                 "feedback BREVO_API_KEY not set; skipping transactional email",
+            )
+        )
+    else:
+        logger.warning(
+            with_log_prefix(
+                LOG_WARNING,
+                "feedback FEEDBACK_FROM_EMAIL or FEEDBACK_TO_EMAIL not set; "
+                "skipping transactional email",
             )
         )
 
@@ -203,7 +216,7 @@ async def send_feedback(request: Request) -> Any:
     notifications.announce_feedback(
         body.type,
         body.subject,
-        emailed=bool(brevo_key),
+        emailed=emailed,
         screenshot=bool(screenshot),
     )
     return success(None)

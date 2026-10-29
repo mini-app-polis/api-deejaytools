@@ -102,8 +102,8 @@ logged, and the first drop of an episode is reported to Sentry.
 - **Feedback**, one per piece of site feedback accepted (`POST /v1/feedback`):
   its type and subject, whether it had a screenshot, and whether it was
   emailed. Never the message, the sender's name or their email — those go
-  by email only. Without a Brevo key the post says the message was not
-  kept: it is the only sign the feedback arrived. A Brevo refusal is a
+  by email only. Without a Brevo key or the feedback addresses the post
+  says the message was not kept: it is the only sign the feedback arrived. A Brevo refusal is a
   `fault · 502` in `errors` instead, and no feedback post.
 
   > **feedback · bug**
