@@ -106,13 +106,6 @@ class DriveFolderResponse(BaseModel):
     meta: Meta = Field(..., description="Response metadata.")
 
 
-#: Who reads the event's Drive folder link: the people it is shared with
-#: (services.drive_jobs.DRIVE_FOLDER_ROLES: dj and event-manager) and admins.
-#: Of the scopes, deejaytools.queue.read is held by exactly those: both
-#: roles carry it on the event and the admin role globally, while the
-#: coordinator and dancer roles do not (ADR-0012's role table).
-DRIVE_FOLDER_SCOPE = "deejaytools.queue.read"
-
 DRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/{folder_id}"
 
 EventId = Annotated[str, Path(description="Event id.")]
@@ -186,7 +179,14 @@ async def list_staff(
 )
 async def get_drive_folder(
     id: EventId,
-    _caller: Caller = Depends(require_event_scope(DRIVE_FOLDER_SCOPE, THIS_EVENT)),
+    # Who reads the Drive folder link: the people it is shared with
+    # (services.drive_jobs.DRIVE_FOLDER_ROLES: dj and event-manager) and
+    # admins. deejaytools.queue.read is held by exactly those: both roles
+    # carry it on the event and the admin role globally, while the
+    # coordinator and dancer roles do not (ADR-0012's role table).
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.queue.read", THIS_EVENT)
+    ),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """The event's Drive folder, from its newest completed share."""
