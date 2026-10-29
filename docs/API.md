@@ -574,6 +574,42 @@ A staff grant on the wire:
 
 ---
 
+### GET /v1/events/:id/drive-folder
+
+api-deejaytools only, not in deejaytools-api: the event's shared Drive folder, for the people it is shared with ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md), "The DJ's Drive folder").
+
+**Auth:** `deejaytools.queue.read` on the event: the event's DJs and event managers (granted on the event in the path) and admins (through their role). A coordinator or a dancer does not hold it.
+
+**Purpose:** The link the DJ portal's Drive tab opens. The folder is the one recorded in `file_id` by the newest completed `share_event_folder` job for the event ([DRIVE.md](./DRIVE.md#job-kinds)); a rename moves the folder and queues a new share, so the newest completed one is current.
+
+**Path params:** `id` — event id
+
+**Request body:** none
+
+**Response:**
+
+```json
+{
+  "data": {
+    "folder_id": "1AbC…",
+    "url": "https://drive.google.com/drive/folders/1AbC…"
+  },
+  "meta": { "version": "…" }
+}
+```
+
+`folder_id` and `url` are both `null` until a share has recorded a folder.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 401 | `UNAUTHORIZED` | … | Missing or invalid token |
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+
+---
+
 ## `sessions.ts` — `/v1/sessions`
 
 Shared schemas:
@@ -2529,6 +2565,7 @@ const listQuery = z.object({
       "event_name": "RSC 2026",
       "division": "Classic",
       "song_id": "song_…",
+      "owner_user_id": "user_…",
       "song_label": "…",
       "partnership_label": "Ada Lovelace & Bob Jones",
       "submitter_email": "dancer@example.com",
@@ -2538,6 +2575,8 @@ const listQuery = z.object({
   "meta": { "version": "…", "count": 1 }
 }
 ```
+
+`owner_user_id` is the song owner's user id, the `on_behalf_of_user_id` that `POST /v1/checkins` takes to check in for that song. api-deejaytools only, not in deejaytools-api.
 
 **Errors:**
 
@@ -2562,7 +2601,7 @@ api-deejaytools only, not in deejaytools-api: the same list for an event's staff
 
 **Request body:** none
 
-**Response:** As `GET /v1/admin/event-song-submissions` for `event_id` = `id`.
+**Response:** As `GET /v1/admin/event-song-submissions` for `event_id` = `id`, `owner_user_id` included.
 
 **Errors:**
 
