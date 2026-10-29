@@ -409,7 +409,8 @@ def announce_feedback(
     The type and subject only — never the message, the sender's name or
     their email: the route is public, the channel is shared, and the whole
     message goes by email. Says whether it was emailed, because without a
-    Brevo key this post is the only sign the feedback arrived. Fire and
+    Brevo key or the feedback addresses this post is the only sign the
+    feedback arrived. Fire and
     forget: the person sending feedback does not wait on Discord.
     """
     lines = [_md(subject)]
@@ -418,7 +419,8 @@ def announce_feedback(
     lines.append(
         "emailed to the maintainer"
         if emailed
-        else "not emailed: no Brevo key is set, and the message was not kept"
+        else "not emailed: no Brevo key or feedback address is set, and the "
+        "message was not kept"
     )
     activity.dispatch(
         send(

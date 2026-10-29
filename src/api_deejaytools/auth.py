@@ -25,6 +25,7 @@ Public routes (API-008) — no credential required, none read except where
 noted:
 
     GET  /health
+    GET  /v1/divisions
     GET  /v1/events
     GET  /v1/events/{id}
     GET  /v1/sessions               a credential is read, never required

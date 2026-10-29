@@ -651,6 +651,14 @@ async def test_a_check_in_is_not_news(
 # --- feedback ---------------------------------------------------------------------
 
 
+def _feedback_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Brevo key and both feedback addresses, so feedback is emailed."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "BREVO_API_KEY", "key")
+    monkeypatch.setattr(settings, "FEEDBACK_FROM_EMAIL", "feedback@example.test")
+    monkeypatch.setattr(settings, "FEEDBACK_TO_EMAIL", "maintainer@example.test")
+
+
 async def _feedback(client: httpx.AsyncClient, **extra: Any) -> httpx.Response:
     return await client.post(
         "/v1/feedback",
@@ -681,7 +689,8 @@ async def test_feedback_posts_its_type_and_subject_only(
     assert embed["title"] == "feedback · bug"
     assert embed["description"] == (
         "Queue \\*froze\\* @everyone\n"
-        "not emailed: no Brevo key is set, and the message was not kept"
+        "not emailed: no Brevo key or feedback address is set, and the message "
+        "was not kept"
     )
     assert embed["footer"]["text"] == "api-deejaytools · production"
     # The sender and their message go by email, never to the shared channel.
@@ -694,7 +703,7 @@ async def test_emailed_feedback_says_so(
     monkeypatch: pytest.MonkeyPatch,
     discord_posts: Posts,
 ) -> None:
-    monkeypatch.setattr(get_settings(), "BREVO_API_KEY", "key")
+    _feedback_key(monkeypatch)
     with respx.mock(assert_all_called=False) as router:
         router.post("https://api.brevo.com/v3/smtp/email").mock(
             return_value=httpx.Response(201, json={"messageId": "<m@brevo>"})
@@ -713,7 +722,7 @@ async def test_feedback_brevo_refused_is_a_fault_not_feedback(
     monkeypatch: pytest.MonkeyPatch,
     discord_posts: Posts,
 ) -> None:
-    monkeypatch.setattr(get_settings(), "BREVO_API_KEY", "key")
+    _feedback_key(monkeypatch)
     with respx.mock(assert_all_called=False) as router:
         router.post("https://api.brevo.com/v3/smtp/email").mock(
             return_value=httpx.Response(401, json={"code": "unauthorized"})

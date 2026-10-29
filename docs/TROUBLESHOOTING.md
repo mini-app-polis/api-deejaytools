@@ -152,17 +152,23 @@ A song that **is** referenced cannot be deleted. Its build is retried with backo
 
 **Symptom:** User sees success on `/feedback`; API returns **201**; nothing in inbox.
 
-**Cause:** No Brevo key. The API reads `BREVO_API_KEY`, the fleet's one Brevo key. Without it it logs:
+**Cause:** No Brevo key, or no feedback address. The API reads `BREVO_API_KEY`, the fleet's one Brevo key, and the sender and recipient from `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL`. Without the key it logs:
 
 ```
 feedback BREVO_API_KEY not set; skipping transactional email
 ```
 
-and still returns success, by design. The Discord `activity` post for that feedback says the message was not kept; it is the only sign the feedback arrived.
+and without either address:
+
+```
+feedback FEEDBACK_FROM_EMAIL or FEEDBACK_TO_EMAIL not set; skipping transactional email
+```
+
+and still returns success, by design. The Discord `activity` post for that feedback says the message was not kept; it is the only sign the feedback arrived. (Production does not start without both addresses.)
 
 **Fix:**
 
-1. Set `BREVO_API_KEY` in Doppler (Brevo → SMTP & API → API Keys).
+1. Set whichever is missing in the service's Doppler config: `BREVO_API_KEY` (Brevo → SMTP & API → API Keys), `FEEDBACK_FROM_EMAIL`, `FEEDBACK_TO_EMAIL`.
 2. Redeploy.
 3. Submit test feedback.
 

@@ -61,6 +61,7 @@ scope ADR-0008 maps it to (`require_scope(...)` in
 | `POST /v1/queue/promote`, `/complete`, `/incomplete`, `/move-down`, `/withdraw` | `deejaytools.queue.manage` |
 | `GET /v1/runs` | `deejaytools.runs.read` |
 | `POST /v1/feedback` | public |
+| `GET /v1/divisions` | public |
 | `GET /v1/admin/users`, `GET /v1/admin/users/{id}/partners`, `GET /v1/admin/users/{id}/event-song-submissions` | `deejaytools.users.read` |
 | `PATCH /v1/admin/users/{id}/role` | `deejaytools.users.write` |
 | `GET /v1/admin/songs` | `deejaytools.library.read` |

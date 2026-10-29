@@ -2131,7 +2131,7 @@ Also from global middleware: `413 payload_too_large` for a request body over 11 
 
 **Auth:** public
 
-**Purpose:** Submit site feedback (optional Brevo email when `DEEJAYTOOLS_BREVO_API_KEY` set).
+**Purpose:** Submit site feedback (optional Brevo email when `BREVO_API_KEY`, `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL` are all set; api-deejaytools reads the sender and recipient from settings, where deejaytools-api had them in code).
 
 **Path params / Query params:** none
 
@@ -2176,7 +2176,37 @@ const feedbackBodySchema = z
 | 400 | `VALIDATION_ERROR` | … | Invalid body / screenshot format |
 | 502 | `EMAIL_FAILED` | Failed to send email. Please try again. | Brevo API error |
 
-If `DEEJAYTOOLS_BREVO_API_KEY` is unset, feedback is logged and **201** still returned.
+If `BREVO_API_KEY` or either feedback address is unset, feedback is logged and **201** still returned. Production refuses to start without both addresses.
+
+---
+
+## Divisions — `/v1/divisions`
+
+api-deejaytools only, not in deejaytools-api: the division list the web app used to keep its own copy of.
+
+### GET /v1/divisions
+
+**Auth:** public
+
+**Purpose:** The competition divisions, in their display groups and flat in the same order, from `DIVISION_GROUPS` in `src/api_deejaytools/domain.py` (the single source of truth).
+
+**Path params / Query params:** none
+
+**Request body:** none
+
+**Response:** **200**
+
+```json
+{
+  "data": {
+    "groups": [["Classic", "Showcase", "…"], ["ProAm LeaderAm", "…"]],
+    "divisions": ["Classic", "Showcase", "…"]
+  },
+  "meta": { "version": "v1" }
+}
+```
+
+**Errors:** none of its own.
 
 ---
 

@@ -21,14 +21,19 @@ from api_deejaytools.config import get_settings
 URL = "/v1/feedback"
 BREVO = "https://api.brevo.com/v3/smtp/email"
 RULE = "═" * 31
+FROM = "feedback@example.test"
+TO = "maintainer@example.test"
 ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
 
 
 @pytest.fixture
 def brevo(monkeypatch: pytest.MonkeyPatch) -> Iterator[respx.Router]:
-    """No Brevo key by default; Brevo's endpoint mocked, nothing else reachable."""
+    """No Brevo key by default, both addresses set; Brevo's endpoint mocked,
+    nothing else reachable."""
     settings = get_settings()
     monkeypatch.setattr(settings, "BREVO_API_KEY", None)
+    monkeypatch.setattr(settings, "FEEDBACK_FROM_EMAIL", FROM)
+    monkeypatch.setattr(settings, "FEEDBACK_TO_EMAIL", TO)
     with respx.mock(assert_all_mocked=True, assert_all_called=False) as router:
         router.post(BREVO, name="brevo").mock(
             return_value=httpx.Response(201, json={"messageId": "<m@brevo>"})
@@ -81,8 +86,8 @@ async def test_with_a_key_it_emails_the_feedback(
     assert request.headers["content-type"] == "application/json"
     text = payload.pop("textContent")
     assert payload == {
-        "sender": {"name": "DeejayTools Feedback", "email": "kaiano@kaianolevine.com"},
-        "to": [{"email": "kaiano.levine@gmail.com"}],
+        "sender": {"name": "DeejayTools Feedback", "email": FROM},
+        "to": [{"email": TO}],
         "subject": "[DeejayTools Feedback] feature: Dark mode",
     }
     submitted = ISO.search(text)
@@ -99,6 +104,23 @@ async def test_with_a_key_it_emails_the_feedback(
         f"Submitted: {submitted.group(0)}\n"
         f"{RULE}"
     )
+
+
+@pytest.mark.parametrize("missing", ["FEEDBACK_FROM_EMAIL", "FEEDBACK_TO_EMAIL"])
+async def test_without_both_addresses_it_is_accepted_and_nothing_is_sent(
+    client: httpx.AsyncClient,
+    brevo: respx.Router,
+    monkeypatch: pytest.MonkeyPatch,
+    missing: str,
+) -> None:
+    _key(monkeypatch, "BREVO_API_KEY", "key")
+    monkeypatch.setattr(get_settings(), missing, None)
+    res = await client.post(
+        URL, json={"type": "bug", "subject": "Queue froze", "message": "Stopped."}
+    )
+    assert res.status_code == 201, res.text
+    assert res.json() == {"data": None, "meta": {"version": "v1"}}
+    assert brevo.routes["brevo"].call_count == 0
 
 
 async def test_blank_contact_fields(
