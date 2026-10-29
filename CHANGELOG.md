@@ -1,3 +1,16 @@
+# [1.15.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.14.1...v1.15.0) (2026-10-29)
+
+
+### Bug Fixes
+
+* **uploads:** narrow the submit-to-event id so the type check passes ([0e36b6b](https://github.com/mini-app-polis/api-deejaytools/commit/0e36b6bd4a3c8e8f20a30f23612cac24105a9620))
+
+
+### Features
+
+* **divisions:** a public GET /v1/divisions, and feedback addresses from settings ([94732c6](https://github.com/mini-app-polis/api-deejaytools/commit/94732c61a9d6e7862858933086333ed460c94cb7))
+* **uploads:** a staff upload on behalf names the dancer's partner and submits the song to the event ([8f7eaa2](https://github.com/mini-app-polis/api-deejaytools/commit/8f7eaa20a2450b45136b8c81fffe02e177bdfcfa))
+
 ## [1.14.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.14.0...v1.14.1) (2026-10-29)
 
 
