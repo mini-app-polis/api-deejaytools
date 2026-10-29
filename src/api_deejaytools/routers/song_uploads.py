@@ -230,6 +230,8 @@ async def upload_chunk(
         raise bad("Missing chunk field")
     if submit_to_event and not (on_behalf_of and event_id):
         raise bad("submit_to_event needs on_behalf_of_user_id and event_id")
+    # The event the song is submitted to, or None when it is not submitted.
+    submit_event_id = event_id if submit_to_event else None
     if on_behalf_of:
         # Where deejaytools-api checked the admin role: a second, audited
         # decision (ADR-0008), on event_id's event when one is sent
@@ -307,7 +309,7 @@ async def upload_chunk(
             if not await assert_partner_owned(db, effective_user_id, partner_id):
                 raise refuse("Partner not found or does not belong to you")
 
-    if submit_to_event:
+    if submit_event_id is not None:
         # The partner comes from the dancer's partner list (kind partner),
         # and the slot is checked before anything is saved.
         if partner_id:
@@ -316,12 +318,12 @@ async def upload_chunk(
             ).scalar_one_or_none()
             if kind != "partner":
                 raise refuse("Partner is not on the dancer's partner list")
-        if await db.get(Event, event_id) is None:
+        if await db.get(Event, submit_event_id) is None:
             _remove(upload_dir)
             raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
         if await entity_slot_taken(
             db,
-            event_id=event_id,
+            event_id=submit_event_id,
             entity=song_entity_key(
                 effective_user_id,
                 None if managed_partnership_id else partner_id,
@@ -443,13 +445,13 @@ async def upload_chunk(
         )
     )
     submission_id: str | None = None
-    if submit_to_event:
+    if submit_event_id is not None:
         # The song's own division and the default round: no override.
         submission_id = str(uuid.uuid4())
         db.add(
             EventSongSubmission(
                 id=submission_id,
-                event_id=event_id,
+                event_id=submit_event_id,
                 song_id=song.id,
                 submitted_by_user_id=effective_user_id,
                 division=None,
