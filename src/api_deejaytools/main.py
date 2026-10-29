@@ -69,8 +69,8 @@ METRICS_ROUTES = (
 
 Each is a billed metric, so this is the event floor only: check-in and
 promote, the two queue transactions that lock the session row (ADR-0006),
-and the two public queue reads the floor screens poll. Must match
-``dashboard_api_routes`` in mini-app-polis/infra ``observability.tf``.
+and the two public queue reads the floor screens poll. Must match the API
+routes charted on the infra repo's CloudWatch dashboard.
 """
 
 
