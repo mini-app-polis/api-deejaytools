@@ -266,6 +266,7 @@ Table: [`drive_jobs`](./SCHEMA.md#drive_jobs). Admin endpoints:
 | `trash` | `file_id` | Moves a copy into `_deprecated` (`softDeleteOnDrive`) |
 | `share_event_folder` | `event_id`, `user_id` | api-deejaytools only. Shares the event's folder, `<root>/<season>/Events/<event name>/` (created if missing), with the person's `users.email` as a reader, and records the folder's id in `file_id` |
 | `unshare_event_folder` | `event_id`, `user_id` | api-deejaytools only. Removes the person's reader permission from every folder a share for them on the event recorded |
+| `share_song` | `file_id` | api-deejaytools only. Gives the partner of the live song whose Drive file it is reader access to the file, by the partner's email. Reads the song's partner when it runs; nothing to do when there is none or it has no email |
 
 ### Where jobs are enqueued
 
@@ -282,6 +283,7 @@ Table: [`drive_jobs`](./SCHEMA.md#drive_jobs). Admin endpoints:
 | `DELETE /v1/events/:id/staff/:userId/:role` (api-deejaytools) | `unshare_event_folder`, when it revokes their last `dj` or `event-manager` role on the event | In the revoke's transaction |
 | `PATCH /v1/events/:id` (api-deejaytools) | `share_event_folder` for each of the event's DJs and event managers, when the change moves the event's folder (its name or season) | In the update's transaction |
 | `DELETE /v1/events/:id` (api-deejaytools) | `unshare_event_folder` for each of the event's DJs and event managers | In the delete's transaction |
+| `PATCH /v1/songs/:id` (api-deejaytools) | `share_song`, when it sets a new partner on a song that already has its Drive file | In the update's transaction |
 
 In every case the file ids are captured **before** the rows that hold them are
 deleted, and the job is enqueued **after** the delete commits, so a failed delete
@@ -291,9 +293,9 @@ Enqueueing is outside the request's transaction and **best-effort**: an enqueue
 failure is logged (`drive_copy_enqueue_failed` / `drive_trash_enqueue_failed`)
 and reported to Sentry (tags `subsystem=drive_jobs`, `drive_job_kind`; context
 `drive_job` with `stage: "enqueue"` and the ids), and the request still succeeds.
-Nothing retries a lost enqueue. The folder jobs are the exception: they are
-written in the transaction of the staff or event change that calls for them, so
-they are lost only with it.
+Nothing retries a lost enqueue. The folder jobs and `share_song` are the
+exception: they are written in the transaction of the change that calls for
+them, so they are lost only with it.
 
 Nothing else enqueues work: editing a submission, renaming an event, or changing
 a song's division does **not** move or rename existing copies. (A rename does

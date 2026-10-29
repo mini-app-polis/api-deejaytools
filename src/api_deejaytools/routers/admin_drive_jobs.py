@@ -122,7 +122,8 @@ class DriveJobData(BaseModel):
     kind: str = Field(
         ...,
         description=(
-            "copy, rename, trash, share_event_folder or unshare_event_folder."
+            "copy, rename, trash, share_event_folder, unshare_event_folder or "
+            "share_song."
         ),
     )
     status: str = Field(..., description="pending, running, done or failed.")

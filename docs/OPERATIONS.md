@@ -113,12 +113,14 @@ logged, and the first drop of an episode is reported to Sentry.
 - **Data changed**, one per request that committed anything worth saying:
   the tables it changed with `+` created, `~` updated, `-` deleted rows and
   `*` statements (row count unknown), and in the footer the method, path and
-  caller's Clerk user id (their `users.id`; look it up behind auth to find
-  the person — their email does not go in a shared channel):
+  caller's name: their first and last name from `users`, or their Clerk user
+  id (`users.id`) when they have no name or the name cannot be read. Never
+  their email or display name, which provisioning sets to the email: the
+  channel is shared.
 
   > **data changed**
   > `teams` +1
-  > POST /v1/teams · user_2abc… · api-deejaytools · production
+  > POST /v1/teams · Jane Doe · api-deejaytools · production
 
 **`errors`**
 

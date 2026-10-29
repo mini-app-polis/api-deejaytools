@@ -4,6 +4,12 @@ Enqueueing (best-effort, after the request's own commit) and processing: the
 batch the scheduler runs once per tick (``process_drive_jobs``), with the
 per-kind work for ``copy``, ``rename`` and ``trash``.
 
+``share_song`` gives a song's partner reader access to the song's Drive
+file when the partner is set after the file was built (an upload's build
+shares it with the partner it has then). Like the folder jobs it is added
+in the transaction of the change that calls for it, and reads the song's
+partner when it runs.
+
 ``share_event_folder`` and ``unshare_event_folder`` give an event's DJs and
 event managers read access to the event's folder, and take it away again
 (ADR-0012, "The DJ's Drive folder"). They are added in the transaction of
@@ -44,17 +50,31 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain import season_year_from_date_string
-from ..models import DriveJob, Event, EventSongSubmission, EventStaffGrant, Song, User
+from ..models import (
+    DriveJob,
+    Event,
+    EventSongSubmission,
+    EventStaffGrant,
+    Partner,
+    Song,
+    User,
+)
 from ..zod_coerce import js_trim
 from . import drive, notifications
 
 logger = get_logger()
 
 DriveJobKind = Literal[
-    "copy", "trash", "rename", "share_event_folder", "unshare_event_folder"
+    "copy",
+    "trash",
+    "rename",
+    "share_event_folder",
+    "unshare_event_folder",
+    "share_song",
 ]
 SHARE_EVENT_FOLDER: DriveJobKind = "share_event_folder"
 UNSHARE_EVENT_FOLDER: DriveJobKind = "unshare_event_folder"
+SHARE_SONG: DriveJobKind = "share_song"
 
 DRIVE_FOLDER_ROLES = ("dj", "event-manager")
 """The staff roles that carry read access to the event's Drive folder."""
@@ -652,6 +672,55 @@ async def _run_unshare_folder_job(db: AsyncSession, job: _Job) -> None:
         )
 
 
+async def _run_share_song_job(db: AsyncSession, job: _Job) -> None:
+    """Give the song's partner reader access to the song's Drive file.
+
+    Reads the song and its partner when it runs, so a partner changed again
+    or cleared since the job was queued is followed. Nothing to do when the
+    song is gone, has no partner, or the partner has no email. Like the
+    build's share it is best-effort: an address Drive refuses is logged,
+    not retried.
+    """
+    if not job.file_id:
+        raise _missing_field(job, "file_id")
+    row = (
+        await db.execute(
+            select(Song.id, Partner.email)
+            .join(
+                Partner,
+                (Partner.id == Song.partner_id) & (Partner.user_id == Song.user_id),
+            )
+            .where(Song.drive_file_id == job.file_id, Song.deleted_at.is_(None))
+            .limit(1)
+        )
+    ).first()
+    await db.commit()
+    if row is None or not js_trim(row.email or ""):
+        logger.info(
+            with_log_prefix(
+                LOG_SUCCESS, f"drive_share_song_noop drive_file_id={job.file_id}"
+            )
+        )
+        return
+    result = await drive.share_song_file(job.file_id, [row.email])
+    if result.failed:
+        failed = [(email, repr(err)) for email, err in result.failed]
+        logger.warning(
+            with_log_prefix(
+                LOG_WARNING,
+                f"song_drive_share_partial_failure song={row.id} "
+                f"file={job.file_id} shared={len(result.shared)} failed={failed}",
+            )
+        )
+        return
+    logger.info(
+        with_log_prefix(
+            LOG_SUCCESS,
+            f"drive_share_song_succeeded song={row.id} drive_file_id={job.file_id}",
+        )
+    )
+
+
 async def _run_job(db: AsyncSession, job: _Job) -> None:
     if job.kind == "copy":
         await _run_copy_job(db, job)
@@ -663,6 +732,8 @@ async def _run_job(db: AsyncSession, job: _Job) -> None:
         await _run_share_folder_job(db, job)
     elif job.kind == UNSHARE_EVENT_FOLDER:
         await _run_unshare_folder_job(db, job)
+    elif job.kind == SHARE_SONG:
+        await _run_share_song_job(db, job)
     else:
         raise RuntimeError(f"unknown drive job kind: {job.kind}")
 

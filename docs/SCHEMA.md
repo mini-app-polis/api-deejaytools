@@ -601,14 +601,14 @@ Append-only audit log of queue state transitions.
 
 ### `drive_jobs`
 
-Durable queue of background Google Drive work: per-event copies of submitted songs, renames of those copies, deprecation of copies whose submission was deleted, and the share and unshare of an event's folder with its DJs and event managers. Drained by the scheduler tick. Behaviour, enqueue sites and the state machine: [DRIVE.md](./DRIVE.md#drive_jobs-queue).
+Durable queue of background Google Drive work: per-event copies of submitted songs, renames of those copies, deprecation of copies whose submission was deleted, the share and unshare of an event's folder with its DJs and event managers, and the share of a song's file with a partner set after it was built. Drained by the scheduler tick. Behaviour, enqueue sites and the state machine: [DRIVE.md](./DRIVE.md#drive_jobs-queue).
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
 | `id` | `text` | NO | — | PK (UUID) |
-| `kind` | `text` | NO | — | `copy` \| `rename` \| `trash` \| `share_event_folder` \| `unshare_event_folder` (plain text, not an enum) |
+| `kind` | `text` | NO | — | `copy` \| `rename` \| `trash` \| `share_event_folder` \| `unshare_event_folder` \| `share_song` (plain text, not an enum) |
 | `submission_id` | `text` | YES | — | Set for `copy` and `rename`. **Not a FK**: the job outlives a deleted submission |
-| `file_id` | `text` | YES | — | Set for `trash`: the Drive file to move to `_deprecated`. For `share_event_folder`, the folder it shared, recorded when it runs |
+| `file_id` | `text` | YES | — | Set for `trash`: the Drive file to move to `_deprecated`. For `share_song`: the song's Drive file. For `share_event_folder`, the folder it shared, recorded when it runs |
 | `event_id` | `text` | YES | — | Migration 008. Set for `share_event_folder` and `unshare_event_folder`: the event. **Not a FK**: an unshare runs after an event delete |
 | `user_id` | `text` | YES | — | Migration 008. Set for the two folder kinds: the person (`users.id`) the folder is shared with or unshared from. Not a FK |
 | `status` | `text` | NO | `'pending'` | `pending` \| `running` \| `done` \| `failed` (plain text) |
