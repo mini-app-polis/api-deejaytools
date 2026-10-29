@@ -2,9 +2,7 @@
 
 Every Drive call in this service goes through ``mini_app_polis.google.drive.
 DriveFacade`` (ADR-0010 "Reuse from the ecosystem"); nothing here or elsewhere
-calls googleapiclient directly, with one exception: the facade has no call
-for removing a permission, so ``remove_reader`` uses the facade's own
-``service`` client for it. The facade is synchronous, so each call runs
+calls googleapiclient directly. The facade is synchronous, so each call runs
 in a worker thread with ``asyncio.to_thread`` and the event loop never blocks
 on Google.
 
@@ -450,44 +448,12 @@ async def remove_reader(file_id: str, email: str) -> int:
     """Remove every ``reader`` permission ``email`` holds directly on a file
     or folder; returns how many were removed. Safe to repeat.
 
-    DriveFacade has no call for this, so it lists and deletes permissions
-    through the facade's ``service`` client, on the worker thread's own
-    facade. The address is compared trimmed and lowercased, as shares are
-    made. Other roles and other people's permissions are left alone. Drive
-    errors propagate (a Drive job retries them).
+    The facade's ``remove_permission``, on the worker thread's own facade.
+    The address is compared trimmed and lowercased, as shares are made.
+    Other roles and other people's permissions are left alone. Drive errors
+    propagate (a Drive job retries them).
     """
-    config = _config()
-    wanted = email.strip().lower()
-
-    def run() -> int:
-        service = _thread_facade(config.email, config.private_key).service
-        ids: list[str] = []
-        page_token: str | None = None
-        while True:
-            page = (
-                service.permissions()
-                .list(
-                    fileId=file_id,
-                    fields="nextPageToken, permissions(id, type, role, emailAddress)",
-                    supportsAllDrives=True,
-                    pageToken=page_token,
-                )
-                .execute()
-            )
-            ids += [
-                p["id"]
-                for p in page.get("permissions", [])
-                if p.get("type") == "user"
-                and p.get("role") == "reader"
-                and str(p.get("emailAddress") or "").strip().lower() == wanted
-            ]
-            page_token = page.get("nextPageToken")
-            if not page_token:
-                break
-        for permission_id in ids:
-            service.permissions().delete(
-                fileId=file_id, permissionId=permission_id, supportsAllDrives=True
-            ).execute()
-        return len(ids)
-
-    return await asyncio.to_thread(run)
+    facade, _root = _drive()
+    return await asyncio.to_thread(
+        facade.remove_permission, file_id, email, role="reader"
+    )
