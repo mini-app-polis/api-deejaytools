@@ -1,3 +1,16 @@
+# [1.16.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.15.0...v1.16.0) (2026-10-29)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 7.1.0 ([cf095a3](https://github.com/mini-app-polis/api-deejaytools/commit/cf095a3195cf77540e3f9668a6142ea3e879f107))
+* **songs:** share a song's Drive file with a partner set after it was built ([36bb6f1](https://github.com/mini-app-polis/api-deejaytools/commit/36bb6f193ddcb5c9604260968418312795782eb6))
+
+
+### Features
+
+* **activity:** name people in the change feed by their first and last name ([dcb8538](https://github.com/mini-app-polis/api-deejaytools/commit/dcb85385f138a1d1decb41efc28e66a68873e428))
+
 # [1.15.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.14.1...v1.15.0) (2026-10-29)
 
 
