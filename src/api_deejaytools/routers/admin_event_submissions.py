@@ -50,6 +50,13 @@ class AdminSubmissionData(BaseModel):
     event_name: str = Field(..., description="Event name.")
     division: str | None = Field(None, description="The song's division.")
     song_id: str = Field(..., description="Song id.")
+    owner_user_id: str = Field(
+        ...,
+        description=(
+            "User id of the song's owner: the on_behalf_of_user_id a staff"
+            " check-in for this song takes."
+        ),
+    )
     song_label: str = Field(..., description="Structured song label.")
     partnership_label: str = Field(..., description="Who the song belongs to.")
     submitter_email: str = Field(..., description="Email of the user who submitted.")
@@ -105,6 +112,7 @@ async def event_submissions_response(session: AsyncSession, event_id: str) -> An
                     EventSongSubmission.created_at,
                     Event.name.label("event_name"),
                     Song.id.label("song_id"),
+                    Song.user_id.label("owner_user_id"),
                     Song.division.label("song_division"),
                     Song.display_name.label("song_display_name"),
                     Song.processed_filename.label("song_processed_filename"),
@@ -158,6 +166,7 @@ async def event_submissions_response(session: AsyncSession, event_id: str) -> An
                     "event_name": r.event_name,
                     "division": r.song_division,
                     "song_id": r.song_id,
+                    "owner_user_id": r.owner_user_id,
                     "song_label": build_structured_song_label(
                         partnership=label,
                         division=r.song_division,
