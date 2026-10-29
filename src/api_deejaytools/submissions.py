@@ -17,7 +17,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from .domain import is_follower_am_division  # noqa: F401 - re-exported
+from .domain import (
+    is_follower_am_division,  # noqa: F401 - re-exported
+    song_entity_key,
+)
 from .labels import build_structured_song_label, partnership_label
 from .models import Event, EventSongSubmission, ManagedPartnership, Partner, Song, User
 from .routers.events import compute_status
@@ -90,6 +93,63 @@ def resolve_submission_filename(
         # TODO(open): apply The Open's naming convention once defined.
         return filename
     return filename
+
+
+async def entity_slot_taken(
+    session: AsyncSession,
+    *,
+    event_id: str,
+    entity: str,
+    division: str,
+    round_: str,
+    song_id: str | None = None,
+) -> bool:
+    """Whether ``entity`` (``song_entity_key``) already has a song submitted to
+    the event for ``division`` (trimmed) in a round that overlaps ``round_``.
+
+    ``song_id``'s own submission, if any, does not count. Each entity has one
+    song per division per event (per round, for Classic at The Open).
+    """
+    existing = (
+        await session.execute(
+            select(
+                Song.id.label("song_id"),
+                Song.user_id,
+                Song.partner_id,
+                Song.managed_partnership_id,
+                Song.division.label("song_division"),
+                EventSongSubmission.division.label("submission_division"),
+                EventSongSubmission.round.label("submission_round"),
+            )
+            .select_from(EventSongSubmission)
+            .join(Song, Song.id == EventSongSubmission.song_id)
+            .where(EventSongSubmission.event_id == event_id)
+        )
+    ).all()
+    for row in existing:
+        if song_id is not None and row.song_id == song_id:
+            continue
+        if (
+            song_entity_key(row.user_id, row.partner_id, row.managed_partnership_id)
+            != entity
+        ):
+            continue
+        if effective_division(row.submission_division, row.song_division) != division:
+            continue
+        row_round = (
+            row.submission_round if row.submission_round is not None else DEFAULT_ROUND
+        )
+        if rounds_conflict(round_, row_round):
+            return True
+    return False
+
+
+def slot_taken_message(division: str) -> str:
+    """The ENTITY_SLOT_TAKEN message for ``division``."""
+    return (
+        "This entity already has a song submitted for "
+        f"{division or 'this division'}. Remove it before adding another."
+    )
 
 
 async def fetch_user_submission_rows(

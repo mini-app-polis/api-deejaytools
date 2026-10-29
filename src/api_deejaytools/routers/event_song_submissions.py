@@ -41,11 +41,11 @@ from ..submissions import (
     DEFAULT_ROUND,
     ROUND_SPLIT_DIVISION,
     SubmissionRound,
-    effective_division,
+    entity_slot_taken,
     fetch_user_submission_rows,
     is_open_event,
     map_submission_row,
-    rounds_conflict,
+    slot_taken_message,
 )
 from ..validation import NonEmptyStr, ZodModel
 from ..zod_coerce import js_trim
@@ -235,43 +235,15 @@ async def create_submission(
     slot_entity = song_entity_key(
         song.user_id, song.partner_id, song.managed_partnership_id
     )
-    existing = (
-        await session.execute(
-            select(
-                Song.id.label("song_id"),
-                Song.user_id,
-                Song.partner_id,
-                Song.managed_partnership_id,
-                Song.division.label("song_division"),
-                EventSongSubmission.division.label("submission_division"),
-                EventSongSubmission.round.label("submission_round"),
-            )
-            .select_from(EventSongSubmission)
-            .join(Song, Song.id == EventSongSubmission.song_id)
-            .where(EventSongSubmission.event_id == body.event_id)
-        )
-    ).all()
-    for row in existing:
-        if row.song_id == song.id:
-            continue
-        if (
-            song_entity_key(row.user_id, row.partner_id, row.managed_partnership_id)
-            != slot_entity
-        ):
-            continue
-        if effective_division(row.submission_division, row.song_division) != normalized:
-            continue
-        row_round = (
-            row.submission_round if row.submission_round is not None else DEFAULT_ROUND
-        )
-        if rounds_conflict(round_, row_round):
-            raise api_error(
-                409,
-                "ENTITY_SLOT_TAKEN",
-                "This entity already has a song submitted for "
-                f"{normalized or 'this division'}. "
-                "Remove it before adding another.",
-            )
+    if await entity_slot_taken(
+        session,
+        event_id=body.event_id,
+        entity=slot_entity,
+        division=normalized,
+        round_=round_,
+        song_id=song.id,
+    ):
+        raise api_error(409, "ENTITY_SLOT_TAKEN", slot_taken_message(normalized))
 
     submission_id = str(uuid.uuid4())
     try:

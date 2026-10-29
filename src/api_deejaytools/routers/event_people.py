@@ -16,6 +16,12 @@ Only people connected to the event can be found, never every user:
 
 The match is on the person's name only, never their email, and the email
 goes out masked (``mask_email``).
+
+``/v1/events/{id}/people/{user_id}/partners``: one such person's partners
+(kind ``partner``), for a staff upload on their behalf. Event-scoped
+``deejaytools.delegation.act``, the scope the upload itself needs, and only
+for a person connected to the event: the admin-wide list
+(``/v1/admin/users/{id}/partners``) stays admin-only.
 """
 
 from __future__ import annotations
@@ -45,6 +51,7 @@ from ..models import (
 from ..models import Session as FloorSession
 from ..validation import ZodModel
 from ..zod_types import QueryStr, trimmed, zod_query
+from .partners import PartnerListResponse, map_partner
 
 router = APIRouter(prefix="/v1/events", tags=["event-people"])
 
@@ -194,3 +201,55 @@ async def find_event_people(
             for r in rows
         ]
     )
+
+
+@router.get(
+    "/{id}/people/{user_id}/partners",
+    response_model=PartnerListResponse,
+    summary="A person's partners, for an upload on their behalf",
+    description=(
+        "The partners (kind partner) of one person connected to the event, by "
+        "last then first name: the list a staff upload on their behalf picks "
+        "partner_id from. Requires deejaytools.delegation.act on the event."
+    ),
+    responses={
+        401: {"model": ErrorResponse, "description": "Missing or invalid token."},
+        403: {"model": ErrorResponse, "description": "Lacks the scope on this event."},
+        404: {
+            "model": ErrorResponse,
+            "description": "No such event, or the person is not connected to it.",
+        },
+    },
+)
+async def list_event_person_partners(
+    id: Annotated[str, Path(description="Event id.")],
+    user_id: Annotated[str, Path(description="users.id of the person.")],
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.delegation.act", THIS_EVENT)
+    ),
+    session: AsyncSession = Depends(get_db_session),
+) -> Any:
+    """A person's partners, for an upload on their behalf at this event."""
+    if await session.get(Event, id) is None:
+        raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
+    connected = (
+        await session.execute(
+            select(User.id)
+            .where(User.id == user_id, User.id.in_(connected_user_ids(id)))
+            .limit(1)
+        )
+    ).first()
+    if connected is None:
+        raise api_error(404, ErrorCode.NOT_FOUND, "Person not found at this event")
+    rows = (
+        (
+            await session.execute(
+                select(Partner)
+                .where(Partner.user_id == user_id, Partner.kind == "partner")
+                .order_by(Partner.last_name.asc(), Partner.first_name.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return success_list([map_partner(r) for r in rows])
