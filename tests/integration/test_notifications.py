@@ -400,7 +400,8 @@ async def test_rollup_names_the_caller_and_leaves_out_bookkeeping(
     assert listed.status_code == 200
 
     # Even a principal whose display name is their email (as provisioning
-    # sets it) is named by Clerk user id: the channel is shared.
+    # sets it) is named by their first and last name, never the email: the
+    # channel is shared.
     await db.execute(
         "UPDATE identity_principals SET display_name = 'jane@example.test', "
         "email = 'jane@example.test' WHERE subject = $1",
@@ -414,9 +415,52 @@ async def test_rollup_names_the_caller_and_leaves_out_bookkeeping(
     assert change["description"] == "teams · 2 created"
     assert "identity_audit_events" not in str(change)
     assert change["footer"]["text"] == (
+        "POST /v1/teams · Jane · api-deejaytools · production"
+    )
+    assert "@" not in str(change)
+
+
+async def test_a_person_with_no_name_is_shown_by_their_id(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    discord_posts: Posts,
+) -> None:
+    jane = await person("jane")
+    await db.execute(
+        "UPDATE users SET first_name = NULL, last_name = '  ', "
+        "display_name = 'jane@example.test' WHERE id = $1",
+        jane.id,
+    )
+    created = await client.post(
+        "/v1/teams", json={"identifier": "Jt Swing"}, headers=jane.headers
+    )
+    assert created.status_code == 201
+    (change,) = await discord_posts.changes()
+    assert change["footer"]["text"] == (
         f"POST /v1/teams · {jane.id} · api-deejaytools · production"
     )
     assert "@" not in str(change)
+
+
+async def test_a_failed_name_read_shows_the_id(
+    client: httpx.AsyncClient,
+    person: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    discord_posts: Posts,
+) -> None:
+    jane = await person("jane")
+
+    async def broken(user_id: str) -> str | None:
+        raise RuntimeError("database gone")
+
+    monkeypatch.setattr(notifications, "user_display_name", broken)
+    created = await client.post(
+        "/v1/teams", json={"identifier": "Jt Swing"}, headers=jane.headers
+    )
+    assert created.status_code == 201
+    (change,) = await discord_posts.changes()
+    assert jane.id in change["footer"]["text"]
 
 
 async def test_rolled_back_request_reports_no_change(

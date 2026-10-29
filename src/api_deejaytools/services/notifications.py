@@ -14,8 +14,11 @@ What stays here is this service's policy:
 - **Where messages come from.** Every message's footer says
   ``api-deejaytools``, because the channels are shared with the rest of the
   fleet. The actor is ``request.state.caller``, which ``auth.require_scope``
-  stamps with the caller's Clerk user id (the principal's subject) — never
-  their email, which does not belong in a shared channel; no extra query.
+  stamps with the caller's Clerk user id (the principal's subject), and the
+  feed shows it as the person's first and last name from ``users``
+  (:func:`user_display_name`), or the id when they have none — never their
+  email, which does not belong in a shared channel. The name is read when a
+  message is sent, after the response, so it never slows or fails a request.
 - **Only production posts changes and faults.** common-python-utils
   posts no change summary and no fault from any other environment; a
   development process says what it changed and what broke in its own logs.
@@ -57,8 +60,11 @@ from typing import Any
 
 from mini_app_polis import activity, discord
 from mini_app_polis.logger import LOG_WARNING, get_logger, with_log_prefix
+from sqlalchemy import select
 
 from ..config import Settings, get_settings
+from ..database import get_sessionmaker
+from ..models import User
 
 logger = get_logger()
 
@@ -204,6 +210,7 @@ def _config(
     settings = get_settings()
     return activity.ActivityConfig(
         service=SERVICE,
+        display_name=user_display_name,
         environment=settings.ENVIRONMENT,
         suppressed_tables=suppressed_tables,
         excluded_paths=EXCLUDED_PATHS,
@@ -214,6 +221,29 @@ def _config(
         send=send,
         label=True,
     )
+
+
+async def user_display_name(user_id: str) -> str | None:
+    """A person's first and last name from ``users``, for the feed.
+
+    None when they have no row or no name, so the feed shows their id. Only
+    the name parts, never ``display_name``: provisioning sets that to the
+    email, and the feed's channels are shared. Called by the feed when a
+    message is sent, never on the request's path; a failed read is shown as
+    the id.
+    """
+    async with get_sessionmaker()() as session:
+        row = (
+            await session.execute(
+                select(User.first_name, User.last_name).where(User.id == user_id)
+            )
+        ).first()
+    if row is None:
+        return None
+    name = " ".join(
+        p.strip() for p in (row.first_name, row.last_name) if p and p.strip()
+    )
+    return name or None
 
 
 _feed = activity.activity_middleware(lambda: _config())
