@@ -41,7 +41,7 @@ from ..models import (
     Song,
     User,
 )
-from ..services.drive_jobs import enqueue_trash_jobs
+from ..services.drive_jobs import SHARE_SONG, add_drive_job, enqueue_trash_jobs
 from ..song_records import (
     SongData,
     assert_partner_owned,
@@ -319,6 +319,8 @@ async def get_song(
     description=(
         "Only the fields sent change. partner_id null or '' clears it; a blank "
         "display_name is stored as null; other fields are stored as sent. "
+        "Setting a new partner on a song that has its Drive file queues "
+        "sharing the file with the partner's email. "
         "Requires deejaytools.songs.write."
     ),
     responses={**AUTH, **NOT_FOUND, **BAD_PARTNER},
@@ -330,7 +332,7 @@ async def patch_song(
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Update a song's metadata."""
-    await _load_live(session, id, caller.user_id)
+    song = await _load_live(session, id, caller.user_id)
     if body.partner_id and not await assert_partner_owned(
         session, caller.user_id, body.partner_id
     ):
@@ -340,6 +342,14 @@ async def patch_song(
     values: dict[str, Any] = {"updated_at": _now_ms()}
     if "partner_id" in sent:
         values["partner_id"] = body.partner_id or None
+        # The build shared the file with the partner it had; a partner set
+        # after that is shared with by a job, in this change's transaction.
+        if (
+            body.partner_id
+            and body.partner_id != song.partner_id
+            and song.drive_file_id
+        ):
+            add_drive_job(session, SHARE_SONG, file_id=song.drive_file_id)
     if "display_name" in sent:
         values["display_name"] = _blank_to_none(body.display_name)
     for field in (
