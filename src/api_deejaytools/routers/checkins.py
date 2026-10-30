@@ -21,7 +21,7 @@ from typing import Annotated, Any, ClassVar, Literal
 from fastapi import APIRouter, Depends, Path, Request
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import and_, delete, desc, func, insert, or_, select
+from sqlalchemy import ColumnElement, and_, delete, desc, func, insert, or_, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -165,10 +165,19 @@ class MyCheckinData(BaseModel):
         ..., description="Position across active, then priority, then standard."
     )
     runCount: int = Field(..., description="Runs this entity has in the session.")
+    canWithdraw: bool = Field(
+        ...,
+        description=(
+            "True when the caller may withdraw it: they lead the pair, own the "
+            "managed partnership or are the solo user. False for a pair led by "
+            "someone else whose partner row is linked to the caller."
+        ),
+    )
 
 
 class MyCheckinsResponse(BaseModel):
-    """The caller's live check-ins, newest first. No meta.count."""
+    """The caller's live check-ins, and their linked partners' pairs' check-ins,
+    newest first. No meta.count."""
 
     data: list[MyCheckinData] = Field(..., description="The check-ins.")
     meta: Meta = Field(..., description="Response metadata.")
@@ -238,6 +247,63 @@ async def _song_pair(db: AsyncSession, owner_id: str, partner_id: str, now: int)
     return pair_id
 
 
+def _stands_for(row: Any, user: Any) -> ColumnElement[bool]:
+    """Partner row ``row`` stands for account ``user``: it is linked to that
+    account, or, unlinked, its email is the account's (trimmed, any case).
+
+    For the couple rule only; access to songs and check-ins goes by the link
+    alone.
+    """
+    row_email = func.lower(func.trim(row.email))
+    return or_(
+        row.linked_user_id == user.id,
+        and_(
+            row.linked_user_id.is_(None),
+            row_email != "",
+            row_email == func.lower(func.trim(user.email)),
+        ),
+    )
+
+
+async def _couple_has_live_entry(
+    db: AsyncSession, pair_id: str, session_id: str
+) -> bool:
+    """Whether the other half of pair ``pair_id`` holds a live entry in this
+    session with a pair of their own that stands for the same couple.
+
+    Pair ``pair_id`` is led by A with a partner row standing for account B;
+    the couple is checked in when a pair led by B, whose partner row stands
+    for A, has a queue entry here. The pair itself is the single-entry
+    rule's (:func:`entity_has_live_entry`), so it is not counted again.
+    """
+    mine = aliased(Pair, name="mine")
+    my_row = aliased(Partner, name="my_row")
+    leader = aliased(User, name="leader")
+    theirs = aliased(Pair, name="theirs")
+    their_row = aliased(Partner, name="their_row")
+    other = aliased(User, name="other")
+    row = (
+        await db.execute(
+            select(QueueEntry.id)
+            .select_from(mine)
+            .join(my_row, my_row.id == mine.partner_b_id)
+            .join(leader, leader.id == mine.user_a_id)
+            .join(theirs, theirs.user_a_id != mine.user_a_id)
+            .join(other, other.id == theirs.user_a_id)
+            .join(their_row, their_row.id == theirs.partner_b_id)
+            .join(QueueEntry, QueueEntry.entity_pair_id == theirs.id)
+            .where(
+                mine.id == pair_id,
+                QueueEntry.session_id == session_id,
+                _stands_for(my_row, other),
+                _stands_for(their_row, leader),
+            )
+            .limit(1)
+        )
+    ).first()
+    return row is not None
+
+
 AUTH: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse, "description": "Missing or invalid token."},
     403: {"model": ErrorResponse, "description": "Lacks the scope."},
@@ -257,7 +323,10 @@ AUTH: dict[int | str, dict[str, Any]] = {
         "session, be submitted to the event. For a shared song the entity is "
         "the owner's pair with that partner, whichever partner checks in, so "
         "the two cannot both hold an entry; its entityPairId must name that "
-        "pair or one the caller leads. With on_behalf_of_user_id the caller "
+        "pair or one the caller leads. A couple holds one entry per session: "
+        "a pair is refused while the other partner's pair for the same couple "
+        "has one (each pair's partner row stands for the other's account, by "
+        "link or, unlinked, by email). With on_behalf_of_user_id the caller "
         "also needs deejaytools.delegation.act on the session's event, and "
         "the entity comes from the song."
     ),
@@ -395,6 +464,12 @@ async def create_checkin(
 
     if await entity_has_live_entry(db, entity, body.sessionId):
         raise _conflict(LIVE_ENTRY_MSG)
+    # The couple rule: a couple dances once per session, whichever partner's
+    # pair holds the entry.
+    if entity.pair_id and await _couple_has_live_entry(
+        db, entity.pair_id, body.sessionId
+    ):
+        raise _conflict(LIVE_ENTRY_MSG)
 
     if session.event_id is not None:
         submission = (
@@ -513,7 +588,10 @@ async def create_checkin(
     description=(
         "Requires deejaytools.checkins.read. The caller's check-ins that still "
         "have a queue entry (solo, pairs they lead, managed partnerships they "
-        "own), newest first, with queue position, overall position and run count."
+        "own), and those of pairs led by someone else whose partner row in the "
+        "leader's address book is linked to the caller, newest first, with "
+        "queue position, overall position, run count and canWithdraw (false "
+        "for the linked partner's view: only the leader withdraws)."
     ),
     responses=AUTH,
 )
@@ -521,13 +599,29 @@ async def my_checkins(
     caller: Caller = Depends(require_scope("deejaytools.checkins.read")),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
-    """List the caller's live check-ins."""
+    """List the caller's live check-ins and their linked partners'."""
     user_id = caller.user_id
     pair_user = aliased(User, name="pair_user")
 
-    pair_ids = list(
+    own_pair_ids = list(
         (await db.execute(select(Pair.id).where(Pair.user_a_id == user_id))).scalars()
     )
+    # Pairs led by someone else whose partner row, in the leader's own
+    # address book, is linked to the caller (as song_records.shared_with).
+    linked_pair_ids = list(
+        (
+            await db.execute(
+                select(Pair.id)
+                .join(Partner, Partner.id == Pair.partner_b_id)
+                .where(
+                    Partner.linked_user_id == user_id,
+                    Partner.user_id == Pair.user_a_id,
+                    Pair.user_a_id != user_id,
+                )
+            )
+        ).scalars()
+    )
+    pair_ids = own_pair_ids + linked_pair_ids
     managed_ids = list(
         (
             await db.execute(
@@ -649,6 +743,7 @@ async def my_checkins(
             return c["active"] + position
         return c["active"] + c["priority"] + position
 
+    withdrawable = {user_id, *own_pair_ids, *managed_ids}
     data = []
     for r in rows:
         if r.entity_managed_partnership_id and r.leader_first_name is not None:
@@ -699,6 +794,7 @@ async def my_checkins(
                     r.session_id, r.queue_type, r.position
                 ),
                 "runCount": run_counts.get(f"{r.session_id}:{key}", 0) if key else 0,
+                "canWithdraw": key in withdrawable,
             }
         )
     return success(data)

@@ -17,6 +17,10 @@ the staff change or event change that calls for them (``add_drive_job``),
 so they are as durable as that change. Each checks the staff list when it
 runs, so jobs that run out of order still leave access matching it.
 
+``sweep_event_folders`` trashes the folders of deleted events once nothing
+live is left in them. It is not a job: the scheduler runs it now and then
+(``services.scheduler``), since a deleted event leaves no row to queue it on.
+
 Processing is deejaytools-api's ``processDriveJobs`` with the three "Known
 defects" in this area fixed rather than reproduced (ADR-0007 point 4):
 
@@ -927,3 +931,75 @@ async def process_drive_jobs(
             )
         )
     return {"claimed": len(jobs), "succeeded": done, "failed": len(jobs) - done}
+
+
+# --- event folder sweep ---------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TrashedEventFolder:
+    """An event folder the sweep trashed, with how many folders were below it."""
+
+    folder_id: str
+    season: str
+    name: str
+    subfolders: int
+
+
+async def sweep_event_folders(db: AsyncSession) -> list[TrashedEventFolder]:
+    """Trash every event folder, ``<root>/<season>/Events/<name>/``, that no
+    event maps to and that holds no untrashed file anywhere below it, with
+    the folders inside it. Returns, and logs, what it trashed.
+
+    An event maps to a folder when its season and name, as folder names
+    (``event_folder_path``), are the folder's. Drive is listed before the
+    events are read, so a folder made for an event created meanwhile is
+    matched to it. Folders go to the Drive trash, never deleted for good;
+    a folder with any file in it stays, and so does every upload folder.
+    A Drive error ends the sweep; the next one picks up where it stopped.
+    """
+    folders = await drive.list_event_folders()
+    if not folders:
+        return []
+    events = (
+        await db.execute(select(Event.name, Event.season_year, Event.start_date))
+    ).all()
+    await db.commit()
+    mapped: set[tuple[str, str]] = set()
+    for event in events:
+        try:
+            mapped.add(
+                event_folder_path(event.name, event.season_year, event.start_date)
+            )
+        except ValueError:
+            # No season, so no folder: copies and shares fail the same way.
+            continue
+
+    trashed: list[TrashedEventFolder] = []
+    for folder in folders:
+        if (folder.season, folder.name) in mapped:
+            continue
+        tree = await drive.empty_folder_tree(folder.folder_id)
+        if tree is None:
+            continue
+        await drive.trash_folders(tree)
+        trashed.append(
+            TrashedEventFolder(
+                folder.folder_id, folder.season, folder.name, len(tree) - 1
+            )
+        )
+        logger.info(
+            with_log_prefix(
+                LOG_SUCCESS,
+                f"drive_event_folder_trashed folder={folder.folder_id} "
+                f"path={folder.season}/{drive.EVENTS_FOLDER}/{folder.name} "
+                f"subfolders={len(tree) - 1}",
+            )
+        )
+    logger.info(
+        with_log_prefix(
+            LOG_SUCCESS,
+            f"drive_event_folders_swept folders={len(folders)} trashed={len(trashed)}",
+        )
+    )
+    return trashed

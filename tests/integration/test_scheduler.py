@@ -79,7 +79,8 @@ class Sentry:
 
 @pytest.fixture
 def steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Replace the four steps with recorders; each can be told to raise."""
+    """Replace the five steps with recorders; each can be told to raise. The
+    event folder sweep is due on the first pass."""
     state: dict[str, Any] = {"calls": [], "raise": set(), "maker": FakeMaker()}
 
     def step(name: str) -> Any:
@@ -95,6 +96,8 @@ def steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(session_tick, "fill_running_sessions", step("fill"))
     monkeypatch.setattr(song_builds, "process_song_uploads", step("builds"))
     monkeypatch.setattr(drive_jobs, "process_drive_jobs", step("drive"))
+    monkeypatch.setattr(drive_jobs, "sweep_event_folders", step("sweep"))
+    monkeypatch.setattr(scheduler, "_event_folder_sweep_at", None)
     monkeypatch.setattr(scheduler, "_session_factory", lambda: state["maker"])
     monkeypatch.setattr(scheduler.drive, "drive_configured", lambda: True)
     state["logs"] = Logs()
@@ -111,7 +114,13 @@ async def test_tick_runs_sessions_then_drive_each_in_its_own_session(
     steps: dict[str, Any],
 ) -> None:
     await scheduler.run_tick()
-    assert steps["calls"] == [("statuses", 0), ("fill", 1), ("builds", 2), ("drive", 3)]
+    assert steps["calls"] == [
+        ("statuses", 0),
+        ("fill", 1),
+        ("builds", 2),
+        ("drive", 3),
+        ("sweep", 4),
+    ]
     assert all(s.closed for s in steps["maker"].made)
 
 
@@ -119,7 +128,7 @@ async def test_session_failure_does_not_stop_drive_work(steps: dict[str, Any]) -
     steps["raise"].add("statuses")
     await scheduler.run_tick()
     # As deejaytools-api: the session steps share one try block.
-    assert [c[0] for c in steps["calls"]] == ["statuses", "builds", "drive"]
+    assert [c[0] for c in steps["calls"]] == ["statuses", "builds", "drive", "sweep"]
     errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
     assert len(errors) == 1 and "tick_failed" in errors[0]
     assert "drive_jobs_tick_failed" not in errors[0]
@@ -132,7 +141,13 @@ async def test_session_failure_does_not_stop_drive_work(steps: dict[str, Any]) -
 async def test_drive_failure_is_logged_and_reported(steps: dict[str, Any]) -> None:
     steps["raise"].add("drive")
     await scheduler.run_tick()
-    assert [c[0] for c in steps["calls"]] == ["statuses", "fill", "builds", "drive"]
+    assert [c[0] for c in steps["calls"]] == [
+        "statuses",
+        "fill",
+        "builds",
+        "drive",
+        "sweep",
+    ]
     errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
     assert len(errors) == 1 and "drive_jobs_tick_failed" in errors[0]
     ((exc, tags),) = steps["sentry"].captured
@@ -143,7 +158,13 @@ async def test_drive_failure_is_logged_and_reported(steps: dict[str, Any]) -> No
 async def test_build_failure_is_isolated_and_reported(steps: dict[str, Any]) -> None:
     steps["raise"].add("builds")
     await scheduler.run_tick()
-    assert [c[0] for c in steps["calls"]] == ["statuses", "fill", "builds", "drive"]
+    assert [c[0] for c in steps["calls"]] == [
+        "statuses",
+        "fill",
+        "builds",
+        "drive",
+        "sweep",
+    ]
     errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
     assert len(errors) == 1 and "song_builds_tick_failed" in errors[0]
     ((exc, tags),) = steps["sentry"].captured
@@ -152,9 +173,42 @@ async def test_build_failure_is_isolated_and_reported(steps: dict[str, Any]) -> 
 
 
 async def test_both_halves_failing_never_raises(steps: dict[str, Any]) -> None:
-    steps["raise"].update({"fill", "builds", "drive"})
+    steps["raise"].update({"fill", "builds", "drive", "sweep"})
     await scheduler.run_tick()
-    assert [c[0] for c in steps["calls"]] == ["statuses", "fill", "builds", "drive"]
+    assert [c[0] for c in steps["calls"]] == [
+        "statuses",
+        "fill",
+        "builds",
+        "drive",
+        "sweep",
+    ]
+
+
+async def test_event_folder_sweep_runs_at_most_once_an_interval(
+    steps: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = [1000.0]
+    monkeypatch.setattr(scheduler, "_clock", lambda: now[0])
+    await scheduler.run_tick()
+    now[0] += scheduler.EVENT_FOLDER_SWEEP_INTERVAL_SECONDS - 1
+    await scheduler.run_tick()
+    now[0] += 1
+    await scheduler.run_tick()
+    sweeps = [c for c in steps["calls"] if c[0] == "sweep"]
+    assert len(sweeps) == 2
+    assert [c[0] for c in steps["calls"]].count("drive") == 3
+
+
+async def test_event_folder_sweep_failure_is_logged_and_reported(
+    steps: dict[str, Any],
+) -> None:
+    steps["raise"].add("sweep")
+    await scheduler.run_tick()
+    errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
+    assert len(errors) == 1 and "event_folder_sweep_failed" in errors[0]
+    ((exc, tags),) = steps["sentry"].captured
+    assert str(exc) == "sweep broke"
+    assert tags == {"level": "error", "subsystem": "drive_folders"}
 
 
 # --- the loop -------------------------------------------------------------------

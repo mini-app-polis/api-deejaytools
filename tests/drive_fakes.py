@@ -18,6 +18,7 @@ FOLDER_MIME = "application/vnd.google-apps.folder"
 _FOLDER_QUERY = re.compile(
     r"^'(?P<parent>[^']*)' in parents and name = '(?P<name>(?:\\.|[^'\\])*)' "
 )
+_LIST_QUERY = re.compile(r"^'(?P<parent>[^']*)' in parents(?P<rest>.*)$")
 _APP_PROP_QUERY = re.compile(
     r"^'(?P<parent>[^']*)' in parents and appProperties has "
     r"\{ key='(?P<key>[^']*)' and value='(?P<value>[^']*)' \}"
@@ -37,7 +38,7 @@ class FakeDriveService:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
-        # id -> {"name", "parents", "mimeType", "appProperties"}
+        # id -> {"name", "parents", "mimeType", "appProperties", "trashed"}
         self.files_by_id: dict[str, dict[str, Any]] = {}
         self._next = 0
         self.fail_copy: Exception | None = None
@@ -59,6 +60,7 @@ class FakeDriveService:
         *,
         app_properties: dict[str, str] | None = None,
         file_id: str | None = None,
+        trashed: bool = False,
     ) -> str:
         """Put a file into the fake Drive and return its id."""
         fid = file_id or self._new_id("file")
@@ -67,8 +69,32 @@ class FakeDriveService:
             "parents": list(parents),
             "mimeType": "audio/mpeg",
             "appProperties": dict(app_properties or {}),
+            "trashed": trashed,
         }
         return fid
+
+    def add_folder(self, name: str, parent: str) -> str:
+        """Put a folder into the fake Drive and return its id."""
+        fid = self._new_id("folder")
+        self.files_by_id[fid] = {
+            "name": name,
+            "parents": [parent],
+            "mimeType": FOLDER_MIME,
+            "appProperties": {},
+            "trashed": False,
+        }
+        return fid
+
+    def add_path(self, parent: str, *names: str) -> str:
+        """Find-or-add each folder of ``names`` in turn under ``parent``;
+        the id of the last."""
+        for name in names:
+            parent = self.folder_id(parent, name) or self.add_folder(name, parent)
+        return parent
+
+    def trashed(self, file_id: str) -> bool:
+        """Whether the file or folder is in the trash."""
+        return bool(self.files_by_id[file_id].get("trashed"))
 
     def folder_id(self, parent: str, name: str) -> str | None:
         """The id of folder ``name`` under ``parent``, if it exists."""
@@ -77,6 +103,7 @@ class FakeDriveService:
                 f["mimeType"] == FOLDER_MIME
                 and f["name"] == name
                 and parent in f["parents"]
+                and not f.get("trashed")
             ):
                 return fid
         return None
@@ -119,10 +146,28 @@ class FakeDriveService:
                 ]
                 return {"files": [{"id": i} for i in ids]}
             m = _FOLDER_QUERY.match(q)
+            if m:
+                name = m["name"].replace("\\'", "'")
+                fid = self.folder_id(m["parent"], name)
+                return {"files": [{"id": fid, "name": name}] if fid else []}
+            # DriveFacade.list_files: parent, optional mimeType filters, trashed.
+            m = _LIST_QUERY.match(q)
             assert m, q
-            name = m["name"].replace("\\'", "'")
-            fid = self.folder_id(m["parent"], name)
-            return {"files": [{"id": fid, "name": name}] if fid else []}
+            rest = m["rest"]
+            trashed = "trashed = true" in rest
+            listed = []
+            for fid, f in self.files_by_id.items():
+                if m["parent"] not in f["parents"]:
+                    continue
+                if bool(f.get("trashed")) != trashed:
+                    continue
+                is_folder = f["mimeType"] == FOLDER_MIME
+                if f"mimeType != '{FOLDER_MIME}'" in rest and is_folder:
+                    continue
+                if f"mimeType = '{FOLDER_MIME}'" in rest and not is_folder:
+                    continue
+                listed.append({"id": fid, "name": f["name"], "mimeType": f["mimeType"]})
+            return {"files": listed}
 
         return _Request(run)
 
@@ -138,6 +183,7 @@ class FakeDriveService:
                     "parents": list(body["parents"]),
                     "mimeType": FOLDER_MIME,
                     "appProperties": {},
+                    "trashed": False,
                 }
                 return {"id": fid}
             fid = self.add_file(
@@ -177,6 +223,8 @@ class FakeDriveService:
             f = self.files_by_id[kw["fileId"]]
             if "body" in kw and "name" in kw["body"]:
                 f["name"] = kw["body"]["name"]
+            if "body" in kw and "trashed" in kw["body"]:
+                f["trashed"] = kw["body"]["trashed"]
             if "removeParents" in kw:
                 removed = kw["removeParents"].split(",")
                 f["parents"] = [p for p in f["parents"] if p not in removed]

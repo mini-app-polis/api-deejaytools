@@ -1,7 +1,9 @@
 """The in-process scheduler (deejaytools-api src/services/scheduler.ts, index.ts).
 
 One pass (``run_tick``) advances session statuses, auto-fills the active queue
-of every running floor trial, then drains one batch of the Drive job queue.
+of every running floor trial, then drains one batch of the Drive job queue,
+and at most once per ``EVENT_FOLDER_SWEEP_INTERVAL_SECONDS`` trashes the
+emptied folders of deleted events (``drive_jobs.sweep_event_folders``).
 The background loop runs a pass at startup and then every ``TICK_INTERVAL_MS``
 (default 30 s); ``GET /internal/tick`` runs the same pass on demand.
 
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from collections.abc import Awaitable, Callable
 
 import sentry_sdk
@@ -45,6 +48,27 @@ job cut off here stays ``running`` until its lease is reclaimed."""
 
 _drive_skip_logged = False
 
+EVENT_FOLDER_SWEEP_INTERVAL_SECONDS = 60 * 60
+"""How often a pass sweeps deleted events' folders: the first pass, then the
+first pass an hour or more after the last sweep began. It lists every event
+folder, so not on every tick."""
+
+_clock: Callable[[], float] = time.monotonic
+_event_folder_sweep_at: float | None = None
+
+
+def _event_folder_sweep_due() -> bool:
+    """Whether this pass sweeps event folders; if so, the interval restarts."""
+    global _event_folder_sweep_at
+    now = _clock()
+    if (
+        _event_folder_sweep_at is not None
+        and now - _event_folder_sweep_at < EVENT_FOLDER_SWEEP_INTERVAL_SECONDS
+    ):
+        return False
+    _event_folder_sweep_at = now
+    return True
+
 
 def _session_factory() -> async_sessionmaker[AsyncSession]:
     """The app's sessionmaker, the one request handlers use."""
@@ -52,7 +76,8 @@ def _session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def run_tick() -> None:
-    """One scheduler pass: session work, song builds, then Drive jobs. Never raises.
+    """One scheduler pass: session work, song builds, Drive jobs, then, when
+    due, the event folder sweep. Never raises.
 
     The parts fail independently, in separate try blocks: a persistent
     session-side failure must not stop the Drive queue draining, nor the
@@ -127,6 +152,31 @@ async def run_tick() -> None:
         )
     else:
         notifications.clear_fault("scheduler.drive_jobs")
+
+    if not _event_folder_sweep_due():
+        return
+    try:
+        # After the jobs: trash jobs for a deleted event's copies empty its
+        # folder first. A folder they have not emptied yet waits for a later
+        # sweep.
+        async with maker() as db:
+            await drive_jobs.sweep_event_folders(db)
+    except Exception as exc:  # noqa: BLE001 - logged and reported
+        logger.error(
+            with_log_prefix(LOG_FAILURE, f"event_folder_sweep_failed: {exc!r}")
+        )
+        with sentry_sdk.new_scope() as scope:
+            scope.set_level("error")
+            scope.set_tag("subsystem", "drive_folders")
+            event_id = sentry_sdk.capture_exception(exc)
+        notifications.report_fault_once(
+            "scheduler.event_folders",
+            "scheduler · event folder sweep",
+            exc,
+            event_id=event_id,
+        )
+    else:
+        notifications.clear_fault("scheduler.event_folders")
 
 
 def scheduler_enabled(settings: Settings) -> bool:

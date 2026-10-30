@@ -882,6 +882,8 @@ export const SessionStatusSchema = z.enum([
 
 A song shared with the caller as its linked partner may be checked in too, unless it belongs to a managed partnership. Its entity is the owner's pair with that partner (created if missing), whichever partner checks in, so the two cannot both hold an entry; `entityPairId` must name that pair or one the caller leads.
 
+A couple holds one live entry per session, whichever partner's pair it is. A partner row stands for an account when its `linked_user_id` is that account or, with no link, when its `email` matches the account's `users.email` (trimmed, case-insensitive). While a pair led by A whose partner row stands for B has a live entry in the session, a pair led by B whose partner row stands for A is refused with the single-entry 409, and the other way round. This applies to every check-in that ends with a pair entity (own pair, shared song, on behalf). The email match is used for this rule only, never for access to songs or check-ins.
+
 **Path params / Query params:** none
 
 **Request body:** (`src/schemas`)
@@ -939,7 +941,7 @@ export const createCheckinBodySchema = z
 | 400 | `BAD_REQUEST` | Pair not found / You are not a member… | Invalid pair |
 | 400 | `BAD_REQUEST` | This song is not associated with a managed partnership | `entityManagedPartnershipId` sent incorrectly |
 | 400 | `BAD_REQUEST` | You may only submit a solo check-in for yourself | Solo user mismatch |
-| 409 | `conflict` | This entity already has a live queue entry… | Single-entry rule |
+| 409 | `conflict` | This entity already has a live queue entry… | Single-entry rule, or the couple rule (the other partner's pair for the same couple has one) |
 | 400 | `BAD_REQUEST` | This song hasn't been submitted to this event… | Missing `event_song_submissions` row |
 | 400 | `BAD_REQUEST` | Session not found / Division not configured… | Admission context |
 | 409 | `conflict` | Check-in conflicted with concurrent activity… | Transaction failure |
@@ -950,7 +952,9 @@ export const createCheckinBodySchema = z
 
 **Auth:** requireAuth
 
-**Purpose:** List the caller's active check-ins (must have live `queue_entries` row).
+**Purpose:** List the caller's active check-ins (must have live `queue_entries` row): solo, pairs they lead, managed partnerships they own, and pairs led by another user whose partner row in that leader's own address book has `linked_user_id` = the caller (the link only, not the email). Queue position, overall position and run count are computed the same way for all of them.
+
+`canWithdraw` is true where the caller is the solo user, leads the pair or owns the managed partnership, and false for a linked partner's view of the leader's pair: only those may withdraw (`DELETE /v1/checkins/:id` answers 403 otherwise).
 
 **Path params / Query params:** none
 
@@ -979,7 +983,8 @@ export const createCheckinBodySchema = z
       "queueType": "priority",
       "queuePosition": 2,
       "overallPosition": 4,
-      "runCount": 0
+      "runCount": 0,
+      "canWithdraw": true
     }
   ],
   "meta": { "version": "…" }
@@ -1310,6 +1315,8 @@ Default `limit` 200.
 
 **Purpose:** Return or create `pairs` row for `(current user, partner_id)`.
 
+When `partner_id` names a row in another user's address book whose `linked_user_id` is the caller (the linked-partner rule songs use), the pair returned or created is that owner's: `(row's user_id, partner_id)`, the same pair a song shared with the caller checks in as. The link is required; a matching email alone does not count.
+
 **Path params / Query params:** none
 
 **Request body:**
@@ -1332,7 +1339,7 @@ const findOrCreateBody = z.object({
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
-| 404 | `NOT_FOUND` | Partner not found | Partner not owned by user |
+| 404 | `NOT_FOUND` | Partner not found | Partner neither owned by the user nor linked to their account |
 
 ---
 
