@@ -11,7 +11,9 @@ put it there, with different failure models:
 | **`drive_jobs` queue** | Event submission created, removed, or cascaded away; admin backfill; in api-deejaytools, an event's DJs and event managers granted, revoked or moved to a new folder | Scheduler tick (`runTick()` → `processDriveJobs()`) | Rescheduled with backoff; `failed` after 10 attempts; admin retry endpoint |
 
 Song deletion also calls Drive directly (synchronously, best-effort) for the
-song's own file; see [Song deletion](#song-deletion).
+song's own file; see [Song deletion](#song-deletion). In api-deejaytools the
+scheduler also trashes the folders of deleted events once they are empty; see
+[Event folder sweep](#event-folder-sweep-api-deejaytools).
 
 Source: [`src/services/drive.ts`](https://github.com/legacy-graveyard/deejaytools-api/tree/main/src/services/drive.ts),
 [`src/services/driveJobs.ts`](https://github.com/legacy-graveyard/deejaytools-api/tree/main/src/services/driveJobs.ts),
@@ -72,6 +74,8 @@ cached process-locally for **1 hour** keyed by `(parentId, name)`. The whole
 cache is dropped whenever an event copy fails, so a folder deleted out from
 under the cache recovers on the next retry. Nothing else clears it: an upload or a
 `trash` job that hits a stale cached folder keeps failing until the hour is up.
+In api-deejaytools a folder the [event folder sweep](#event-folder-sweep-api-deejaytools)
+trashes is dropped from the cache at once.
 
 ### Season year
 
@@ -471,6 +475,56 @@ changed between the share and the unshare leaves the old one's access in place.
 - `POST /v1/admin/drive-jobs/:id/retry` returns a `failed` job to `pending` with
   `attempts = 0`, due now. It is the only way out of `failed` short of SQL.
 - `POST /v1/admin/drive-jobs/backfill-renames` after any naming-rule change.
+
+---
+
+## Event folder sweep (api-deejaytools)
+
+Deleting an event queues `trash` jobs for its copies, which move them to
+`_deprecated`, but the event's folder and its division and round folders stay.
+Events that come and go (a contract suite creates and deletes one per run)
+would pile up empty folders under `Events/`. The sweep clears them.
+
+**Rule.** A folder `<root>/<season>/Events/<name>/` is trashed, with every
+folder below it, when both hold:
+
+1. No `events` row maps to it: no event whose season (its `season_year`, else
+   from its `start_date`) and name, as folder names, are the folder's. A
+   renamed event's old folder maps to nothing either.
+2. No untrashed file is anywhere below it, whoever put it there. Folders do
+   not count as files. Copies moved to `_deprecated` or in the Drive trash are
+   no longer in it.
+
+Only folders under `Events/` are considered: the upload folders
+`<root>/<season>/<division>/` are shared by every song and are never touched,
+nor are the season, `Events` and `_deprecated` folders themselves. Folders go
+to the **Drive trash** (`trashed = true`, recoverable), deepest first, then the
+event folder; nothing is deleted permanently. Each trashed folder is dropped
+from the folder cache, so a later copy or share for an event of the same name
+creates a fresh folder.
+
+The service account sees only files it created (`drive.file` scope), so a file
+another account put in the folder is not seen by the check.
+
+**When.** Not a job: a deleted event leaves no row to hang one on, and the
+sweep has to wait for the copies' `trash` jobs anyway. The scheduler runs it on
+the first tick and then on the first tick an hour or more after the last sweep
+began (`EVENT_FOLDER_SWEEP_INTERVAL_SECONDS`), after the Drive jobs of that tick,
+and only when Drive is configured. `GET /internal/tick` runs the same pass, so
+the same hourly limit applies. It never runs on a request path. A folder whose
+copies are still waiting on their `trash` jobs is left for a later sweep.
+
+**Order.** Drive is listed first, then the events are read, so a folder made
+for an event created meanwhile is matched to it. Each candidate is checked for
+files just before it is trashed.
+
+**Reporting.** Each trashed folder logs `drive_event_folder_trashed` with its id,
+path and number of subfolders; every sweep logs `drive_event_folders_swept` with
+how many event folders it saw and how many it trashed, and returns what it
+trashed. A Drive error ends the sweep, logs `event_folder_sweep_failed`, goes to
+Sentry (tag `subsystem=drive_folders`) and is posted to Discord once per run of
+failures; the next sweep starts over. Several replicas sweeping at once is
+harmless: trashing a folder twice changes nothing.
 
 ---
 

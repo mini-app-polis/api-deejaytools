@@ -269,3 +269,81 @@ async def test_a_linked_partner_names_their_pair_or_the_songs(
         "/v1/checkins", json=_checkin(session_id, song, songs_pair), headers=bob.headers
     )
     assert res.status_code == 201, res.text
+
+
+async def _find_or_create(
+    client: httpx.AsyncClient, who: Any, partner_id: str
+) -> httpx.Response:
+    return await client.post(
+        "/v1/pairs/find-or-create",
+        json={"partner_id": partner_id},
+        headers=who.headers,
+    )
+
+
+async def test_a_linked_partner_finds_the_owners_pair_and_checks_in_with_it(
+    client: httpx.AsyncClient, person: Callable[..., Any], db: asyncpg.Connection
+) -> None:
+    c = await _cast(db, person)
+    alice, bob, song, bob_row = c["alice"], c["bob"], c["song"], c["bob_row"]
+
+    created = await _find_or_create(client, bob, bob_row)
+    assert created.status_code == 201, created.text
+    pair_id = created.json()["data"]["id"]
+    leader, partner = await db.fetchrow(
+        "SELECT user_a_id, partner_b_id FROM pairs WHERE id = $1", pair_id
+    )
+    assert (leader, partner) == (alice.id, bob_row)
+    # Reused, whichever partner asks.
+    for who in (bob, alice):
+        found = await _find_or_create(client, who, bob_row)
+        assert found.status_code == 200
+        assert found.json()["data"]["id"] == pair_id
+    assert await db.fetchval("SELECT count(*) FROM pairs") == 1
+
+    event_id = await insert_event(db)
+    submitted = await client.post(
+        "/v1/event-song-submissions",
+        json={"event_id": event_id, "song_id": song},
+        headers=bob.headers,
+    )
+    assert submitted.status_code == 201, submitted.text
+    session_id = await _open_session(db, event_id)
+    res = await client.post(
+        "/v1/checkins", json=_checkin(session_id, song, pair_id), headers=bob.headers
+    )
+    assert res.status_code == 201, res.text
+    entity = await db.fetchval(
+        "SELECT entity_pair_id FROM checkins WHERE id = $1", res.json()["data"]["id"]
+    )
+    assert entity == pair_id
+
+
+async def test_find_or_create_reuses_an_existing_owners_pair(
+    client: httpx.AsyncClient, person: Callable[..., Any], db: asyncpg.Connection
+) -> None:
+    c = await _cast(db, person)
+    existing = await insert_pair(db, c["alice"].id, c["bob_row"])
+    found = await _find_or_create(client, c["bob"], c["bob_row"])
+    assert found.status_code == 200
+    assert found.json()["data"]["id"] == existing
+
+
+async def test_find_or_create_needs_the_callers_row_or_a_link(
+    client: httpx.AsyncClient, person: Callable[..., Any], db: asyncpg.Connection
+) -> None:
+    c = await _cast(db, person)
+    carol = c["carol"]
+    missing = await _find_or_create(client, carol, "pt_missing")
+    assert missing.status_code == 404
+    # An unlinked row naming Carol's address matches by email only: no access.
+    carol_email = await db.fetchval("SELECT email FROM users WHERE id = $1", carol.id)
+    by_email = await _linked_partner(db, c["alice"].id, None)
+    await db.execute(
+        "UPDATE partners SET email = $1 WHERE id = $2", carol_email, by_email
+    )
+    for row in (c["bob_row"], by_email):
+        res = await _find_or_create(client, carol, row)
+        assert res.status_code == 404
+        assert res.json()["error"] == missing.json()["error"]
+    assert await db.fetchval("SELECT count(*) FROM pairs") == 0

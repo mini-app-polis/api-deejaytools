@@ -36,6 +36,8 @@ generation, so none is ever reused more than an hour after it was looked up;
 some are dropped earlier than an hour, which costs one extra lookup each.
 This module is the only user of ``ensure_folder`` in this process, so nothing
 else fills or relies on that cache.
+A folder this module trashes (``trash_folders``) is dropped from the cache
+at once.
 """
 
 from __future__ import annotations
@@ -47,7 +49,12 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, cast
 
-from mini_app_polis.google.drive import DriveFacade, ShareResult, clear_folder_cache
+from mini_app_polis.google.drive import (
+    FOLDER_CACHE,
+    DriveFacade,
+    ShareResult,
+    clear_folder_cache,
+)
 from mini_app_polis.logger import LOG_WARNING, get_logger, with_log_prefix
 
 from ..config import get_settings
@@ -59,19 +66,23 @@ __all__ = [
     "DRIVE_SCOPE",
     "DriveNotConfiguredError",
     "EventCopyResult",
+    "EventFolder",
     "NOT_CONFIGURED_MESSAGE",
     "SUBMISSION_APP_PROPERTY",
     "ShareResult",
     "clear_drive_folder_cache",
     "copy_song_to_event_folder",
     "drive_configured",
+    "empty_folder_tree",
     "ensure_event_folder",
+    "list_event_folders",
     "remove_reader",
     "rename_file",
     "sanitize_folder_name",
     "share_song_file",
     "share_with_reader",
     "soft_delete",
+    "trash_folders",
     "upload_song_file",
 ]
 
@@ -81,6 +92,7 @@ _TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 EVENTS_FOLDER = "Events"
 DEPRECATED_FOLDER = "_deprecated"
+FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 
 SUBMISSION_APP_PROPERTY = "deejaytools_submission_id"
 """Drive appProperty every event copy carries, valued with its submission id.
@@ -457,3 +469,69 @@ async def remove_reader(file_id: str, email: str) -> int:
     return await asyncio.to_thread(
         facade.remove_permission, file_id, email, role="reader"
     )
+
+
+@dataclass(frozen=True)
+class EventFolder:
+    """A folder ``<root>/<season>/Events/<name>/``, with the names Drive has."""
+
+    folder_id: str
+    season: str
+    name: str
+
+
+async def list_event_folders() -> list[EventFolder]:
+    """Every untrashed event folder, ``<root>/<season>/Events/<name>/``.
+
+    Only lists: unlike the find-or-create lookups, nothing is created. The
+    upload folders ``<root>/<season>/<division>/`` and ``_deprecated`` are
+    not event folders and never returned.
+    """
+    facade, root = _drive()
+    found: list[EventFolder] = []
+    for season in await asyncio.to_thread(facade.get_all_subfolders, root):
+        for child in await asyncio.to_thread(facade.get_all_subfolders, season.id):
+            if child.name != EVENTS_FOLDER:
+                continue
+            for event in await asyncio.to_thread(facade.get_all_subfolders, child.id):
+                found.append(EventFolder(event.id, season.name, event.name))
+    return found
+
+
+async def empty_folder_tree(folder_id: str) -> list[str] | None:
+    """The folder and every folder below it, deepest first, when none of them
+    holds an untrashed file; None as soon as one does.
+
+    Anything that is not a folder counts as a file, whoever put it there.
+    The service account sees only files it created (``drive.file``), so a
+    file another account added is not seen.
+    """
+    facade, _root = _drive()
+    folders: list[str] = []
+
+    async def walk(current: str) -> bool:
+        children = await asyncio.to_thread(facade.get_files_in_folder, current)
+        for child in children:
+            if child.mime_type != FOLDER_MIME_TYPE or not await walk(child.id):
+                return False
+        folders.append(current)
+        return True
+
+    return folders if await walk(folder_id) else None
+
+
+async def trash_folders(folder_ids: list[str]) -> None:
+    """Move folders to the Drive trash, in order (recoverable; nothing is
+    permanently deleted), and drop every one trashed from the folder cache,
+    so a later find-or-create looks the name up again instead of reusing a
+    trashed id."""
+    facade, _root = _drive()
+    trashed: set[str] = set()
+    try:
+        for folder_id in folder_ids:
+            await asyncio.to_thread(facade.trash_file, folder_id)
+            trashed.add(folder_id)
+    finally:
+        for key, cached in list(FOLDER_CACHE.items()):
+            if cached in trashed:
+                FOLDER_CACHE.pop(key, None)

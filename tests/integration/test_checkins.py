@@ -533,10 +533,12 @@ async def test_mine_lists_live_checkins_with_positions(
         "queuePosition": 1,
         "overallPosition": 5,
         "runCount": 1,
+        "canWithdraw": True,
     }
     assert rows[0]["entityLabel"] == "Lea Der"
     assert rows[0]["overallPosition"] == 4
     assert rows[0]["runCount"] == 0
+    assert rows[0]["canWithdraw"] is True
 
 
 # --- DELETE /v1/checkins/{id} ----------------------------------------------------
