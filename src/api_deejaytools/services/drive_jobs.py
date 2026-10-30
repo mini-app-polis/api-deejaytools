@@ -20,13 +20,13 @@ runs, so jobs that run out of order still leave access matching it.
 Processing is deejaytools-api's ``processDriveJobs`` with the three "Known
 defects" in this area fixed rather than reproduced (ADR-0007 point 4):
 
-- overlapping copy runs, and a copy followed by a failed DB write, no longer
+- overlapping copy runs, and a copy followed by a failed DB write, do not
   leave a duplicate copy: copies are tagged with their submission id and an
   existing one is reused (``services.drive.copy_song_to_event_folder``);
 - a copy that finishes after its submission was deleted, or after another run
   recorded a different copy, is recorded only into a still-empty
   ``drive_copy_file_id`` and otherwise soft-deleted (``_record_copy``);
-- a DB error while recording a job's outcome no longer strands the rest of
+- a DB error while recording a job's outcome does not strand the rest of
   the batch in ``running``: each status update is guarded on its own.
 """
 
@@ -540,8 +540,8 @@ def _event_folder_fields(job: _Job) -> tuple[str, str]:
 async def _run_share_folder_job(db: AsyncSession, job: _Job) -> None:
     """Share the event's folder with one of its DJs or event managers.
 
-    Nothing to do when they no longer hold either role (an unshare is, or
-    was, queued) or the event is gone. The folder is created if missing and
+    Nothing to do when they hold neither role (an unshare is, or was,
+    queued) or the event is gone. The folder is created if missing and
     recorded on the job (``file_id``): that is what an unshare takes access
     away from, wherever the event's folder is by then.
     """
@@ -601,8 +601,8 @@ async def _run_share_folder_job(db: AsyncSession, job: _Job) -> None:
 async def _run_unshare_folder_job(db: AsyncSession, job: _Job) -> None:
     """Take a former DJ's or event manager's access to the event's folders.
 
-    Every folder a share for this person on this event recorded, so a folder
-    the event has since moved from is unshared too, except one they still
+    Every folder a share for this person on this event recorded, so a former
+    folder of the event is unshared too, except one they still
     reach as staff of another event. Nothing to do when they hold the role
     again (re-granted since).
     """

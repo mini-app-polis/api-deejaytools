@@ -5,17 +5,17 @@ the filename rule, the tag contents, the sharing and the re-queued event
 copies are the same. What is different is that the build is durable, which
 fixes the four known defects docs/DRIVE.md lists for it:
 
-- **A restart mid-build** no longer leaves a song with no file and nothing
+- **A restart mid-build** does not leave a song with no file and nothing
   to sweep it. The bytes wait in ``song_uploads`` (migration 003), and the
   scheduler resumes any build that is due or whose lease ran out.
 - **A failed build of a song already submitted or checked in** is retried
   with backoff instead of leaving the song without a file. Its row cannot
-  be deleted (foreign keys), and now it does not need to be.
-- **A failure after the Drive upload** no longer orphans the file. The file
+  be deleted (foreign keys), and it does not need to be.
+- **A failure after the Drive upload** does not orphan the file. The file
   id is recorded as soon as the upload returns, a retry reuses it, a file
   found by its ``deejaytools_song_id`` appProperty is reused after a crash in
   between, and a song deleted meanwhile has its file deprecated.
-- **Two uploads in flight for the same slot** no longer get the same
+- **Two uploads in flight for the same slot** never get the same
   ``vNN``. The filename is reserved under a per-slot advisory lock, counting
   the filenames other builds have reserved as well as finished songs.
 
