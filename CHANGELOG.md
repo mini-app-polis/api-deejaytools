@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.17.0...v1.18.0) (2026-10-30)
+
+
+### Features
+
+* **checkins:** show a couple's check-ins to the linked partner, hold one entry per couple, let a linked partner find the owner's pair, and sweep deleted events' empty Drive folders ([b42cf5b](https://github.com/mini-app-polis/api-deejaytools/commit/b42cf5b3b8ae33c0e52b58cb69905f746be7c804))
+
 # [1.17.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.16.2...v1.17.0) (2026-10-30)
 
 
