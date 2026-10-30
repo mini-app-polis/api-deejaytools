@@ -946,10 +946,16 @@ class TrashedEventFolder:
     subfolders: int
 
 
-async def sweep_event_folders(db: AsyncSession) -> list[TrashedEventFolder]:
+async def sweep_event_folders(
+    db: AsyncSession, *, limit: int | None = None
+) -> list[TrashedEventFolder]:
     """Trash every event folder, ``<root>/<season>/Events/<name>/``, that no
     event maps to and that holds no untrashed file anywhere below it, with
     the folders inside it. Returns, and logs, what it trashed.
+
+    With ``limit``, it stops once it has trashed that many: each folder takes
+    several Drive calls, and the scheduler runs the sweep in its pass, so a
+    backlog is cleared a few folders at a time rather than in one long pass.
 
     An event maps to a folder when its season and name, as folder names
     (``event_folder_path``), are the folder's. Drive is listed before the
@@ -977,6 +983,8 @@ async def sweep_event_folders(db: AsyncSession) -> list[TrashedEventFolder]:
 
     trashed: list[TrashedEventFolder] = []
     for folder in folders:
+        if limit is not None and len(trashed) >= limit:
+            break
         if (folder.season, folder.name) in mapped:
             continue
         tree = await drive.empty_folder_tree(folder.folder_id)

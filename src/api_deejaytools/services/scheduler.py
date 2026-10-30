@@ -53,6 +53,15 @@ EVENT_FOLDER_SWEEP_INTERVAL_SECONDS = 60 * 60
 first pass an hour or more after the last sweep began. It lists every event
 folder, so not on every tick."""
 
+EVENT_FOLDER_SWEEP_LIMIT = 3
+"""The most folders one sweep trashes. Each takes several Drive calls (a few
+seconds), and the sweep runs inside the pass: a backlog of hundreds trashed
+in one go held the pass, and with it Drive jobs and queue fills, for minutes."""
+
+EVENT_FOLDER_SWEEP_BACKLOG_SECONDS = 60
+"""How soon the next sweep is due when the last one stopped at its limit, so
+a backlog clears in minutes without holding any one pass up."""
+
 _clock: Callable[[], float] = time.monotonic
 _event_folder_sweep_at: float | None = None
 
@@ -68,6 +77,16 @@ def _event_folder_sweep_due() -> bool:
         return False
     _event_folder_sweep_at = now
     return True
+
+
+def _event_folder_sweep_backlog() -> None:
+    """The last sweep stopped at its limit: the next one is due in
+    ``EVENT_FOLDER_SWEEP_BACKLOG_SECONDS``, not the full interval."""
+    global _event_folder_sweep_at
+    if _event_folder_sweep_at is not None:
+        _event_folder_sweep_at -= (
+            EVENT_FOLDER_SWEEP_INTERVAL_SECONDS - EVENT_FOLDER_SWEEP_BACKLOG_SECONDS
+        )
 
 
 def _session_factory() -> async_sessionmaker[AsyncSession]:
@@ -160,7 +179,11 @@ async def run_tick() -> None:
         # folder first. A folder they have not emptied yet waits for a later
         # sweep.
         async with maker() as db:
-            await drive_jobs.sweep_event_folders(db)
+            trashed = await drive_jobs.sweep_event_folders(
+                db, limit=EVENT_FOLDER_SWEEP_LIMIT
+            )
+        if len(trashed) >= EVENT_FOLDER_SWEEP_LIMIT:
+            _event_folder_sweep_backlog()
     except Exception as exc:  # noqa: BLE001 - logged and reported
         logger.error(
             with_log_prefix(LOG_FAILURE, f"event_folder_sweep_failed: {exc!r}")

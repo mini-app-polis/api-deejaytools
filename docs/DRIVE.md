@@ -511,7 +511,12 @@ sweep has to wait for the copies' `trash` jobs anyway. The scheduler runs it on
 the first tick and then on the first tick an hour or more after the last sweep
 began (`EVENT_FOLDER_SWEEP_INTERVAL_SECONDS`), after the Drive jobs of that tick,
 and only when Drive is configured. `GET /internal/tick` runs the same pass, so
-the same hourly limit applies. It never runs on a request path. A folder whose
+the same hourly limit applies. It never runs on a request path. One sweep
+trashes at most `EVENT_FOLDER_SWEEP_LIMIT` folders (3): each takes a few
+seconds of Drive calls, and the sweep runs inside the tick, so a large backlog
+in one go would hold up Drive jobs and queue fills. A sweep that stops at the
+limit makes the next one due after `EVENT_FOLDER_SWEEP_BACKLOG_SECONDS` (60)
+rather than the hour, so a backlog clears a few folders a minute. A folder whose
 copies are still waiting on their `trash` jobs is left for a later sweep.
 
 **Order.** Drive is listed first, then the events are read, so a folder made

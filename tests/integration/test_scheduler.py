@@ -83,11 +83,16 @@ def steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     event folder sweep is due on the first pass."""
     state: dict[str, Any] = {"calls": [], "raise": set(), "maker": FakeMaker()}
 
+    state["swept"] = []
+
     def step(name: str) -> Any:
-        async def run(db: FakeSession) -> int:
+        async def run(db: FakeSession, **kwargs: Any) -> Any:
             state["calls"].append((name, db.n))
             if name in state["raise"]:
                 raise RuntimeError(f"{name} broke")
+            if name == "sweep":
+                state["sweep_kwargs"] = kwargs
+                return state["swept"]
             return 0
 
         return run
@@ -197,6 +202,27 @@ async def test_event_folder_sweep_runs_at_most_once_an_interval(
     sweeps = [c for c in steps["calls"] if c[0] == "sweep"]
     assert len(sweeps) == 2
     assert [c[0] for c in steps["calls"]].count("drive") == 3
+
+
+async def test_a_sweep_at_its_limit_is_due_again_soon(
+    steps: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = [1000.0]
+    monkeypatch.setattr(scheduler, "_clock", lambda: now[0])
+    # A backlog: the sweep trashes as many as it may.
+    steps["swept"] = ["folder"] * scheduler.EVENT_FOLDER_SWEEP_LIMIT
+    await scheduler.run_tick()
+    assert steps["sweep_kwargs"] == {"limit": scheduler.EVENT_FOLDER_SWEEP_LIMIT}
+    now[0] += scheduler.EVENT_FOLDER_SWEEP_BACKLOG_SECONDS - 1
+    await scheduler.run_tick()
+    now[0] += 1
+    await scheduler.run_tick()
+    # The backlog is cleared: back to the full interval.
+    steps["swept"] = []
+    now[0] += scheduler.EVENT_FOLDER_SWEEP_BACKLOG_SECONDS
+    await scheduler.run_tick()
+    sweeps = [c for c in steps["calls"] if c[0] == "sweep"]
+    assert len(sweeps) == 3
 
 
 async def test_event_folder_sweep_failure_is_logged_and_reported(

@@ -154,3 +154,19 @@ async def test_a_deleted_events_folder_is_trashed_once_its_copies_are_gone(
     assert result[0].folder_id == folder
     assert svc.trashed(folder)
     assert not svc.trashed(copy)
+
+
+async def test_a_limited_sweep_stops_and_the_next_one_goes_on(
+    real_drive: FakeDriveService, session: AsyncSession
+) -> None:
+    svc = real_drive
+    names = [f"Contract Suite {i}" for i in range(5)]
+    folders = [svc.add_path(ROOT, "2027", "Events", name) for name in names]
+
+    first = await drive_jobs.sweep_event_folders(session, limit=2)
+    assert len(first) == 2
+    assert sum(svc.trashed(f) for f in folders) == 2
+
+    rest = await drive_jobs.sweep_event_folders(session, limit=10)
+    assert len(rest) == 3
+    assert all(svc.trashed(f) for f in folders)
