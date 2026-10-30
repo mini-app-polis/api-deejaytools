@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.16.2...v1.17.0) (2026-10-30)
+
+
+### Features
+
+* **songs:** let a song's linked partner read it, submit it to events and check it in, keeping PATCH and DELETE owner-only ([2085c8c](https://github.com/mini-app-polis/api-deejaytools/commit/2085c8c6c0a6c4fdc44bc5a618a1a79163a37a88))
+
 ## [1.16.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.16.1...v1.16.2) (2026-10-30)
 
 
