@@ -1,3 +1,10 @@
+## [1.18.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.18.0...v1.18.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **drive:** cap each event folder sweep so a backlog never holds up the scheduler ([2fab321](https://github.com/mini-app-polis/api-deejaytools/commit/2fab321ce4458b5388a9725cec6e0122044945c3))
+
 # [1.18.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.17.0...v1.18.0) (2026-10-30)
 
 
