@@ -1,3 +1,14 @@
+## [1.16.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.16.1...v1.16.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 7.2.0 ([6b32c19](https://github.com/mini-app-polis/api-deejaytools/commit/6b32c192e9b3d3f0bc1c8ebd0b4409cbfa243546))
+* **deps:** bump miniapppolis-common-utils to 7.3.0 ([7856727](https://github.com/mini-app-polis/api-deejaytools/commit/7856727be4be462e9c752f000904c07210eef14d))
+* **deps:** bump miniapppolis-common-utils to 7.4.0 ([692c5a0](https://github.com/mini-app-polis/api-deejaytools/commit/692c5a06feeada062d9905d62365e8a1abcf30aa))
+* **deps:** bump miniapppolis-common-utils to 7.5.0 ([734674a](https://github.com/mini-app-polis/api-deejaytools/commit/734674a321bd399553d070352695649ccf0a848d))
+* **deps:** bump miniapppolis-common-utils to 7.6.0 ([0f0134e](https://github.com/mini-app-polis/api-deejaytools/commit/0f0134eed44055df5de4fb6f071b10849b540999))
+
 ## [1.16.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.16.0...v1.16.1) (2026-10-29)
 
 
