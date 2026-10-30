@@ -1,6 +1,4 @@
-"""A song on the wire, and the ownership checks the song routes share
-(deejaytools-api src/routes/songs.ts: ``mapSong``, ``isLegacySong``,
-``assertPartnerOwned``, ``assertManagedPartnershipOwned``).
+"""A song on the wire, and the ownership checks the song routes share.
 
 Kept outside the router so the upload route and admin routes reuse them.
 """
@@ -91,7 +89,7 @@ def map_song(
 ) -> dict[str, Any]:
     """A songs row on the wire, with whichever joined names the caller loaded.
 
-    Names not loaded are null, as deejaytools-api returns them: the single
+    Names not loaded are null, as the web app expects them: the single
     song routes join the partner only, so their managed_* names are null even
     when managed_partnership_id is set. ``partnership_label`` is null unless
     the caller built one (:func:`song_partnership_label`). ``shared_with_me``
@@ -196,7 +194,7 @@ async def load_song_with_partner(
     if row is None:
         return None
     # The managed partnership is joined for the label only: these routes
-    # return its names as null, as deejaytools-api does.
+    # return its names as null, as the web app expects.
     return map_song(
         row[0],
         partner_first_name=row[1],
@@ -237,7 +235,7 @@ async def assert_managed_partnership_owned(
     session: AsyncSession, user_id: str, managed_partnership_id: str | None
 ) -> bool:
     """True when none is named, or the named managed partnership is the
-    user's (soft-deleted ones included, as deejaytools-api checks)."""
+    user's (soft-deleted ones included)."""
     if not managed_partnership_id:
         return True
     found = await session.execute(

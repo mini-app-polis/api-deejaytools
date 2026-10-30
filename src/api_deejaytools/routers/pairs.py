@@ -1,4 +1,4 @@
-"""``/v1/pairs`` (docs/API.md; deejaytools-api src/routes/pairs.ts).
+"""``/v1/pairs`` (docs/API.md).
 
 One route, behind ``deejaytools.partners.write``: find or create the pair of
 the caller and one of their partners, for the check-in flow.

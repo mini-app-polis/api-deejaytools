@@ -1,4 +1,4 @@
-"""The Google Drive layer (docs/DRIVE.md; deejaytools-api src/services/drive.ts).
+"""The Google Drive layer (docs/DRIVE.md).
 
 Every Drive call in this service goes through ``mini_app_polis.google.drive.
 DriveFacade`` (ADR-0010 "Reuse from the ecosystem"); nothing here or elsewhere
@@ -16,12 +16,12 @@ Folder layout, as docs/DRIVE.md "Folder layout"::
 Season year, division, event name and round subfolder go through
 ``sanitize_folder_name``; ``Events`` and ``_deprecated`` are literal.
 
-Credentials are the service account deejaytools-api uses, from the same three
+Credentials are the deejaytools service account's, from three
 environment variables, with the ``drive.file`` scope only: the account sees
 and changes nothing but files it created. If any of the three is missing or
 empty, every operation raises ``DriveNotConfiguredError`` with the message
 ``Google Drive environment variables are not configured`` before touching
-the network (nothing checks this at boot, as in deejaytools-api).
+the network (nothing checks this at boot).
 
 **Folder cache.** Resolved folder ids are reused for at most an hour, keyed by
 ``(parent, name)``, and the whole cache is dropped whenever an event copy fails
@@ -97,8 +97,8 @@ FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SUBMISSION_APP_PROPERTY = "deejaytools_submission_id"
 """Drive appProperty every event copy carries, valued with its submission id.
 
-It is how a copy job finds a copy an earlier run already made (docs/DRIVE.md
-"Known defects": overlapping runs and copy-then-DB-failure duplicated it).
+It is how a copy job finds a copy an earlier run already made, so overlapping
+runs and a copy followed by a failed DB write do not duplicate it.
 """
 
 FOLDER_CACHE_TTL_SECONDS = 60 * 60
@@ -396,10 +396,9 @@ async def copy_song_to_event_folder(
                 facade, destination_id, sanitize_folder_name(subfolder)
             )
 
-        # Fix for docs/DRIVE.md "Known defects" (overlapping copy runs after a
-        # lease reclaim, and a copy followed by a failed DB write, both made a
-        # second copy): a copy this submission already has is found by its
-        # tag and reused.
+        # A copy this submission already has is found by its tag and reused,
+        # so overlapping copy runs after a lease reclaim, and a copy followed
+        # by a failed DB write, never make a second copy.
         existing = await asyncio.to_thread(
             facade.find_files_by_app_property,
             destination_id,

@@ -9,6 +9,7 @@ from typing import Any
 import asyncpg
 import httpx
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from api_deejaytools.cache import response_cache
 
@@ -224,7 +225,8 @@ async def test_queue_entry_shape_and_labels(
         "songId": pair["song_id"],
         "songDisplayName": "Our Routine",
         "songProcessedFilename": "f_v01.mp3",
-        "notes": "note",
+        # Notes are for the event's staff; the public view leaves them out.
+        "notes": None,
         "initialQueue": "priority",
         "checkedInAt": 7,
         "subQueue": "priority",
@@ -243,10 +245,46 @@ async def test_queue_entry_shape_and_labels(
     ).json()["data"]
     assert [r["position"] for r in priority] == [1, 2]
     assert "subQueue" not in priority[0]
+    assert priority[0]["notes"] == "note"
     standard = (
         await client.get(f"/v1/queue/{session_id}/non-priority", headers=admin.headers)
     ).json()["data"]
     assert [r["entityLabel"] for r in standard] == ["Sol O", "Lea Der & Fol Lower"]
+
+
+async def test_active_notes_are_for_the_events_staff_only(
+    client: httpx.AsyncClient, db: asyncpg.Connection, person: Callable[..., Any]
+) -> None:
+    admin = await person("admin", admin=True)
+    dancer = await person("dancer")
+    session_id = await insert_floor_session(db, **_closed_window())
+    pair = await dancer_pair(db)
+    await insert_entry(
+        db,
+        session_id=session_id,
+        queue_type="active",
+        position=1,
+        song_id=pair["song_id"],
+        submitted_by=pair["user_id"],
+        pair_id=pair["pair_id"],
+        notes="slow start",
+    )
+
+    public = (await client.get(f"/v1/queue/{session_id}/active")).json()["data"]
+    assert public[0]["notes"] is None
+    staff = await client.get(
+        f"/v1/queue/{session_id}/active/staff", headers=admin.headers
+    )
+    assert staff.status_code == 200, staff.text
+    assert staff.json()["data"][0]["notes"] == "slow start"
+    assert {k: v for k, v in staff.json()["data"][0].items() if k != "notes"} == {
+        k: v for k, v in public[0].items() if k != "notes"
+    }
+    refused = await client.get(
+        f"/v1/queue/{session_id}/active/staff", headers=dancer.headers
+    )
+    assert refused.status_code == 403
+    assert (await client.get(f"/v1/queue/{session_id}/active/staff")).status_code == 401
 
 
 async def test_queue_labels_lead_with_the_leader(
@@ -644,6 +682,90 @@ async def test_move_down_swaps_with_one_audit_row(
 # --- withdraw ----------------------------------------------------------------------
 
 
+async def test_withdraw_follows_an_entry_promoted_before_the_lock(
+    client: httpx.AsyncClient,
+    person: Callable[..., Any],
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A promotion lands between withdraw's read and its lock: the entry now
+    sits in another queue under a new id. Withdraw removes it from there."""
+    from api_deejaytools.routers import queue as queue_routes
+
+    admin = await person("admin", admin=True)
+    session_id = await insert_floor_session(
+        db, priority_max=1, non_priority_max=1, **_closed_window()
+    )
+    p = await _fill(db, session_id, "priority", 2)
+    real_lock = queue_routes.lock_session_for_fill
+    promoted = False
+
+    async def promote_first(session: Any, sid: str) -> Any:
+        nonlocal promoted
+        if not promoted:
+            promoted = True
+            res = await client.post(
+                "/v1/queue/promote",
+                json={"queueEntryId": p[0]["entry_id"]},
+                headers=admin.headers,
+            )
+            assert res.status_code == 200, res.text
+        return await real_lock(session, sid)
+
+    monkeypatch.setattr(queue_routes, "lock_session_for_fill", promote_first)
+    res = await client.post(
+        "/v1/queue/withdraw",
+        json={"queueEntryId": p[0]["entry_id"]},
+        headers=admin.headers,
+    )
+    assert res.status_code == 200, res.text
+    remaining = await db.fetchval(
+        "SELECT count(*) FROM queue_entries WHERE checkin_id = $1",
+        p[0]["checkin_id"],
+    )
+    assert remaining == 0
+    # The other priority entry is untouched and still first in its queue.
+    assert await positions(db, session_id, "priority") == [(p[1]["entry_id"], 1)]
+    withdrawn = await db.fetchrow(
+        "SELECT from_queue, from_position FROM queue_events"
+        " WHERE checkin_id = $1 AND action = 'withdrawn'",
+        p[0]["checkin_id"],
+    )
+    assert (withdrawn["from_queue"], withdrawn["from_position"]) == ("active", 1)
+
+
+async def test_withdraw_of_an_entry_gone_before_the_lock_is_404(
+    client: httpx.AsyncClient,
+    person: Callable[..., Any],
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api_deejaytools.routers import queue as queue_routes
+
+    admin = await person("admin", admin=True)
+    session_id = await insert_floor_session(db, **_closed_window())
+    [e] = await _fill(db, session_id, "non_priority", 1)
+    real_lock = queue_routes.lock_session_for_fill
+
+    async def remove_first(session: Any, sid: str) -> Any:
+        await db.execute("DELETE FROM queue_entries WHERE id = $1", e["entry_id"])
+        return await real_lock(session, sid)
+
+    monkeypatch.setattr(queue_routes, "lock_session_for_fill", remove_first)
+    res = await client.post(
+        "/v1/queue/withdraw",
+        json={"queueEntryId": e["entry_id"]},
+        headers=admin.headers,
+    )
+    assert _error(res) == (404, "NOT_FOUND", "Queue entry not found")
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM queue_events WHERE checkin_id = $1", e["checkin_id"]
+        )
+        == 0
+    )
+
+
 async def test_withdraw_any_queue_compacts_and_refills(
     client: httpx.AsyncClient, person: Callable[..., Any], db: asyncpg.Connection
 ) -> None:
@@ -739,7 +861,9 @@ async def test_a_failure_mid_action_is_a_409_that_leaves_the_queue_as_it_was(
     before = await snapshot()
 
     async def fail(*_args: Any, **_kwargs: Any) -> None:
-        raise RuntimeError("audit write failed")
+        raise OperationalError(
+            "audit write failed", {}, Exception("audit write failed")
+        )
 
     monkeypatch.setattr("api_deejaytools.routers.queue.record_queue_event", fail)
     res = await client.post(
@@ -754,3 +878,33 @@ async def test_a_failure_mid_action_is_a_409_that_leaves_the_queue_as_it_was(
     )
     assert retry.status_code == 200
     assert await snapshot() != before
+
+
+async def test_a_bug_mid_action_is_a_500_not_a_retry(
+    client: httpx.AsyncClient,
+    person: Callable[..., Any],
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a database failure is a 409 'please retry': a bug in the code is
+    a 500 that reaches Sentry, and the queue is left as it was."""
+    from api_deejaytools import errors
+
+    captured: list[BaseException] = []
+    monkeypatch.setattr(errors.sentry_sdk, "capture_exception", captured.append)
+    admin = await person("admin", admin=True)
+    session_id = await insert_floor_session(db, **_closed_window())
+    [entry] = await _fill(db, session_id, "non_priority", 1)
+
+    async def bug(*_args: Any, **_kwargs: Any) -> None:
+        raise KeyError("a programming error")
+
+    monkeypatch.setattr("api_deejaytools.routers.queue.record_queue_event", bug)
+    res = await client.post(
+        "/v1/queue/withdraw",
+        json={"queueEntryId": entry["entry_id"]},
+        headers=admin.headers,
+    )
+    assert res.status_code == 500
+    assert any(isinstance(e, KeyError) for e in captured)
+    assert await positions(db, session_id, "non_priority") == [(entry["entry_id"], 1)]

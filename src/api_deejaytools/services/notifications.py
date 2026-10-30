@@ -168,9 +168,21 @@ _unconfigured_logged: set[str] = set()
 
 
 def webhook_source(settings: Settings) -> dict[str, str | None]:
-    """The webhook variables as ``Settings`` resolved them."""
-    names = (discord.FALLBACK_ENV, *discord.CHANNEL_ENV.values())
-    return {name: getattr(settings, name, None) for name in names}
+    """The webhook variables as ``Settings`` declares them, by the names the
+    library reads.
+
+    Only the channels this service posts to have a variable of their own;
+    any other channel falls back to ``DISCORD_WEBHOOK_URL``.
+    """
+    return {
+        discord.FALLBACK_ENV: settings.DISCORD_WEBHOOK_URL,
+        discord.CHANNEL_ENV[
+            discord.CHANNEL_ERRORS
+        ]: settings.DISCORD_WEBHOOK_URL_ERRORS,
+        discord.CHANNEL_ENV[
+            discord.CHANNEL_ACTIVITY
+        ]: settings.DISCORD_WEBHOOK_URL_ACTIVITY,
+    }
 
 
 async def send(channel: str, payload: dict[str, Any], context: str) -> bool:

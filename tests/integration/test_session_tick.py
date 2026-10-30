@@ -1,5 +1,4 @@
-"""services.session_tick: stored status advance and scheduled auto-fill
-(deejaytools-api src/services/cron.ts and cron.test.ts)."""
+"""services.session_tick: stored status advance and scheduled auto-fill."""
 
 from __future__ import annotations
 

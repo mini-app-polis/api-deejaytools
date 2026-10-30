@@ -1,4 +1,4 @@
-"""``/v1/admin/songs`` (docs/API.md; deejaytools-api src/routes/admin-songs.ts).
+"""``/v1/admin/songs`` (docs/API.md).
 
 The admin directory of every user's songs, behind
 ``deejaytools.library.read`` (ADR-0008).

@@ -1,8 +1,8 @@
-> Ported from [deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api)'s docs/API.md when that repository was archived. "This service" and `src/` paths below mean deejaytools-api, whose contract api-deejaytools reproduces.
-
 # API endpoint reference
 
-Mounting and global middleware: [`src/app.ts`](https://github.com/legacy-graveyard/deejaytools-api/tree/main/src/app.ts). Route handlers: [`src/routes/`](https://github.com/legacy-graveyard/deejaytools-api/tree/main/src/routes/).
+Mounting and global middleware: [`src/api_deejaytools/main.py`](../src/api_deejaytools/main.py) and [`middleware.py`](../src/api_deejaytools/middleware.py). Route handlers: [`src/api_deejaytools/routers/`](../src/api_deejaytools/routers/). The live OpenAPI schema is served at `/openapi.json` (Swagger UI at `/docs`).
+
+Request bodies below are written as Zod schemas: that notation is the validation contract, and `src/api_deejaytools/validation.py`, `zod_types.py` and `zod_coerce.py` implement its semantics (trimming, coercion, messages).
 
 Base URL in production is deployment-specific (Railway). All versioned routes live under `/v1`.
 
@@ -12,7 +12,7 @@ Base URL in production is deployment-specific (Railway). All versioned routes li
 
 ### Response envelope
 
-Success responses use [`common-typescript-utils`](https://www.npmjs.com/package/common-typescript-utils) helpers:
+Success responses (`success()` / `success_list()` in `src/api_deejaytools/errors.py`):
 
 ```json
 {
@@ -22,7 +22,7 @@ Success responses use [`common-typescript-utils`](https://www.npmjs.com/package/
 ```
 
 - `success(payload)` — single object in `data`; `meta` includes `version`.
-- `successList(array)` — array in `data`; `meta` includes `version` and `count`.
+- `success_list(array)` — array in `data`; `meta` includes `version` and `count`.
 
 Failure responses:
 
@@ -35,9 +35,9 @@ Failure responses:
 }
 ```
 
-Zod validation failures (via `zValidator` in `lib/validate.ts`) return **400** with `CommonErrors.validationError(issues)` — typically `code: "VALIDATION_ERROR"` and a message summarizing field errors.
+Validation failures return **400** with `code: "VALIDATION_ERROR"` and a message summarizing field errors ([ADR-0003](decisions/ADR-0003-validation-envelope-shape.md)).
 
-Unhandled exceptions return **500** with `CommonErrors.internalError()` (message is generic in production).
+Unhandled exceptions return **500** `INTERNAL` with a generic message.
 
 ### Authentication
 
@@ -53,13 +53,17 @@ Three distinct failure modes on protected routes:
 |--------|------|---------|
 | 401 | `UNAUTHORIZED` | Missing `Authorization` header, non-`Bearer` prefix, or JWT verification failed |
 | 401 | `USER_NOT_SYNCED` | JWT valid but no row in `users` — client must call `POST /v1/auth/sync` first |
-| 403 | `FORBIDDEN` | Authenticated user lacks admin role (`requireAdmin`); message **"Admin access required"** |
+| 403 | `FORBIDDEN` | The caller's principal lacks the route's scope; message **"Admin access required"** |
 
-`POST /v1/auth/sync` uses its own auth (valid JWT required) but does **not** use `requireAuth` — it creates/updates the `users` row.
+Every protected route requires one permission scope (`require_scope(...)` in [`src/api_deejaytools/auth.py`](../src/api_deejaytools/auth.py); the route-to-scope table is [ADR-0008](decisions/ADR-0008-replacement-api-identity-authorization.md) and the [README](../README.md#endpoints)). Each route's **Auth** line below names its scope. A scope marked **on the event** is decided for the event the request names (`require_event_scope(...)`): a global role carrying it (`deejaytools-admin`) allows on every event, and a per-event staff role (coordinator, DJ, event manager; [ADR-0012](decisions/ADR-0012-per-event-staff-roles.md)) allows on the event it was granted for only. "Admin" below means a caller holding `deejaytools-admin`.
+
+For a caller who holds a scope only through a per-event staff role, a request that names an event through a session or queue entry the API cannot find answers **403** "Admin access required", not 404: with no event to decide on, the decision falls to roles. An admin gets the 404. This is deliberate: staff cannot use the answer to learn which ids exist.
+
+`POST /v1/auth/sync` and `GET /v1/auth/me` are authenticated-only: a valid JWT, no scope. Sync is where the `users` row and the principal are created.
 
 ### Optional-user pattern
 
-`GET /v1/sessions` and `GET /v1/sessions/:id` call `getOptionalSyncedUserId()` ([`lib/optional-user.ts`](https://github.com/legacy-graveyard/deejaytools-api/tree/main/src/lib/optional-user.ts)):
+`GET /v1/sessions` and `GET /v1/sessions/:id` call `optional_synced_user_id()` ([`src/api_deejaytools/auth.py`](../src/api_deejaytools/auth.py)):
 
 - No token, invalid token, or unsynced user → treated as anonymous; no error.
 - Valid token + synced user → extra fields are added.
@@ -73,17 +77,17 @@ Anonymous responses **omit** these keys entirely (not `null`).
 
 ### Rate limiting and timeouts
 
-Applied in `app.ts`:
+Applied in [`src/api_deejaytools/middleware.py`](../src/api_deejaytools/middleware.py):
 
 | Middleware | Scope | Limit |
 |------------|-------|-------|
-| `bodyLimit` | `*` | 11 MB max body; **413** `payload_too_large` |
-| `rateLimitMiddleware(300, 60_000)` | `/v1/*` only | 300 requests / minute / IP; **429** `too_many_requests` |
-| `timeoutMiddleware` | `/v1/*` only | **30 s** default; **300 s** for paths starting with `/v1/songs/upload/`; **503** `request_timeout` |
+| Body limit | `*` | 11 MiB max body; **413** `payload_too_large` |
+| Rate limit | `/v1/*` only | 300 requests / minute per client address (the first `X-Forwarded-For` hop); **429** `too_many_requests` |
+| Deadline | `/v1/*` only | **30 s** default; **300 s** for paths starting with `/v1/songs/upload/`; **503** `request_timeout` |
 
-**Exempt from rate limiting:** `/health`, `/internal/tick` (unversioned).
+**Exempt from rate limiting and the deadline:** `/health`, `/version`, `/internal/tick` (unversioned).
 
-CORS: origins from `CORS_ORIGINS` (comma-separated), default `http://localhost:5173`. Allowed headers: `Authorization`, `Content-Type`.
+CORS: origins from `DEEJAYTOOLS_CORS_ORIGINS` (comma-separated), default `http://localhost:5173`. Allowed headers: `Authorization`, `Content-Type`.
 
 ### Frontend polling intervals
 
@@ -94,7 +98,7 @@ CORS: origins from `CORS_ORIGINS` (comma-separated), default `http://localhost:5
 | `SessionInfoHeader` | 30 s | Local clock only (no API) |
 | `FloorTrialsPage` | none | Loads `GET /v1/sessions` + `GET /v1/events` once on mount |
 
-Queue read responses are cached server-side for **3 s** (`CACHE_TTL.QUEUE`); session list/detail shared data for **5 s** (`CACHE_TTL.SESSION`).
+Queue read responses are cached server-side for **3 s** (`QUEUE_TTL_SECONDS` in `src/api_deejaytools/cache.py`); session list/detail shared data for **5 s** (`SESSION_TTL_SECONDS`).
 
 ### Shared error rows
 
@@ -104,24 +108,24 @@ In this table, the third column is the **trigger** (when the error fires), not a
 
 | Status | Code | Trigger |
 |--------|------|---------|
-| 401 | `UNAUTHORIZED` | Missing/invalid token (`requireAuth` / `requireAdmin`) |
-| 401 | `USER_NOT_SYNCED` | Valid token, no `users` row |
-| 403 | `FORBIDDEN` | Non-admin on `requireAdmin` route |
-| 400 | `VALIDATION_ERROR` | Zod validation failed |
+| 401 | `UNAUTHORIZED` | Missing/invalid token |
+| 401 | `USER_NOT_SYNCED` | Valid token, no principal (not yet synced) |
+| 403 | `FORBIDDEN` | The caller lacks the route's scope (on the event, where event-scoped) |
+| 400 | `VALIDATION_ERROR` | Body or query validation failed |
 | 429 | `too_many_requests` | Rate limit exceeded. Please slow down. |
 | 503 | `request_timeout` | Handler exceeded deadline |
 
-Unless noted, assume these apply to every `requireAuth` / `requireAdmin` endpoint below.
+Unless noted, assume these apply to every scoped endpoint below.
 
 ---
 
-## App-level routes (`app.ts`)
+## App-level routes (`routers/meta.py`, `routers/internal.py`)
 
 ### GET /health
 
 **Auth:** public
 
-**Purpose:** Liveness/readiness probe for Railway and uptime monitors.
+**Purpose:** Liveness probe for Railway and uptime monitors. No database query: it answers while the process serves. `HEAD /health` answers the same without a body.
 
 **Path params / Query params:** none
 
@@ -133,19 +137,37 @@ Unless noted, assume these apply to every `requireAuth` / `requireAdmin` endpoin
 { "status": "ok" }
 ```
 
-**Errors:**
+Always **200**; there are no error responses.
 
-| Status | Code | Message | Trigger |
-|--------|------|---------|---------|
-| 503 | — | `{ "status": "degraded", "detail": "db_unreachable" }` | DB ping failed |
+---
+
+### GET /version
+
+**Auth:** public
+
+**Purpose:** The running build: package version and the commit the deploy was built from. Called by the post-deploy smoke test (`.github/workflows/deployed.yml`, which waits for `commit` to be the deploy it was triggered by) and by the web app's `useApiVersion` hook.
+
+**Path params / Query params:** none
+
+**Request body:** none
+
+**Response:** Not wrapped in `{ data, meta }`.
+
+```json
+{ "version": "…", "commit": "…" }
+```
+
+`commit` is `RAILWAY_GIT_COMMIT_SHA`, `null` outside Railway.
+
+**Errors:** none.
 
 ---
 
 ### GET /internal/tick
 
-**Auth:** public (optional secret gate)
+**Auth:** `x-tick-secret` header equal to `TICK_SECRET` (or `TICK_SECRET_PREVIOUS` while a rotation overlaps), compared in constant time
 
-**Purpose:** Manual trigger for one scheduler pass (`runTick()`): session status advance, active-queue auto-fill, then one batch of the Drive job queue ([DRIVE.md](./DRIVE.md#processing-processdrivejobs-once-per-tick)). Responds after the pass finishes; errors inside the pass are logged, not returned.
+**Purpose:** Manual trigger for one scheduler pass (`run_tick()` in `services/scheduler.py`): session status advance, active-queue auto-fill, starting due song builds in the background, then one batch of the Drive job queue ([DRIVE.md](./DRIVE.md#processing-process_drive_jobs-once-per-tick)). Responds after the pass finishes; errors inside the pass are logged, not returned.
 
 **Path params / Query params:** none
 
@@ -164,19 +186,19 @@ Unless noted, assume these apply to every `requireAuth` / `requireAdmin` endpoin
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
-| 403 | `FORBIDDEN` | Admin access required | `TICK_SECRET` env is set (including empty string) and `x-tick-secret` header mismatch |
+| 403 | `FORBIDDEN` | Admin access required | `x-tick-secret` missing or matching neither secret, or `TICK_SECRET` unset |
 
-When `TICK_SECRET` is **unset**, the endpoint is completely open.
+When `TICK_SECRET` is **unset** (an empty value counts as unset), the route refuses every call; `TICK_SECRET_PREVIOUS` alone never opens it.
 
 ---
 
-## `auth.ts` — `/v1/auth`
+## `routers/auth.py` — `/v1/auth`
 
 ### POST /v1/auth/sync
 
-**Auth:** Bearer JWT required (not `requireAuth` — creates user if missing)
+**Auth:** authenticated-only — valid Bearer JWT, no scope (creates the user if missing)
 
-**Purpose:** Upsert the Clerk user into `users` after first sign-in.
+**Purpose:** Upsert the Clerk user into `users` after first sign-in, and provision their principal with the `deejaytools-dancer` role, in one transaction.
 
 **Path params / Query params:** none
 
@@ -209,21 +231,26 @@ const syncBody = z.object({
 }
 ```
 
+`role` is `admin` when the caller's principal holds `deejaytools-admin`, else `user`; it is derived from the identity store, not stored on `users`.
+
 **Errors:**
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` | … | Invalid JSON body (checked before the token) |
 | 401 | `UNAUTHORIZED` | Authentication required | Missing or invalid JWT |
-| 400 | `VALIDATION_ERROR` | … | Invalid JSON body |
-| 500 | `INTERNAL` | … | User row missing after upsert |
+| 409 | `EMAIL_BELONGS_TO_ANOTHER_ACCOUNT` | This email address is already linked to a different sign-in. Contact an organizer to have your account moved to this sign-in. | The email is held by another `users` row |
+| 500 | `INTERNAL` | Failed to load user | User row missing after upsert |
 
-On conflict, only `email` and `updated_at` are updated — `firstName` / `lastName` are **not** overwritten.
+**Email:** the stored email is the session token's email claim (`email`, then `primary_email_address`, then `email_address`). The body's `email` is used only when the token carries none (and that fallback is logged as `auth_sync_email_from_body`); it is still required and validated.
+
+On conflict, only `email` and `updated_at` are updated — `firstName` / `lastName` / `displayName` are **not** overwritten.
 
 ---
 
 ### GET /v1/auth/me
 
-**Auth:** requireAuth
+**Auth:** authenticated-only — valid Bearer JWT, no scope
 
 **Purpose:** Return the authenticated user's profile.
 
@@ -231,19 +258,19 @@ On conflict, only `email` and `updated_at` are updated — `firstName` / `lastNa
 
 **Request body:** none
 
-**Response:** Same shape as `POST /sync` `data`, plus `event_roles`: the caller's per-event staff roles, `[{ "event_id": "…", "role": "coordinator" | "dj" | "event-manager" }]`, by event, empty when none (api-deejaytools, [ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)). `role` stays `user` or `admin`.
+**Response:** Same shape as `POST /sync` `data`, plus `event_roles`: the caller's per-event staff roles, `[{ "event_id": "…", "role": "coordinator" | "dj" | "event-manager" }]`, by event, empty when none ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)). `role` stays `user` or `admin`.
 
 **Errors:**
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
-| 404 | `NOT_FOUND` | User not found | Row deleted after auth (edge case) |
+| 401 | `USER_NOT_SYNCED` | Call POST /v1/auth/sync first | Valid token, no `users` row |
 
 ---
 
 ### PATCH /v1/auth/me
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.profile.write`
 
 **Purpose:** Update the caller's first and last name.
 
@@ -258,7 +285,7 @@ const updateProfileBody = z.object({
 });
 ```
 
-**Response:** Same shape as `GET /me`.
+**Response:** Same shape as `POST /sync` `data` — **without** `event_roles`.
 
 **Errors:**
 
@@ -269,7 +296,7 @@ const updateProfileBody = z.object({
 
 ---
 
-## `events.ts` — `/v1/events`
+## `routers/events.py` — `/v1/events`
 
 Helper schemas used by create/patch (same file):
 
@@ -313,6 +340,7 @@ const ianaTimezone = z
       "start_date": "2026-03-01",
       "end_date": "2026-03-03",
       "timezone": "America/Chicago",
+      "season_year": "2026",
       "status": "upcoming",
       "created_by": "user_…",
       "created_at": 1710000000000,
@@ -323,7 +351,7 @@ const ianaTimezone = z
 }
 ```
 
-`status` is derived at response time (`upcoming` | `active` | `completed`), not stored.
+`status` is derived at response time (`upcoming` | `active` | `completed`), not stored. `season_year` is the stored season, or derived from `start_date` (October 1 rollover, [ADR-0011](decisions/ADR-0011-season-year-rolls-over-october-1.md)) when the row has none; never `null`.
 
 **Errors:** none (empty list is valid).
 
@@ -353,7 +381,7 @@ const ianaTimezone = z
 
 ### GET /v1/events/:id/entities
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.entities.read`
 
 **Purpose:** List the competing entities that have at least one song submitted to
 this event, grouped by division — the read behind the "Entered" section of the
@@ -364,7 +392,7 @@ competitor-visible information. The response carries **no song identity** — no
 title, routine name, filename or song id — by design. Multiple songs from the
 same entity in the same division collapse into `song_count`.
 
-Entities are grouped by `songEntityKey` (managed partnership → partner →
+Entities are grouped by song entity (managed partnership → partner →
 solo owner). A division comes from the submission's per-event override when set,
 otherwise from the song; submissions with neither fall into `"Unspecified"`.
 
@@ -414,7 +442,7 @@ than summing group sizes.
 
 ### POST /v1/events
 
-**Auth:** requireAdmin. In api-deejaytools, `deejaytools.events.write` through a role only: a new event names no event to hold a grant on, so an event manager cannot create events
+**Auth:** `deejaytools.events.write`, through a role only: a new event names no event to hold a grant on, so an event manager cannot create events
 
 **Purpose:** Create an event.
 
@@ -429,6 +457,8 @@ const createEvent = z.object({
   end_date: dateString,
   /** IANA timezone for this event. All session times are displayed in this zone. */
   timezone: ianaTimezone.default("America/Chicago"),
+  /** Omit to derive from start_date (October 1 rollover). */
+  season_year: z.string().regex(/^\d{4}$/, "Must be a 4-digit year").optional(),
 });
 ```
 
@@ -447,7 +477,7 @@ const createEvent = z.object({
 
 **Auth:** `deejaytools.events.write` on the event in the path: held through a role (an admin's, on any event) or granted on the event (its event manager). An unknown id, through a role only
 
-**Purpose:** Partially update an event. In api-deejaytools, a change that moves the event's Drive folder (`<root>/<season_year>/Events/<name>/`: its name or season) queues a `share_event_folder` Drive job for each of the event's DJs and event managers, so they can read the new folder ([DRIVE.md](./DRIVE.md#job-kinds)).
+**Purpose:** Partially update an event. `season_year` is not recomputed when `start_date` changes. A change that moves the event's Drive folder (`<root>/<season_year>/Events/<name>/`: its name or season) queues a `share_event_folder` Drive job for each of the event's DJs and event managers, so they can read the new folder ([DRIVE.md](./DRIVE.md#job-kinds)).
 
 **Path params:** `id`
 
@@ -461,6 +491,7 @@ const patchEvent = z.object({
   start_date: dateString.optional(),
   end_date: dateString.optional(),
   timezone: ianaTimezone.optional(),
+  season_year: z.string().regex(/^\d{4}$/, "Must be a 4-digit year").optional(),
 });
 ```
 
@@ -479,7 +510,7 @@ const patchEvent = z.object({
 
 **Auth:** `deejaytools.events.write` on the event in the path: held through a role (an admin's, on any event) or granted on the event (its event manager). An unknown id, through a role only
 
-**Purpose:** Delete an event and cascade-delete its sessions and all floor-trial data, its song submissions and its run limits (and, in api-deejaytools, its staff roles with their explicit grants, queueing an `unshare_event_folder` Drive job for each DJ and event manager). After commit, a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
+**Purpose:** Delete an event and cascade-delete its sessions and all floor-trial data, its song submissions, its run limits, and its staff roles with their explicit grants (queueing an `unshare_event_folder` Drive job for each DJ and event manager). After commit, a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
 
 **Path params:** `id`
 
@@ -503,7 +534,7 @@ const patchEvent = z.object({
 
 ## Event staff — `/v1/events/:id/staff`
 
-api-deejaytools only, not in deejaytools-api: per-event staff roles ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)). A role is `coordinator`, `dj` or `event-manager`, held on one event. These routes are event-scoped: allowed by the scope held through a role (an admin's, on any event) or granted on the event in the path.
+Per-event staff roles ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)). A role is `coordinator`, `dj` or `event-manager`, held on one event. These routes are event-scoped: allowed by the scope held through a role (an admin's, on any event) or granted on the event in the path.
 
 A staff grant on the wire:
 
@@ -526,7 +557,7 @@ A staff grant on the wire:
 
 **Purpose:** The event's staff, ordered by role, then oldest grant first.
 
-**Response:** `successList` of staff grants.
+**Response:** `success_list` of staff grants. `email` is masked (`k•••@example.com`: the first character of the local part, then `•••@` and the whole domain) for every caller but an admin; admins see it whole.
 
 **Errors:**
 
@@ -537,7 +568,7 @@ A staff grant on the wire:
 
 ---
 
-### PUT /v1/events/:id/staff/:userId/:role
+### PUT /v1/events/:id/staff/:user_id/:role
 
 **Auth:** `deejaytools.staff.write` on the event. Granting `event-manager` needs the scope through a role (admin).
 
@@ -545,7 +576,7 @@ A staff grant on the wire:
 
 **Request body:** none
 
-**Response:** `success` with the staff grant.
+**Response:** `success` with the staff grant; `email` masked for non-admin callers, as in `GET`.
 
 **Errors:**
 
@@ -554,11 +585,11 @@ A staff grant on the wire:
 | 400 | `VALIDATION_ERROR` | … | `role` is not one of the three |
 | 403 | `FORBIDDEN` | Admin access required | Scope not held on this event, or `event-manager` without it through a role |
 | 404 | `NOT_FOUND` | Event not found | Unknown event id |
-| 404 | `NOT_FOUND` | User not found | No `users` row for `userId` |
+| 404 | `NOT_FOUND` | User not found | No `users` row for `user_id` |
 
 ---
 
-### DELETE /v1/events/:id/staff/:userId/:role
+### DELETE /v1/events/:id/staff/:user_id/:role
 
 **Auth:** as `PUT`.
 
@@ -576,7 +607,7 @@ A staff grant on the wire:
 
 ### GET /v1/events/:id/drive-folder
 
-api-deejaytools only, not in deejaytools-api: the event's shared Drive folder, for the people it is shared with ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md), "The DJ's Drive folder").
+The event's shared Drive folder, for the people it is shared with ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md), "The DJ's Drive folder").
 
 **Auth:** `deejaytools.queue.read` on the event: the event's DJs and event managers (granted on the event in the path) and admins (through their role). A coordinator or a dancer does not hold it.
 
@@ -610,7 +641,7 @@ api-deejaytools only, not in deejaytools-api: the event's shared Drive folder, f
 
 ---
 
-## `sessions.ts` — `/v1/sessions`
+## `routers/sessions.py` — `/v1/sessions`
 
 Shared schemas:
 
@@ -658,7 +689,7 @@ const statusBody = z.object({
 });
 ```
 
-`SessionStatusSchema` (`src/schemas`):
+Session status values:
 
 ```typescript
 export const SessionStatusSchema = z.enum([
@@ -806,7 +837,7 @@ export const SessionStatusSchema = z.enum([
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
 | 404 | `NOT_FOUND` | Session not found | Unknown id |
-| 500 | `DIVISIONS_UPDATE_FAILED` | … | Transaction failed |
+| 500 | `DIVISIONS_UPDATE_FAILED` | Failed to update divisions | Transaction failed (always this message; the cause is logged, never returned) |
 
 ---
 
@@ -872,11 +903,11 @@ export const SessionStatusSchema = z.enum([
 
 ---
 
-## `checkins.ts` — `/v1/checkins`
+## `routers/checkins.py` — `/v1/checkins`
 
 ### POST /v1/checkins
 
-**Auth:** requireAuth. `on_behalf_of_user_id` also needs `deejaytools.delegation.act` on the session's event: through a role (admins) or granted on that event (its DJ or event manager)
+**Auth:** `deejaytools.checkins.write`. `on_behalf_of_user_id` also needs `deejaytools.delegation.act` on the session's event: through a role (admins, for anyone) or granted on that event (its DJ or event manager), and then only for a person **connected to that event** — on a song submitted to it (submitter, song owner, or the account linked to the song's partner), checked in at or queued in one of its sessions (solo dancer, either side of the pair, or the managed partnership's owner), or on its staff. For anyone else the decision falls back to roles alone, so a DJ or event manager gets 403
 
 **Purpose:** Check in an entity for a session; creates `checkins`, `queue_entries`, and `queue_events` rows.
 
@@ -886,7 +917,7 @@ A couple holds one live entry per session, whichever partner's pair it is. A par
 
 **Path params / Query params:** none
 
-**Request body:** (`src/schemas`)
+**Request body:**
 
 ```typescript
 export const createCheckinBodySchema = z
@@ -931,7 +962,7 @@ export const createCheckinBodySchema = z
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
-| 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` on the session's event |
+| 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` on the session's event, or for a person not connected to that event (unless held through a role) |
 | 400 | `BAD_REQUEST` | Target user not found | Invalid on-behalf user |
 | 404 | `NOT_FOUND` | Session not found | |
 | 400 | `BAD_REQUEST` | Check-in has not opened yet | Before `checkin_opens_at` |
@@ -950,7 +981,7 @@ export const createCheckinBodySchema = z
 
 ### GET /v1/checkins/mine
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.checkins.read`
 
 **Purpose:** List the caller's active check-ins (must have live `queue_entries` row): solo, pairs they lead, managed partnerships they own, and pairs led by another user whose partner row in that leader's own address book has `linked_user_id` = the caller (the link only, not the email). Queue position, overall position and run count are computed the same way for all of them.
 
@@ -960,7 +991,7 @@ export const createCheckinBodySchema = z
 
 **Request body:** none
 
-**Response:** Array in `data` (uses `success()`, not `successList` — no `meta.count`):
+**Response:** Array in `data` (uses `success()`, not `success_list` — no `meta.count`):
 
 ```json
 {
@@ -997,7 +1028,7 @@ export const createCheckinBodySchema = z
 
 ### DELETE /v1/checkins/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.checkins.write`
 
 **Purpose:** Self-service withdraw (same effect as admin withdraw).
 
@@ -1017,13 +1048,13 @@ export const createCheckinBodySchema = z
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
-| 404 | `NOT_FOUND` | Check-in not found | No row or no live queue entry |
+| 404 | `NOT_FOUND` | Check-in not found | No row or no live queue entry, or the entry left the queue (ran, withdrew) before the session lock was taken |
 | 403 | `FORBIDDEN` | Admin access required | Not entity owner |
 | 409 | `conflict` | Withdraw conflicted with concurrent activity… | Transaction failure |
 
 ---
 
-## `queue.ts` — `/v1/queue`
+## `routers/queue.py` — `/v1/queue`
 
 Schemas:
 
@@ -1039,7 +1070,7 @@ const withdrawBody = z.object({
 });
 ```
 
-Queue entry item shape (all GET queue endpoints):
+Queue entry item shape (all GET queue endpoints; `notes` is always `null` on the two public reads, `active` and `waiting`):
 
 ```json
 {
@@ -1172,7 +1203,7 @@ z.object({ queueEntryId: z.string().min(1) })
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
-| 404 | `NOT_FOUND` | Queue entry not found | |
+| 404 | `NOT_FOUND` | Queue entry not found | Unknown id, or the entry left the queue (ran, withdrew) before the session lock was taken |
 | 409 | `conflict` | Withdraw conflicted with concurrent activity… | |
 
 ---
@@ -1181,7 +1212,7 @@ z.object({ queueEntryId: z.string().min(1) })
 
 **Auth:** public
 
-**Purpose:** List active-queue entries (position 1 = currently running).
+**Purpose:** List active-queue entries (position 1 = currently running), for the dancer-facing session page.
 
 **Path params:** `sessionId`
 
@@ -1189,9 +1220,31 @@ z.object({ queueEntryId: z.string().min(1) })
 
 **Request body:** none
 
-**Response:** Array of queue entry objects in `data`.
+**Response:** Array of queue entry objects in `data`, with `notes` always `null`: check-in notes are for the event's staff, who read them through `GET /v1/queue/:sessionId/active/staff`.
 
 **Errors:** none (empty array valid).
+
+---
+
+### GET /v1/queue/:sessionId/active/staff
+
+**Auth:** `deejaytools.queue.read` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). An unknown session, through a role only
+
+**Purpose:** The active queue as `GET /v1/queue/:sessionId/active` gives it, with each entry's check-in `notes` (dancer instructions for the DJ).
+
+**Path params:** `sessionId`
+
+**Query params:** none
+
+**Request body:** none
+
+**Response:** Array of queue entry objects in `data`, `notes` included.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
 
 ---
 
@@ -1207,7 +1260,7 @@ z.object({ queueEntryId: z.string().min(1) })
 
 **Request body:** none
 
-**Response:** Same as active entries plus `"subQueue": "priority" | "non_priority"` on each row.
+**Response:** Same as active entries (`notes` always `null`) plus `"subQueue": "priority" | "non_priority"` on each row.
 
 **Errors:** none.
 
@@ -1249,7 +1302,7 @@ z.object({ queueEntryId: z.string().min(1) })
 
 ---
 
-## `runs.ts` — `/v1/runs`
+## `routers/runs.py` — `/v1/runs`
 
 ### GET /v1/runs
 
@@ -1307,11 +1360,11 @@ Default `limit` 200.
 
 ---
 
-## `pairs.ts` — `/v1/pairs`
+## `routers/pairs.py` — `/v1/pairs`
 
 ### POST /v1/pairs/find-or-create
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partners.write`
 
 **Purpose:** Return or create `pairs` row for `(current user, partner_id)`.
 
@@ -1343,7 +1396,7 @@ const findOrCreateBody = z.object({
 
 ---
 
-## `partners.ts` — `/v1/partners`
+## `routers/partners.py` — `/v1/partners`
 
 Schemas:
 
@@ -1367,7 +1420,7 @@ const patchBody = z.object({
 
 ### GET /v1/partners/leading-pairs
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partners.read`
 
 **Purpose:** Pairs where caller is `user_a` (check-in entity picker).
 
@@ -1396,7 +1449,7 @@ const patchBody = z.object({
 
 ### GET /v1/partners
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partners.read`
 
 **Purpose:** List caller's partners (`kind = 'partner'` only).
 
@@ -1432,7 +1485,7 @@ const patchBody = z.object({
 
 ### POST /v1/partners
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partners.write`
 
 **Purpose:** Create a partner record.
 
@@ -1452,7 +1505,7 @@ const patchBody = z.object({
 
 ### GET /v1/partners/:id/associations
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partners.read`
 
 **Purpose:** Count songs and check-in usage before delete.
 
@@ -1485,7 +1538,7 @@ const patchBody = z.object({
 
 ### GET /v1/partners/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partners.read`
 
 **Purpose:** Fetch one partner.
 
@@ -1507,7 +1560,7 @@ const patchBody = z.object({
 
 ### PATCH /v1/partners/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partners.write`
 
 **Purpose:** Update partner fields.
 
@@ -1531,7 +1584,7 @@ const patchBody = z.object({
 
 ### DELETE /v1/partners/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partners.write`
 
 **Purpose:** Delete partner; orphan pairs with history, delete pairs without.
 
@@ -1552,7 +1605,7 @@ const patchBody = z.object({
 
 ---
 
-## `teams.ts` — `/v1/teams`
+## `routers/teams.py` — `/v1/teams`
 
 Schema (`src/schemas`):
 
@@ -1571,7 +1624,7 @@ export const createTeamBodySchema = z.object({
 
 ### GET /v1/teams
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.teams.read`
 
 **Purpose:** List caller's teams.
 
@@ -1602,7 +1655,7 @@ export const createTeamBodySchema = z.object({
 
 ### POST /v1/teams
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.teams.write`
 
 **Purpose:** Create a team.
 
@@ -1623,7 +1676,7 @@ export const createTeamBodySchema = z.object({
 
 ### PATCH /v1/teams/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.teams.write`
 
 **Purpose:** Rename a team.
 
@@ -1646,7 +1699,7 @@ export const createTeamBodySchema = z.object({
 
 ### DELETE /v1/teams/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.teams.write`
 
 **Purpose:** Delete a team.
 
@@ -1666,7 +1719,7 @@ export const createTeamBodySchema = z.object({
 
 ---
 
-## `managed-partnerships.ts` — `/v1/managed-partnerships`
+## `routers/managed_partnerships.py` — `/v1/managed-partnerships`
 
 Schema (`src/schemas`):
 
@@ -1681,7 +1734,7 @@ export const createManagedPartnershipBodySchema = z.object({
 
 ### GET /v1/managed-partnerships
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partnerships.read`
 
 **Purpose:** List active managed partnerships for caller.
 
@@ -1715,7 +1768,7 @@ export const createManagedPartnershipBodySchema = z.object({
 
 ### POST /v1/managed-partnerships
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partnerships.write`
 
 **Purpose:** Create a managed partnership.
 
@@ -1735,7 +1788,7 @@ export const createManagedPartnershipBodySchema = z.object({
 
 ### PATCH /v1/managed-partnerships/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partnerships.write`
 
 **Purpose:** Update names on a managed partnership.
 
@@ -1758,7 +1811,7 @@ export const createManagedPartnershipBodySchema = z.object({
 
 ### DELETE /v1/managed-partnerships/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.partnerships.write`
 
 **Purpose:** Soft-delete partnership and its songs. Their event submissions are deleted; after commit, a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
 
@@ -1780,7 +1833,7 @@ export const createManagedPartnershipBodySchema = z.object({
 
 ---
 
-## `event-song-submissions.ts` — `/v1/event-song-submissions`
+## `routers/event_song_submissions.py` — `/v1/event-song-submissions`
 
 Schema (`src/schemas`):
 
@@ -1793,7 +1846,7 @@ export const createEventSongSubmissionBodySchema = z.object({
 
 ### GET /v1/event-song-submissions
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.submissions.read`
 
 **Purpose:** List caller's event song submissions.
 
@@ -1840,9 +1893,9 @@ const listQuery = z.object({
 
 ### POST /v1/event-song-submissions
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.submissions.write`
 
-**Purpose:** Link an owned song, or a non-deleted song shared with the caller as its linked partner, to an event. Both partners fill the same entity slot; the caller who submits is the one who lists and withdraws the submission. On success a `copy` Drive job is enqueued to put the file in the event folder; an enqueue failure is reported to Sentry but does not fail the request ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
+**Purpose:** Link a song the caller owns, or one shared with them as its linked partner, to an event. A deleted song cannot be submitted. Both partners fill the same entity slot; the caller who submits is the one who lists and withdraws the submission. On success a `copy` Drive job is enqueued to put the file in the event folder; an enqueue failure is reported to Sentry but does not fail the request ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
 
 **Path params / Query params:** none
 
@@ -1854,7 +1907,7 @@ const listQuery = z.object({
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
-| 404 | `NOT_FOUND` | Song not found | Neither owned nor shared with the caller |
+| 404 | `NOT_FOUND` | Song not found | Deleted, or neither owned nor shared with the caller |
 | 404 | `NOT_FOUND` | Event not found | |
 | 409 | `conflict` | That song is already submitted to this event. | Unique violation |
 | 500 | `INTERNAL` | … | Insert failed |
@@ -1863,7 +1916,7 @@ const listQuery = z.object({
 
 ### DELETE /v1/event-song-submissions/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.submissions.write`
 
 **Purpose:** Remove caller's submission. If it had an event copy, a `trash` Drive job is enqueued for it after the delete ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
 
@@ -1884,7 +1937,7 @@ const listQuery = z.object({
 
 ---
 
-## `songs.ts` — `/v1/songs`
+## `routers/songs.py`, `routers/song_uploads.py` — `/v1/songs`
 
 Schemas:
 
@@ -1936,9 +1989,17 @@ Song object in responses:
   "partner_first_name": "Bob",
   "partner_last_name": "Jones",
   "partner_kind": "partner",
+  "managed_partnership_id": null,
+  "managed_leader_first_name": null,
+  "managed_leader_last_name": null,
+  "managed_follower_first_name": null,
+  "managed_follower_last_name": null,
+  "partnership_label": "Ada Lovelace & Bob Jones",
   "shared_with_me": false
 }
 ```
+
+The partner and `managed_*` name fields are filled only where the route joins them, and are `null` otherwise: `GET /v1/songs` joins both; the single-song routes join the partner only, so their `managed_*` names are `null` even when `managed_partnership_id` is set. `partnership_label` is who the song is for, ready to show (the managed partnership's leader & follower, a placeholder partner's own name, or owner and partner, leader first); it is computed by `GET /v1/songs` only, `null` elsewhere and for a song with neither a partner nor a managed partnership.
 
 `shared_with_me` is true when the caller is not the song's owner but its
 partner: the song's `partner_id` names a row in the owner's address book whose
@@ -1949,7 +2010,7 @@ it.
 
 ### GET /v1/songs
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.songs.read`
 
 **Purpose:** List caller's non-deleted songs, and non-deleted songs shared with the caller as the song's linked partner (`shared_with_me: true`).
 
@@ -1971,7 +2032,7 @@ it.
 
 ### POST /v1/songs
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.songs.write`
 
 **Purpose:** Create a song metadata row without file upload (legacy path; prefer chunked upload).
 
@@ -1991,7 +2052,7 @@ it.
 
 ### GET /v1/songs/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.songs.read`
 
 **Purpose:** Fetch one owned song, or one shared with the caller as its linked partner (`shared_with_me: true`).
 
@@ -2013,7 +2074,7 @@ it.
 
 ### PATCH /v1/songs/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.songs.write`
 
 **Purpose:** Update song metadata. Owner only: a linked partner gets 404.
 
@@ -2036,7 +2097,7 @@ it.
 
 ### DELETE /v1/songs/:id
 
-**Auth:** requireAuth
+**Auth:** `deejaytools.songs.write`
 
 **Purpose:** Soft-delete song and remove event submissions. Owner only: a linked partner gets 404. The song's own Drive file is moved to `_deprecated` inline (best-effort; failure is logged and ignored), and after commit a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#song-deletion)).
 
@@ -2060,9 +2121,9 @@ it.
 
 ### POST /v1/songs/upload/chunk
 
-**Auth:** requireAuth. `on_behalf_of_user_id` also needs `deejaytools.delegation.act`: through a role (admins, `event_id` not needed), or granted on the event `event_id` names (its DJ or event manager)
+**Auth:** `deejaytools.songs.write`. `on_behalf_of_user_id` also needs `deejaytools.delegation.act`: through a role (admins, for anyone, `event_id` not needed), or granted on the event `event_id` names (its DJ or event manager), and then only for a person connected to that event (as for `POST /v1/checkins`); for anyone else the DJ or event manager gets 403. Checked on every chunk
 
-**Purpose:** Chunked upload. The song row is created when the final chunk arrives and returned at once; tagging, the Drive upload and the row's Drive fields happen in the background afterwards, and the row is deleted again if that fails. Staging, filename construction and the background steps are specified in [DRIVE.md](./DRIVE.md#upload-pipeline).
+**Purpose:** Chunked upload. The song row is created when the final chunk arrives and returned at once; tagging, the Drive upload and the row's Drive fields happen in the background afterwards, staged in `song_uploads` ([ADR-0001](decisions/ADR-0001-durable-song-builds.md)). A failed build is retried; a song nothing references yet is deleted again instead. The song's `season_year` is the upload's season by its **UTC** date: it rolls over at 00:00 UTC on October 1 ([ADR-0011](decisions/ADR-0011-season-year-rolls-over-october-1.md)). Staging, filename construction and the background steps are specified in [DRIVE.md](./DRIVE.md#upload-pipeline).
 
 **Path params / Query params:** none
 
@@ -2082,11 +2143,11 @@ it.
 | `routine_name` | string | optional | |
 | `personal_descriptor` | string | optional | |
 | `on_behalf_of_user_id` | string | admin, or event DJ / event manager | Target owner |
-| `event_id` | string | staff on behalf | api-deejaytools only. The event an upload on behalf is for: the delegation is decided on it ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)). Needed by a DJ or event manager, optional for an admin; not stored, and ignored without `on_behalf_of_user_id` |
+| `event_id` | string | staff on behalf | The event an upload on behalf is for: the delegation is decided on it ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)). Needed by a DJ or event manager, optional for an admin; not stored, and ignored without `on_behalf_of_user_id` |
 | `entity_type` | `team` \| `other` | portal uploads | Creates placeholder partner. Any other non-empty value, including `solo`, is rejected with `Invalid entity_type` (the handler's solo branch is unreachable) |
 | `entity_name` | string | `other` / optional solo | |
 | `team_id` | string | team uploads | Must own team |
-| `submit_to_event` | `"true"` | optional | api-deejaytools only. With `on_behalf_of_user_id` and `event_id`: also submits the song to that event in the same request, the dancer as submitter and the caller as uploader, with the song's own division and the default round (no override). `partner_id`, if sent, must be one of the dancer's partners of kind `partner` (`GET /v1/events/:id/people/:user_id/partners`). Not for portal uploads |
+| `submit_to_event` | `"true"` | optional | With `on_behalf_of_user_id` and `event_id`: also submits the song to that event in the same request, the dancer as submitter and the caller as uploader, with the song's own division and the default round (no override). `partner_id`, if sent, must be one of the dancer's partners of kind `partner` (`GET /v1/events/:id/people/:user_id/partners`). Not for portal uploads |
 
 **Response (non-final chunk):**
 
@@ -2110,7 +2171,7 @@ it.
 
 `submission` is there only with `submit_to_event`: the submission as `POST /v1/event-song-submissions` answers it. Its Drive copy follows once the song's build has a file.
 
-In this response `processed_filename`, `season_year`, `drive_file_id` and `drive_folder_id` are always null, and the partner name fields are null. They are filled in when the background build finishes; poll `GET /v1/songs/:id` (it 404s if the build failed and the row was removed).
+In this response `processed_filename`, `season_year`, `drive_file_id` and `drive_folder_id` are always null, and the partner name fields are null. They are filled in when the background build finishes; poll `GET /v1/songs/:id` (it 404s if the build failed and the unreferenced row was removed).
 
 **Errors:** listed in the order the handler checks them. The first group applies to every chunk; the rest only to the final chunk.
 
@@ -2123,8 +2184,10 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 400 | `BAD_REQUEST` | chunk_index out of range | `chunk_index >= total_chunks` |
 | 400 | `BAD_REQUEST` | Missing chunk field | `chunk` absent or not a file |
 | 400 | `BAD_REQUEST` | submit_to_event needs on_behalf_of_user_id and event_id | `submit_to_event` without either |
-| 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` through a role or on `event_id`'s event (a DJ without `event_id` included) |
+| 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` through a role or on `event_id`'s event (a DJ without `event_id` included), or for a person not connected to that event |
 | 400 | `BAD_REQUEST` | Chunk exceeds 10 MB limit | Chunk > 10 MiB |
+| 429 | `TOO_MANY_UPLOADS` | You have 3 uploads in progress. Finish or wait for one before starting another. | First chunk of a new upload while the caller already has 3 uploads staged (counted per caller, also when uploading on behalf) |
+| 400 | `BAD_REQUEST` | File exceeds 100 MB limit | Any chunk that takes the upload's staged chunks past 110 MiB; the staged chunks are removed |
 | 400 | `BAD_REQUEST` | Portal uploads cannot specify partner_id or managed_partnership_id | Final chunk: `entity_type` with a partner field |
 | 400 | `BAD_REQUEST` | Invalid entity_type | Not `team` / `other` |
 | 400 | `BAD_REQUEST` | Target user not found | On-behalf user missing |
@@ -2143,7 +2206,7 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 409 | `CHUNK_MISSING` | Expected N chunks but only received M. Please retry the upload. | Chunk count ≠ `total_chunks` |
 | 400 | `BAD_REQUEST` | File exceeds 100 MB limit | Assembled size > 110 MiB |
 | 400 | `UNSUPPORTED_FORMAT` | That file doesn't look like a supported audio format. Please upload an MP3, WAV, FLAC, or M4A. | Magic-byte check |
-| 500 | `INTERNAL` | … | Unhandled error (e.g. song insert), via `app.onError` |
+| 500 | `INTERNAL` | … | Unhandled error (e.g. song insert) |
 
 Also from global middleware: `413 payload_too_large` for a request body over 11 MiB, `429 too_many_requests`, and the shared auth rows.
 
@@ -2151,13 +2214,13 @@ Also from global middleware: `413 payload_too_large` for a request body over 11 
 
 ---
 
-## `feedback.ts` — `/v1/feedback`
+## `routers/feedback.py` — `/v1/feedback`
 
 ### POST /v1/feedback
 
 **Auth:** public
 
-**Purpose:** Submit site feedback (optional Brevo email when `BREVO_API_KEY`, `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL` are all set; api-deejaytools reads the sender and recipient from settings, where deejaytools-api had them in code).
+**Purpose:** Submit site feedback (optional Brevo email when `BREVO_API_KEY`, `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL` are all set).
 
 **Path params / Query params:** none
 
@@ -2200,15 +2263,13 @@ const feedbackBodySchema = z
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
 | 400 | `VALIDATION_ERROR` | … | Invalid body / screenshot format |
-| 502 | `EMAIL_FAILED` | Failed to send email. Please try again. | Brevo API error |
+| 502 | `EMAIL_FAILED` | Failed to send email. Please try again. | Brevo refused the email, could not be reached, or did not answer within the call's 10 s timeout |
 
 If `BREVO_API_KEY` or either feedback address is unset, feedback is logged and **201** still returned. Production refuses to start without both addresses.
 
 ---
 
 ## Divisions — `/v1/divisions`
-
-api-deejaytools only, not in deejaytools-api: the division list the web app used to keep its own copy of.
 
 ### GET /v1/divisions
 
@@ -2236,11 +2297,11 @@ api-deejaytools only, not in deejaytools-api: the division list the web app used
 
 ---
 
-## `admin-checkins.ts` — `/v1/admin/checkins`
+## `routers/admin_checkins.py` — `/v1/admin/checkins`
 
 ### POST /v1/admin/checkins
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.testdata.write`
 
 **Purpose:** Inject synthetic test check-in (stub user/partner/pair/song).
 
@@ -2293,7 +2354,7 @@ Bypasses check-in time window.
 
 ### GET /v1/admin/checkins/test
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.testdata.read`
 
 **Purpose:** List synthetic test injections (`admin-injected-*@test.local` users).
 
@@ -2330,7 +2391,7 @@ Bypasses check-in time window.
 
 ### DELETE /v1/admin/checkins/test
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.testdata.write`
 
 **Purpose:** Hard-delete all synthetic test injection data.
 
@@ -2350,11 +2411,11 @@ Bypasses check-in time window.
 
 ---
 
-## `admin-songs.ts` — `/v1/admin/songs`
+## `routers/admin_songs.py` — `/v1/admin/songs`
 
 ### GET /v1/admin/songs
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.library.read`
 
 **Purpose:** Searchable directory of all songs.
 
@@ -2411,7 +2472,7 @@ const listQuery = z.object({
 
 ---
 
-## `admin-drive-jobs.ts` — `/v1/admin/drive-jobs`
+## `routers/admin_drive_jobs.py` — `/v1/admin/drive-jobs`
 
 Operator view of the `drive_jobs` queue: the background Drive copy / rename /
 deprecate work. What the jobs do, when they are enqueued, and the state machine
@@ -2422,7 +2483,7 @@ matches before the list route would ever see it.
 
 ### GET /v1/admin/drive-jobs/summary
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.drivejobs.read`
 
 **Purpose:** Queue health in one call — job counts by status, plus how many
 submissions still have no event copy.
@@ -2459,7 +2520,7 @@ submissions still have no event copy.
 
 ### GET /v1/admin/drive-jobs
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.drivejobs.read`
 
 **Purpose:** Recent jobs, most recently updated first, with the last error.
 
@@ -2502,11 +2563,11 @@ const listQuery = z.object({
 ```
 
 - Ordered by `updated_at` descending, then truncated to `limit`.
-- `kind` is `copy` | `rename` | `trash`, and in api-deejaytools also
-  `share_event_folder` | `unshare_event_folder` ([DRIVE.md](./DRIVE.md#job-kinds)).
-  `submission_id` is set for copy and rename, `file_id` for trash.
-  `event_id` and `user_id` (api-deejaytools only) are set for the two folder
-  kinds, and a share's `file_id` is the folder it shared once it ran.
+- `kind` is `copy` | `rename` | `trash` | `share_event_folder` |
+  `unshare_event_folder` | `share_song` ([DRIVE.md](./DRIVE.md#job-kinds)).
+  `submission_id` is set for copy and rename, `file_id` for trash and
+  `share_song`. `event_id` and `user_id` are set for the two folder kinds,
+  and a share's `file_id` is the folder it shared once it ran.
 - `event_name` comes from a left join through the submission, or else through
   the job's `event_id`: `null` for trash jobs and for jobs whose submission or
   event has since been deleted.
@@ -2524,11 +2585,11 @@ const listQuery = z.object({
 
 ### POST /v1/admin/drive-jobs/backfill-renames
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.drivejobs.write`
 
 **Purpose:** Enqueue a `rename` job for every submission that has an event copy,
 re-applying the current naming rule. Run after any change to
-`resolveSubmissionFilename`. Safe to repeat: a rename whose name already matches
+`resolve_submission_filename()` (`src/api_deejaytools/submissions.py`). Safe to repeat: a rename whose name already matches
 makes no Drive write.
 
 **Path params / Query params:** none
@@ -2555,7 +2616,7 @@ They run on later scheduler ticks, 10 per tick.
 
 ### POST /v1/admin/drive-jobs/:id/retry
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.drivejobs.write`
 
 **Purpose:** Return an exhausted (`failed`) job to the queue: `status = 'pending'`,
 `attempts = 0`, `next_attempt_at = updated_at = now`. `last_error` is kept until the
@@ -2584,17 +2645,17 @@ between the read and the write is reported as a conflict rather than overwritten
 | 409 | `conflict` | Job is `<status>`, not failed — only exhausted jobs can be retried. | Job is `pending`, `running` or `done` (`<status>` is the actual value) |
 | 409 | `conflict` | Job changed state before it could be retried — re-check and try again. | Status changed between the read and the update |
 
-Unlike the other three routes this handler has no `try`/`catch`: a database error
-goes to `app.onError` (500 `INTERNAL`, reported to Sentry, with the raw error
-message outside production).
+Unlike the other three routes this handler catches nothing: a database error
+goes to the app's unhandled-exception handler (500 `INTERNAL`, reported to
+Sentry, with the raw error message outside production).
 
 ---
 
-## `admin-event-submissions.ts` — `/v1/admin/event-song-submissions`
+## `routers/admin_event_submissions.py` — `/v1/admin/event-song-submissions`
 
 ### GET /v1/admin/event-song-submissions
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.entries.read`
 
 **Purpose:** All submissions for one event (Manager Event Songs tab).
 
@@ -2632,7 +2693,7 @@ const listQuery = z.object({
 }
 ```
 
-`owner_user_id` is the song owner's user id, the `on_behalf_of_user_id` that `POST /v1/checkins` takes to check in for that song. api-deejaytools only, not in deejaytools-api.
+`owner_user_id` is the song owner's user id, the `on_behalf_of_user_id` that `POST /v1/checkins` takes to check in for that song.
 
 **Errors:**
 
@@ -2645,7 +2706,7 @@ const listQuery = z.object({
 
 ### GET /v1/events/:id/song-submissions
 
-api-deejaytools only, not in deejaytools-api: the same list for an event's staff, outside `/v1/admin` ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
+The same list for an event's staff, outside `/v1/admin` ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
 
 **Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
 
@@ -2657,7 +2718,7 @@ api-deejaytools only, not in deejaytools-api: the same list for an event's staff
 
 **Request body:** none
 
-**Response:** As `GET /v1/admin/event-song-submissions` for `event_id` = `id`, `owner_user_id` included.
+**Response:** As `GET /v1/admin/event-song-submissions` for `event_id` = `id`, `owner_user_id` included, except that `submitter_email` is masked (`d•••@example.com`) for every caller but an admin; admins see it whole.
 
 **Errors:**
 
@@ -2671,7 +2732,7 @@ api-deejaytools only, not in deejaytools-api: the same list for an event's staff
 
 ### GET /v1/events/:id/people
 
-api-deejaytools only, not in deejaytools-api: the staff portals' person picker ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
+The staff portals' person picker ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
 
 **Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
 
@@ -2724,7 +2785,7 @@ const query = z.object({
 
 ### GET /v1/events/:id/people/:user_id/partners
 
-api-deejaytools only, not in deejaytools-api: the partner list for a staff upload on behalf.
+The partner list for a staff upload on behalf.
 
 **Auth:** `deejaytools.delegation.act` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its DJ or event manager). The admin-wide `GET /v1/admin/users/:id/partners` stays admin-only.
 
@@ -2734,7 +2795,7 @@ api-deejaytools only, not in deejaytools-api: the partner list for a staff uploa
 
 **Query params / Request body:** none
 
-**Response:** the partners, as `GET /v1/partners` returns them.
+**Response:** the partners, as `GET /v1/partners` returns them, except for a non-admin caller: each `email` is masked (`b•••@example.com`) and `linked_user_id` is `null`. Admins see both whole.
 
 **Errors:**
 
@@ -2746,11 +2807,11 @@ api-deejaytools only, not in deejaytools-api: the partner list for a staff uploa
 
 ---
 
-## `admin-users.ts` — `/v1/admin/users`
+## `routers/admin_users.py` — `/v1/admin/users`
 
 ### GET /v1/admin/users
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.users.read`
 
 **Purpose:** User directory with song/partner counts.
 
@@ -2797,7 +2858,7 @@ const listQuery = z.object({
 
 ### PATCH /v1/admin/users/:id/role
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.users.write`
 
 **Purpose:** Promote or demote a user.
 
@@ -2825,7 +2886,7 @@ const updateRoleBody = z.object({ role: z.enum(["user", "admin"]) });
 
 ### GET /v1/admin/users/:id/partners
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.users.read`
 
 **Purpose:** Partner roster for a user (Upload For flow).
 
@@ -2847,7 +2908,7 @@ const updateRoleBody = z.object({ role: z.enum(["user", "admin"]) });
 
 ### GET /v1/admin/users/:id/event-song-submissions
 
-**Auth:** requireAdmin
+**Auth:** `deejaytools.users.read`
 
 **Purpose:** Event submissions for a specific user and event.
 
@@ -2872,17 +2933,29 @@ const submissionsQuery = z.object({ event_id: z.string().min(1) });
 
 ---
 
+## Routes without a web-app caller
+
+The web app does not call these. They are kept as part of the API, for direct use (scripts, operators, a future screen), and are tested like every other route:
+
+| Route | What it is for |
+|-------|----------------|
+| `POST /v1/queue/promote` | Moving one waiting entry to the active queue by hand; the scheduler's auto-fill does this in normal running |
+| `GET /v1/partners/:id` | Reading one partner; the web app reads the list |
+| `POST /v1/songs` | Creating a song record without a file; the web app creates songs through the chunked upload |
+| `GET /v1/songs/:id` | Reading one song; the web app reads the list |
+| `PATCH /v1/songs/:id` | Editing a song's fields (owner only); the web app has no song-edit screen yet |
+
 ## Not implemented
 
 These routes appear in older docs, comments, or migration history but **do not exist** in the current API:
 
 | Route | Notes |
 |-------|-------|
-| `GET /v1/legacy-songs` | Removed with claim-legacy flow; `legacy_songs` table may exist in DB from migration `0002` but has no handler |
-| `POST /v1/songs/claim-legacy` | Removed; legacy metadata now uses `songs.processed_filename` prefix `[Legacy] ` |
-| `/v1/music-history` | Frontend route removed; was a separate legacy catalog UI |
-| `/v1/floor-slots` / slot fill routes | Replaced by `/v1/queue/*` (ADR-0005) |
-| `GET /v1/queue-events` | Audit log is written but no read API in v1 |
-| `GET /v1/event-registrations` | Table dropped in migration `0004` |
+| `GET /v1/legacy-songs` | No handler; the `legacy_songs` table exists but nothing reads it |
+| `POST /v1/songs/claim-legacy` | Legacy metadata lives in `songs` rows whose `processed_filename` starts with `[Legacy] ` |
+| `/v1/music-history` | No such route |
+| `/v1/floor-slots` / slot fill routes | The queue is `/v1/queue/*` ([ADR-0006](decisions/ADR-0006-floor-trial-queue-model-as-built.md)) |
+| `GET /v1/queue-events` | Audit log is written but has no read API |
+| `GET /v1/event-registrations` | No such table |
 
-Catch-all unknown paths return **404** with `CommonErrors.notFound()`.
+Unknown paths, and a known path with an unsupported method, return **404** `NOT_FOUND` "Not found".

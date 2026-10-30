@@ -1,7 +1,7 @@
 """The api-deejaytools FastAPI app.
 
-Replaces deejaytools-api (Hono/Node) on the same database, answering the
-web app exactly as it does (ADR-0007, ADR-0010). Package
+Serves the web app over the deejaytools database, on the wire contract it
+expects (ADR-0007, ADR-0010). Package
 identity (DOC-009): the repository is api-deejaytools, the distribution is
 ``api-deejaytools`` and the import package is ``api_deejaytools``.
 """
@@ -114,7 +114,7 @@ def _build_app() -> FastAPI:
         title="api-deejaytools",
         version=__version__,
         lifespan=lifespan,
-        # Hono answers /v1/events/ with 404, not a redirect to /v1/events.
+        # /v1/events/ is a 404, not a redirect to /v1/events.
         redirect_slashes=False,
     )
 
@@ -123,13 +123,12 @@ def _build_app() -> FastAPI:
 
     # Starlette runs the last-added middleware first. Inside out: the
     # deadline, the rate limit (both /v1/* only), the body limit, then CORS
-    # around all of them so its headers reach every answer, as in
-    # deejaytools-api (cors, bodyLimit, rateLimit, timeout).
+    # around all of them so its headers reach every answer.
     app.add_middleware(DeadlineMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(BodyLimitMiddleware)
 
-    # As deejaytools-api: origins from DEEJAYTOOLS_CORS_ORIGINS, these
+    # Origins from DEEJAYTOOLS_CORS_ORIGINS, these
     # methods and headers, no credentials (the web app sends a bearer token).
     app.add_middleware(
         CORSMiddleware,

@@ -25,14 +25,17 @@ The season year is the calendar year, plus one from October 1:
 - January to September belong to that year's season; October to December
   belong to the next year's. A song uploaded in October 2026, and The Open
   held that November, are both season 2027.
-- A song takes its season when its upload is accepted
-  (`song_builds.season_year_now()`, the server's clock), and keeps it
-  through retried builds.
+- A song takes its season when its upload is accepted, by the UTC date
+  (`song_builds.season_year_now()`), and keeps it through retried builds.
+  UTC whatever timezone the server runs in, so the rollover is the same
+  instant everywhere: midnight UTC on October 1, which is 7 pm Central on
+  September 30.
 - An event's season is its `season_year` override, else its start date's
   season (`domain.season_year_from_date_string`).
-- The web app suggests an event's season the same way
-  (deejaytools-com `src/lib/seasonYear.ts`); the rollover month must match
-  everywhere it is defined.
+- Both are one rule, defined once here (`domain.SEASON_ROLLOVER_MONTH`
+  and `domain.season_year_for`). The web app suggests an event's season the
+  same way (deejaytools-com `src/lib/seasonYear.ts`); the rollover month
+  must match there.
 
 ## Consequences
 

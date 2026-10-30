@@ -1,7 +1,5 @@
 # ADR-0004: Clerk verification: session JWTs only, no M2M
 
-**Ported from:** deejaytools-api ADR-0003 on 2026-10-25, when that repository was archived as [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api/tree/main/docs/decisions). Numbers are shifted by one to follow this repository's ADR-0001; only titles, citations and links were changed. In the body, "this repository" and "this service" mean deejaytools-api.
-
 Date: 2026-04-24
 
 ## Status
@@ -30,6 +28,10 @@ the work described in the note below applies.
 > verifier alongside the JWT one, routed structurally by dot count.
 
 ## Context
+
+Written in deejaytools-api, the Node service this one replaced (archived as
+legacy-graveyard/deejaytools-api); in this record "this service", "this
+API" and "this repository" mean deejaytools-api.
 
 ecosystem-standards CD-012 requires API services to verify both:
 1. Clerk session JWTs (RS256, verified locally against JWKS) — for

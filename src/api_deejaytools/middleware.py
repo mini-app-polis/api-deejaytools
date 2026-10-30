@@ -1,4 +1,4 @@
-"""Request limits, as deejaytools-api applies them (docs/API.md, ADR-0010).
+"""Request limits (docs/API.md, ADR-0010).
 
     body limit   every path   11 MiB      413 payload_too_large
     rate limit   /v1/* only   300 / min   429 too_many_requests   per client IP
@@ -9,8 +9,8 @@ Pure ASGI middleware rather than ``BaseHTTPMiddleware``: the body limit has
 to see the stream before the app does, and the deadline has to answer while
 the handler is still running.
 
-State is process-local (one window table, one set of background handlers),
-as in deejaytools-api: the service runs as a single process.
+State is process-local (one window table, one set of background handlers):
+the service runs as a single process.
 """
 
 from __future__ import annotations
@@ -133,7 +133,7 @@ class BodyLimitMiddleware:
 
 
 def client_address(scope: Scope) -> str:
-    """The client's address as deejaytools-api keys it: Cloudflare's header,
+    """The client's address the rate limit keys on: Cloudflare's header,
     then the first X-Forwarded-For hop (Railway's proxy), then "unknown"."""
     cf = _header(scope, b"cf-connecting-ip")
     if cf is not None:
@@ -200,7 +200,7 @@ class RateLimitMiddleware:
 class DeadlineMiddleware:
     """Answer 503 request_timeout when a /v1/* handler overruns its deadline.
 
-    As in deejaytools-api the handler is not cancelled: it runs on in the
+    The handler is not cancelled: it runs on in the
     background and whatever it writes still lands, but its response is
     discarded. A handler that has already started responding is left to
     finish.

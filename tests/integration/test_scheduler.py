@@ -132,7 +132,7 @@ async def test_tick_runs_sessions_then_drive_each_in_its_own_session(
 async def test_session_failure_does_not_stop_drive_work(steps: dict[str, Any]) -> None:
     steps["raise"].add("statuses")
     await scheduler.run_tick()
-    # As deejaytools-api: the session steps share one try block.
+    # The session steps share one try block.
     assert [c[0] for c in steps["calls"]] == ["statuses", "builds", "drive", "sweep"]
     errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
     assert len(errors) == 1 and "tick_failed" in errors[0]
@@ -243,7 +243,7 @@ async def test_event_folder_sweep_failure_is_logged_and_reported(
 async def test_drive_work_waits_when_drive_is_not_configured(
     steps: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Failing them would burn the retries of jobs deejaytools-api can run.
+    # Failing them would burn their retries before Drive is configured.
     monkeypatch.setattr(scheduler.drive, "drive_configured", lambda: False)
     monkeypatch.setattr(scheduler, "_drive_skip_logged", False)
     await scheduler.run_tick()
@@ -354,7 +354,7 @@ async def test_default_tick_is_run_tick(monkeypatch: pytest.MonkeyPatch) -> None
     ("raw", "disabled"),
     [("1", True), ("0", False), ("true", False), ("", False), (" 1", False)],
 )
-def test_disable_scheduler_is_read_as_deejaytools_api_reads_it(
+def test_disable_scheduler_is_on_only_for_exactly_1(
     monkeypatch: pytest.MonkeyPatch, raw: str, disabled: bool
 ) -> None:
     monkeypatch.setenv("DISABLE_SCHEDULER", raw)

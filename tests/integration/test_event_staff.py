@@ -88,6 +88,30 @@ async def test_admin_grants_and_lists(
     assert [r["role_name"] for r in roles] == ["deejaytools-dancer"]
 
 
+async def test_an_event_manager_sees_staff_emails_masked(
+    client: httpx.AsyncClient, person: Callable
+) -> None:
+    admin = await person("admin", admin=True)
+    manager = await person("manager")
+    bob = await person("bob")
+    event_id = await _event(client, admin)
+    assert (
+        await _grant(client, admin, event_id, manager.id, "event-manager")
+    ).status_code == 200
+
+    granted = await _grant(client, manager, event_id, bob.id, "dj")
+    assert granted.status_code == 200, granted.text
+    assert "•••@" in granted.json()["data"]["email"]
+
+    listed = await client.get(f"/v1/events/{event_id}/staff", headers=manager.headers)
+    assert listed.status_code == 200
+    emails = [g["email"] for g in listed.json()["data"]]
+    assert emails and all("•••@" in e for e in emails)
+
+    as_admin = await client.get(f"/v1/events/{event_id}/staff", headers=admin.headers)
+    assert all("•••" not in g["email"] for g in as_admin.json()["data"])
+
+
 async def test_grant_is_idempotent(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:

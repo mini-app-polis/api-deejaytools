@@ -1,4 +1,4 @@
-"""``/v1/events`` (docs/API.md; deejaytools-api src/routes/events.ts).
+"""``/v1/events`` (docs/API.md).
 
 Reads of an event are public; who is entered is behind
 ``deejaytools.entities.read``; changes are behind ``deejaytools.events.write``.
@@ -11,20 +11,22 @@ no event, so it needs the scope through a role.
 from __future__ import annotations
 
 import re
-import time
 import uuid
 from typing import Annotated, Any
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy import delete, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from ..auth import Caller, EventRef, require_event_scope, require_scope
 from ..cache import invalidate_all_session_caches
+from ..clock import now_ms
 from ..database import get_db_session
 from ..domain import (
     DEFAULT_TIMEZONE,
@@ -92,7 +94,7 @@ def _season_year(value: str) -> str:
 
 
 def _timezone(value: str) -> str:
-    # Stored as sent, as deejaytools-api stores it; checked the way Intl
+    # Stored as sent; checked the way Intl
     # checks it (any IANA name, case-insensitively).
     if not value or canonical_timezone(value) is None:
         raise ValueError("Must be a valid IANA timezone (e.g. 'America/Chicago')")
@@ -221,10 +223,6 @@ def map_event(row: Event) -> dict[str, Any]:
     }
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
 async def _load(session: AsyncSession, event_id: str) -> Event:
     row = await session.get(Event, event_id)
     if row is None:
@@ -349,7 +347,8 @@ async def event_entities(
                 .where(EventSongSubmission.event_id == id)
             )
         ).all()
-    except Exception as exc:  # noqa: BLE001 - logged, answered as deejaytools-api does
+    except SQLAlchemyError as exc:
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(LOG_FAILURE, f"event_entity_list_failed {id}: {exc!r}")
         )
@@ -435,7 +434,7 @@ async def create_event(
         raise api_error(
             400, ErrorCode.BAD_REQUEST, "start_date must be on or before end_date"
         )
-    now = _now_ms()
+    now = now_ms()
     row = Event(
         id=str(uuid.uuid4()),
         name=body.name,
@@ -484,7 +483,7 @@ async def patch_event(
         value = getattr(body, field)
         if value is not None:
             setattr(row, field, value)
-    row.updated_at = _now_ms()
+    row.updated_at = now_ms()
     if event_folder_path(row.name, row.season_year, row.start_date) != folder:
         await reshare_event_folder(session, id)
     await session.commit()

@@ -1,4 +1,4 @@
-"""Golden cases for magic-byte detection, ported from deejaytools-api audioFormat.test.ts."""
+"""Golden cases for magic-byte detection."""
 
 from __future__ import annotations
 

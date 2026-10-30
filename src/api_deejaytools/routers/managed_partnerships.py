@@ -1,5 +1,4 @@
-"""``/v1/managed-partnerships`` (docs/API.md;
-deejaytools-api src/routes/managed-partnerships.ts).
+"""``/v1/managed-partnerships`` (docs/API.md).
 
 Couples a user manages by name only. Reads are behind
 ``deejaytools.partnerships.read``, changes behind
@@ -9,18 +8,20 @@ live (not soft-deleted) partnerships.
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Annotated, Any
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
+from ..clock import now_ms
 from ..database import get_db_session
 from ..errors import (
     ErrorCode,
@@ -101,10 +102,6 @@ def map_managed_partnership(row: ManagedPartnership) -> dict[str, Any]:
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
-
-
-def _now_ms() -> int:
-    return int(time.time() * 1000)
 
 
 def _internal(message: str = "Internal server error") -> JSONResponse:
@@ -206,7 +203,7 @@ async def create_managed_partnership(
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Create a managed partnership."""
-    now = _now_ms()
+    now = now_ms()
     partnership_id = str(uuid.uuid4())
     try:
         session.add(
@@ -219,8 +216,9 @@ async def create_managed_partnership(
             )
         )
         await session.commit()
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
         await session.rollback()
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,
@@ -258,11 +256,12 @@ async def patch_managed_partnership(
                 ManagedPartnership.id == id,
                 ManagedPartnership.user_id == caller.user_id,
             )
-            .values(updated_at=_now_ms(), **_titled(body))
+            .values(updated_at=now_ms(), **_titled(body))
         )
         await session.commit()
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
         await session.rollback()
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,
@@ -321,7 +320,7 @@ async def delete_managed_partnership(
             "This partnership has an active check-in. Complete or withdraw it first.",
         )
 
-    now = _now_ms()
+    now = now_ms()
     orphaned: list[str] = []
     try:
         # File ids come from RETURNING, not an earlier read: an UPDATE waits
@@ -347,9 +346,8 @@ async def delete_managed_partnership(
                 ).scalars()
                 if file_id is not None
             ]
-            # Fix of a docs/DRIVE.md known defect: deejaytools-api never deprecated
-            # these songs' own files, only their event copies. They are queued
-            # for trashing too, on the same condition as a song delete.
+            # These songs' own files are queued for trashing too, not only
+            # their event copies, on the same condition as a song delete.
             orphaned += [
                 s.drive_file_id for s in songs if s.drive_file_id and s.drive_folder_id
             ]
@@ -363,8 +361,9 @@ async def delete_managed_partnership(
             .values(deleted_at=now)
         )
         await session.commit()
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
         await session.rollback()
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,

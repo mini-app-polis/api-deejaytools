@@ -1,4 +1,4 @@
-"""``/v1/checkins`` (docs/API.md; deejaytools-api src/routes/checkins.ts).
+"""``/v1/checkins`` (docs/API.md).
 
 A dancer checks an entity into a session's waiting queue, lists their live
 check-ins, and withdraws their own. Writes are behind
@@ -14,23 +14,32 @@ first, change the queue, and auto-fill the active queue (ADR-0006).
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Annotated, Any, ClassVar, Literal
 
 from fastapi import APIRouter, Depends, Path, Request
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import ColumnElement, and_, delete, desc, func, insert, or_, select
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import ColumnElement, and_, desc, func, insert, or_, select
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from ..auth import Caller, authorize_delegation, require_scope
 from ..cache import invalidate_queue_cache, invalidate_session_cache
+from ..clock import now_ms
 from ..database import get_db_session
 from ..db_errors import driver_message
-from ..errors import ErrorCode, ErrorResponse, Meta, api_error, forbidden, success
+from ..errors import (
+    ErrorCode,
+    ErrorResponse,
+    Meta,
+    api_error,
+    bad_request,
+    conflict,
+    forbidden,
+    success,
+)
 from ..models import (
     Checkin,
     Event,
@@ -48,13 +57,13 @@ from ..queue import (
     AdmissionError,
     EntityRef,
     InitialQueue,
-    compact_after_removal,
     determine_initial_queue,
     entity_has_live_entry,
     fill_active_queue,
     load_admission_context,
     lock_session_for_fill,
     next_bottom_position,
+    remove_entry_of_checkin,
 )
 from ..queue.audit import record_queue_event
 from ..queue.labels import managed_label, pair_label
@@ -66,6 +75,14 @@ from ..zod_types import trimmed, zod_body
 logger = get_logger()
 
 router = APIRouter(prefix="/v1/checkins", tags=["checkins"])
+
+
+class _CheckinLeftQueue(Exception):
+    """The check-in had no queue entry once the session was locked."""
+
+
+class _CoupleCheckedIn(Exception):
+    """The other half of the couple checked in before the session lock."""
 
 
 NO_ATTACHABLE_ENTITY_MSG = (
@@ -190,18 +207,6 @@ class WithdrawnResponse(BaseModel):
     meta: Meta = Field(..., description="Response metadata.")
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
-def _bad_request(message: str) -> Exception:
-    return api_error(400, ErrorCode.BAD_REQUEST, message)
-
-
-def _conflict(message: str) -> Exception:
-    return api_error(409, "conflict", message)
-
-
 async def _managed_entity(
     db: AsyncSession, managed_partnership_id: str, user_id: str
 ) -> EntityRef:
@@ -216,14 +221,14 @@ async def _managed_entity(
         )
     ).first()
     if managed is None or managed.user_id != user_id:
-        raise _bad_request("Managed partnership not found")
+        raise bad_request("Managed partnership not found")
     return EntityRef(managed_partnership_id=managed_partnership_id)
 
 
 async def _song_pair(db: AsyncSession, owner_id: str, partner_id: str, now: int) -> str:
     """The pair of a song's owner and its partner, created if missing.
 
-    Node writes the pair outside the check-in transaction: it stays even when
+    The pair is written outside the check-in transaction: it stays even when
     the check-in is refused afterwards.
     """
     pair_id = (
@@ -363,8 +368,8 @@ async def create_checkin(
             await db.execute(select(User.id).where(User.id == on_behalf).limit(1))
         ).first()
         if target is None:
-            raise _bad_request("Target user not found")
-    now = _now_ms()
+            raise bad_request("Target user not found")
+    now = now_ms()
 
     session = (
         await db.execute(
@@ -379,9 +384,9 @@ async def create_checkin(
     if session is None:
         raise api_error(404, ErrorCode.NOT_FOUND, "Session not found")
     if now < session.checkin_opens_at:
-        raise _bad_request("Check-in has not opened yet")
+        raise bad_request("Check-in has not opened yet")
     if now > session.floor_trial_ends_at:
-        raise _bad_request("Check-in is closed for this session")
+        raise bad_request("Check-in is closed for this session")
 
     # The caller's own live song or, checking in for themselves, a live song
     # shared with them as its linked partner. A managed partnership's song
@@ -417,13 +422,13 @@ async def create_checkin(
                 pair_id=await _song_pair(db, effective_user_id, song.partner_id, now)
             )
         else:
-            raise _bad_request(NO_ATTACHABLE_ENTITY_MSG)
+            raise bad_request(NO_ATTACHABLE_ENTITY_MSG)
     elif song.user_id != effective_user_id:
         # A shared song: the entity is the owner's pair with this partner,
         # not one of the caller's own, so both partners check in as one.
         assert song.partner_id is not None  # shared means a linked partner
         if body.entityManagedPartnershipId:
-            raise _bad_request("This song is not associated with a managed partnership")
+            raise bad_request("This song is not associated with a managed partnership")
         named = (
             await db.execute(
                 select(Pair.user_a_id, Pair.partner_b_id).where(
@@ -432,11 +437,11 @@ async def create_checkin(
             )
         ).first()
         if named is None:
-            raise _bad_request("Pair not found")
+            raise bad_request("Pair not found")
         if named.user_a_id != effective_user_id and (
             named.user_a_id != song.user_id or named.partner_b_id != song.partner_id
         ):
-            raise _bad_request("You are not a member of this pair")
+            raise bad_request("You are not a member of this pair")
         entity = EntityRef(
             pair_id=await _song_pair(db, song.user_id, song.partner_id, now)
         )
@@ -453,23 +458,23 @@ async def create_checkin(
             )
         ).first()
         if pair is None:
-            raise _bad_request("Pair not found")
+            raise bad_request("Pair not found")
         if pair.user_a_id != effective_user_id:
-            raise _bad_request("You are not a member of this pair")
+            raise bad_request("You are not a member of this pair")
         entity = EntityRef(pair_id=body.entityPairId)
     elif body.entityManagedPartnershipId:
-        raise _bad_request("This song is not associated with a managed partnership")
+        raise bad_request("This song is not associated with a managed partnership")
     else:
-        raise _bad_request(NO_ATTACHABLE_ENTITY_MSG)
+        raise bad_request(NO_ATTACHABLE_ENTITY_MSG)
 
     if await entity_has_live_entry(db, entity, body.sessionId):
-        raise _conflict(LIVE_ENTRY_MSG)
+        raise conflict(LIVE_ENTRY_MSG)
     # The couple rule: a couple dances once per session, whichever partner's
     # pair holds the entry.
     if entity.pair_id and await _couple_has_live_entry(
         db, entity.pair_id, body.sessionId
     ):
-        raise _conflict(LIVE_ENTRY_MSG)
+        raise conflict(LIVE_ENTRY_MSG)
 
     if session.event_id is not None:
         submission = (
@@ -491,18 +496,18 @@ async def create_checkin(
                     f"user={effective_user_id}",
                 )
             )
-            raise _bad_request(NOT_SUBMITTED_MSG)
+            raise bad_request(NOT_SUBMITTED_MSG)
 
     try:
         ctx = await load_admission_context(db, body.sessionId, body.divisionName)
         initial_queue: InitialQueue = await determine_initial_queue(db, entity, ctx)
     except AdmissionError as exc:
-        raise _bad_request(str(exc)) from exc
+        raise bad_request(str(exc)) from exc
     except DBAPIError as exc:
-        # As deejaytools-api, which answers any error from the admission
-        # lookup (a NUL byte in divisionName, say) with 400 and its message.
+        # Any error from the admission lookup (a NUL byte in divisionName,
+        # say) is a 400 with the database's message.
         await db.rollback()
-        raise _bad_request(driver_message(exc)) from exc
+        raise bad_request(driver_message(exc)) from exc
 
     checkin_id = str(uuid.uuid4())
     # End the reads' implicit transaction so the check-in's own transaction
@@ -510,6 +515,13 @@ async def create_checkin(
     await db.commit()
     try:
         locked = await lock_session_for_fill(db, body.sessionId)
+        # Again under the lock: the check above ran before it, and no index
+        # holds a couple to one entry, so the other partner's check-in may
+        # have landed since.
+        if entity.pair_id and await _couple_has_live_entry(
+            db, entity.pair_id, body.sessionId
+        ):
+            raise _CoupleCheckedIn()
         await db.execute(
             insert(Checkin).values(
                 id=checkin_id,
@@ -555,8 +567,13 @@ async def create_checkin(
         if locked is not None:
             await fill_active_queue(db, locked, caller.user_id, now)
         await db.commit()
-    except Exception as exc:  # noqa: BLE001 - any failure is a 409, as in Node
+    except (
+        SQLAlchemyError,
+        _CoupleCheckedIn,
+    ) as exc:  # a refusal, or the transaction failed: a 409
         await db.rollback()
+        if isinstance(exc, _CoupleCheckedIn):
+            raise conflict(LIVE_ENTRY_MSG) from exc
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,
@@ -566,7 +583,7 @@ async def create_checkin(
                 f"{exc!r}",
             )
         )
-        raise _conflict(
+        raise conflict(
             "Check-in conflicted with concurrent activity; please retry"
         ) from exc
 
@@ -823,7 +840,7 @@ async def withdraw_my_checkin(
 ) -> dict[str, Any]:
     """Withdraw one of the caller's own check-ins."""
     user_id = caller.user_id
-    now = _now_ms()
+    now = now_ms()
 
     row = (
         await db.execute(
@@ -869,16 +886,17 @@ async def withdraw_my_checkin(
     await db.commit()
     try:
         locked = await lock_session_for_fill(db, row.session_id)
-        # Position and queue as read before the lock, as Node does.
-        await db.execute(delete(QueueEntry).where(QueueEntry.id == row.queue_entry_id))
-        await compact_after_removal(db, row.session_id, row.queue_type, row.position)
+        removed = await remove_entry_of_checkin(db, row.session_id, row.checkin_id)
+        if removed is None:
+            raise _CheckinLeftQueue()
+        from_queue, from_position = removed
         await record_queue_event(
             db,
             session_id=row.session_id,
             checkin_id=row.checkin_id,
             action="withdrawn",
-            from_queue=row.queue_type,
-            from_position=row.position,
+            from_queue=from_queue,
+            from_position=from_position,
             to_queue=None,
             to_position=None,
             actor_user_id=user_id,
@@ -888,15 +906,20 @@ async def withdraw_my_checkin(
         if locked is not None:
             await fill_active_queue(db, locked, user_id, now)
         await db.commit()
-    except Exception as exc:  # noqa: BLE001 - any failure is a 409, as in Node
+    except (
+        SQLAlchemyError,
+        _CheckinLeftQueue,
+    ) as exc:  # a refusal, or the transaction failed: a 409
         await db.rollback()
+        if isinstance(exc, _CheckinLeftQueue):
+            raise api_error(404, ErrorCode.NOT_FOUND, "Check-in not found") from exc
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,
                 f"checkin_self_withdraw_failed checkin={id} user={user_id}: {exc!r}",
             )
         )
-        raise _conflict(
+        raise conflict(
             "Withdraw conflicted with concurrent activity; please retry"
         ) from exc
 

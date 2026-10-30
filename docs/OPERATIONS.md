@@ -1,7 +1,6 @@
 # Operations
 
-Procedures for running this service on the database it took over from
-deejaytools-api.
+Procedures for running this service.
 
 ## Retrying failed song builds
 
@@ -27,12 +26,12 @@ WHERE status = 'failed';
 A retried build reuses a file it already uploaded (it finds it by its
 `deejaytools_song_id` appProperty), so a retry never uploads twice.
 
-## Configuration not carried over
+## Allowed origins
 
-Allowed origins come from `DEEJAYTOOLS_CORS_ORIGINS` (comma-separated) only.
-The unprefixed `CORS_ORIGINS`, which deejaytools-api read as a fallback, is
-ignored. Without `DEEJAYTOOLS_CORS_ORIGINS` the service allows only
-`http://localhost:5173`, so the web app's requests fail in the browser.
+Allowed origins come from `DEEJAYTOOLS_CORS_ORIGINS` (comma-separated) only;
+the unprefixed `CORS_ORIGINS` is not read. Without `DEEJAYTOOLS_CORS_ORIGINS`
+the service allows only `http://localhost:5173`, so the web app's requests
+fail in the browser.
 
 ## Discord notifications
 

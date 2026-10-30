@@ -1,7 +1,5 @@
 # ADR-0005: Floor-trial queue model
 
-**Ported from:** deejaytools-api ADR-0004 on 2026-10-25, when that repository was archived as [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api/tree/main/docs/decisions). Numbers are shifted by one to follow this repository's ADR-0001; only titles, citations and links were changed. In the body, "this repository" and "this service" mean deejaytools-api.
-
 Date: 2026-04-25
 
 ## Status
@@ -16,6 +14,10 @@ pessimistic rather than optimistic-with-retry. Read ADR-0006 for how the
 queue actually works.
 
 ## Context
+
+Written in deejaytools-api, the Node service this one replaced (archived as
+legacy-graveyard/deejaytools-api); in this record "this service", "this
+API" and "this repository" mean deejaytools-api.
 
 Floor trials are the central operational primitive of deejaytools-com.
 A weekend competition event runs one or more floor-trial sessions, in

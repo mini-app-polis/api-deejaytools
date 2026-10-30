@@ -1,4 +1,4 @@
-"""Request-validation rules that must match deejaytools-api's zod schemas.
+"""Request-validation rules that follow zod's semantics, as the contract does.
 
 Pydantic's defaults differ from zod's in ways the wire contract notices;
 where they do, the zod behaviour is reproduced here and used instead:

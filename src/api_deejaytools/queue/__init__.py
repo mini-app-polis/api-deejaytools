@@ -1,4 +1,4 @@
-"""The floor-trial queue model (deejaytools-api src/lib/queue/*, ADR-0006).
+"""The floor-trial queue model (ADR-0006).
 
 - ``run_counts``: completed runs per entity and division, for admission.
 - ``single_entry``: the one-live-entry-per-session rule.
@@ -22,7 +22,12 @@ from .admission import (
     determine_initial_queue,
     load_admission_context,
 )
-from .compaction import QueueType, compact_after_removal, next_bottom_position
+from .compaction import (
+    QueueType,
+    compact_after_removal,
+    next_bottom_position,
+    remove_entry_of_checkin,
+)
 from .fill import LockedSession, fill_active_queue, lock_session_for_fill
 from .run_counts import EntityRef, runs_for_entity_in_event, runs_for_entity_in_session
 from .single_entry import entity_has_live_entry
@@ -38,6 +43,7 @@ __all__ = [
     "can_promote_non_priority",
     "can_promote_priority",
     "compact_after_removal",
+    "remove_entry_of_checkin",
     "determine_initial_queue",
     "entity_has_live_entry",
     "fill_active_queue",

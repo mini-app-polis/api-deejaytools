@@ -1,4 +1,4 @@
-"""Completed runs per entity and division (deejaytools-api lib/queue/runCounts.ts)."""
+"""Completed runs per entity and division."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class EntityRef:
 def entity_filter(column_owner: Any, entity: EntityRef) -> Any:
     """The predicate matching ``entity`` on a table with the three entity columns.
 
-    Branch order is Node's: pair, then managed partnership, then solo.
+    Branch order: pair, then managed partnership, then solo.
     """
     if entity.pair_id:
         return column_owner.entity_pair_id == entity.pair_id

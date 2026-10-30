@@ -1,5 +1,4 @@
-"""Song and entity labels (deejaytools-api src/lib/songLabel.ts and the
-``partnershipLabel`` in src/routes/event-song-submissions.ts)."""
+"""Song and entity labels."""
 
 from __future__ import annotations
 

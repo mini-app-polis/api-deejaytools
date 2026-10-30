@@ -20,7 +20,7 @@ router = APIRouter()
 
 
 class HealthResponse(BaseModel):
-    """Liveness answer. Not wrapped in the envelope, as in deejaytools-api."""
+    """Liveness answer. Not wrapped in the envelope."""
 
     status: str = Field("ok", description="Always 'ok' while the process serves.")
 
@@ -39,28 +39,33 @@ class VersionResponse(BaseModel):
     include_in_schema=False,
     summary="Root redirect to interactive docs",
     description=(
-        "Redirects to /docs (Swagger UI), as api-kaianolevine-com does. "
-        "Intentionally public — the redirect target is itself publicly "
-        "browsable documentation. deejaytools-api answered 404 here; the web "
-        "app never calls it."
+        "Redirects to /docs (Swagger UI). Intentionally public — the redirect "
+        "target is itself publicly browsable documentation. The web app never "
+        "calls it."
     ),
     response_model=None,
+    response_class=RedirectResponse,
 )
 async def root() -> RedirectResponse:
     """Redirect to the Swagger UI at /docs. Intentionally public."""
     return RedirectResponse(url="/docs")
 
 
-@router.head("/health", include_in_schema=False)
+@router.head(
+    "/health",
+    include_in_schema=False,
+    summary="Liveness probe (HEAD)",
+    description="The GET liveness probe without a body. Intentionally public.",
+    response_model=HealthResponse,
+)
 @router.get(
     "/health",
     tags=["meta"],
     summary="Liveness probe",
     description=(
         "Always 200 {'status': 'ok'} while the process serves: no auth and "
-        "no database query (API-010). Intentionally public. Unlike "
-        "deejaytools-api it does not answer 503 when the database is down "
-        "(ADR-0010)."
+        "no database query (API-010). Intentionally public. It answers 200 "
+        "even when the database is down (ADR-0010)."
     ),
     response_model=HealthResponse,
 )
@@ -77,8 +82,8 @@ async def health() -> dict[str, str]:
         "The package version and the commit this deploy was built from. "
         "Intentionally public and unversioned: the post-deploy smoke test "
         "(.github/workflows/deployed.yml) waits for `commit` to be the "
-        "deploy it was triggered by. Not a deejaytools-api route; the web "
-        "app never calls it."
+        "deploy it was triggered by. The web app reads it to show the API's "
+        "version."
     ),
     response_model=VersionResponse,
 )
@@ -90,8 +95,17 @@ async def version() -> dict[str, str | None]:
     }
 
 
-@router.options("/{path:path}", include_in_schema=False)
+@router.options(
+    "/{path:path}",
+    include_in_schema=False,
+    summary="Any OPTIONS request",
+    description=(
+        "204 with no body for any path. Intentionally public: a CORS "
+        "preflight carries no credentials."
+    ),
+    response_class=Response,
+)
 async def options(path: str) -> Response:
-    """Any OPTIONS request, preflight or not, answers 204 as Hono's cors
-    middleware does. Real preflights are answered by CORSMiddleware first."""
+    """Any OPTIONS request, preflight or not, answers 204 with no body.
+    Real preflights are answered by CORSMiddleware first."""
     return Response(status_code=204)

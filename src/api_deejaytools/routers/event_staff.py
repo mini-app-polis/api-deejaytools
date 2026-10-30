@@ -27,6 +27,7 @@ from ..auth import (
     EventRef,
     StaffRole,
     authorize_staff_change,
+    is_admin,
     require_event_scope,
 )
 from ..database import get_db_session
@@ -39,6 +40,7 @@ from ..errors import (
     success,
     success_list,
 )
+from ..event_connections import email_for_caller
 from ..models import DriveJob, Event, User
 from ..services.drive_jobs import SHARE_EVENT_FOLDER
 from ..staff import grant_event_role, list_event_staff, revoke_event_role
@@ -54,7 +56,10 @@ class StaffGrantData(BaseModel):
     event_id: str = Field(..., description="Event id.")
     user_id: str = Field(..., description="users.id of the staff member.")
     role: StaffRole = Field(..., description="coordinator, dj or event-manager.")
-    email: str = Field(..., description="The staff member's email.")
+    email: str = Field(
+        ...,
+        description="The staff member's email, masked unless the caller is an admin.",
+    )
     first_name: str | None = Field(None, description="First name.")
     last_name: str | None = Field(None, description="Last name.")
     granted_by: str = Field(..., description="users.id of who granted it.")
@@ -123,6 +128,12 @@ CHANGE: dict[int | str, dict[str, Any]] = {
 }
 
 
+def _shown(grant: dict[str, Any], caller: Caller) -> dict[str, Any]:
+    """A grant as the caller may see it: the email masked unless an admin."""
+    email = email_for_caller(grant["email"], whole=is_admin(caller))
+    return {**grant, "email": email or ""}
+
+
 async def _require_event(session: AsyncSession, event_id: str) -> None:
     if await session.get(Event, event_id) is None:
         raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
@@ -152,14 +163,13 @@ async def _target_email(session: AsyncSession, user_id: str) -> str:
 )
 async def list_staff(
     id: EventId,
-    _caller: Caller = Depends(
-        require_event_scope("deejaytools.staff.read", THIS_EVENT)
-    ),
+    caller: Caller = Depends(require_event_scope("deejaytools.staff.read", THIS_EVENT)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the event's staff."""
     await _require_event(session, id)
-    return success_list(await list_event_staff(session, id))
+    grants = await list_event_staff(session, id)
+    return success_list([_shown(g, caller) for g in grants])
 
 
 @router.get(
@@ -260,7 +270,7 @@ async def grant_staff(
     except Exception:
         await session.rollback()
         raise
-    return success(grant)
+    return success(_shown(grant, caller))
 
 
 @router.delete(

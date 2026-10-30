@@ -286,6 +286,44 @@ async def test_oversized_chunk(client: httpx.AsyncClient, person: Callable) -> N
     assert res.json()["error"]["message"] == "Chunk exceeds 10 MB limit"
 
 
+async def test_an_upload_over_the_size_limit_is_refused_as_it_grows(
+    client: httpx.AsyncClient, person: Callable, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from api_deejaytools.routers import song_uploads
+
+    monkeypatch.setattr(song_uploads, "MAX_ASSEMBLED_BYTES", 25)
+    alice = await person("alice")
+    upload_id = str(uuid.uuid4())
+    assert (await _send(client, alice, upload_id, 0, 3, b"x" * 20)).status_code == 200
+    # The second chunk takes it past the limit before the file is complete.
+    res = await _send(client, alice, upload_id, 1, 3, b"x" * 10)
+    assert res.status_code == 400
+    assert res.json()["error"]["message"] == "File exceeds 100 MB limit"
+    staged = song_uploads.CHUNK_TMP_BASE / f"{alice.id}_{upload_id}"
+    assert not staged.exists()
+
+
+async def test_a_caller_has_a_bounded_number_of_uploads_in_progress(
+    client: httpx.AsyncClient, person: Callable, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from api_deejaytools.routers import song_uploads
+
+    monkeypatch.setattr(song_uploads, "MAX_UPLOADS_IN_PROGRESS", 2)
+    alice, bob = await person("alice"), await person("bob")
+    first, second = str(uuid.uuid4()), str(uuid.uuid4())
+    assert (await _send(client, alice, first, 0, 2, MP3[:10])).status_code == 200
+    assert (await _send(client, alice, second, 0, 2, MP3[:10])).status_code == 200
+    res = await _send(client, alice, str(uuid.uuid4()), 0, 2, MP3[:10])
+    assert res.status_code == 429
+    assert res.json()["error"]["code"] == "TOO_MANY_UPLOADS"
+    # More chunks of an upload already in progress are still taken.
+    assert (await _send(client, alice, first, 1, 2, MP3[:10])).status_code != 429
+    # Someone else's count is their own.
+    assert (
+        await _send(client, bob, str(uuid.uuid4()), 0, 2, MP3[:10])
+    ).status_code == 200
+
+
 async def test_team_upload_creates_one_placeholder_partner(
     client: httpx.AsyncClient,
     person: Callable,
@@ -392,7 +430,7 @@ async def test_failed_build_of_a_submitted_song_is_retried_until_it_lands(
     db: asyncpg.Connection,
     fake_drive: FakeDrive,
 ) -> None:
-    """Fixed defect: deejaytools-api left such a song with no file for good."""
+    """A submitted song whose build fails is retried until it has a file."""
     admin = await person("admin", admin=True)
     alice = await person("alice")
     fake_drive.gate = asyncio.Event()
@@ -435,7 +473,7 @@ async def test_interrupted_build_resumes_without_uploading_twice(
     db: asyncpg.Connection,
     fake_drive: FakeDrive,
 ) -> None:
-    """Fixed defects: a restart mid-build, and a failure after the Drive upload."""
+    """A restart mid-build, and a failure after the Drive upload, lose nothing."""
     alice = await person("alice")
     fake_drive.gate = asyncio.Event()
     song = await _upload(client, alice)
@@ -470,7 +508,7 @@ async def test_concurrent_uploads_for_one_slot_get_distinct_versions(
     db: asyncpg.Connection,
     fake_drive: FakeDrive,
 ) -> None:
-    """Fixed defect: two builds in flight for a slot both took v01."""
+    """Two builds in flight for a slot never both take v01."""
     alice = await person("alice")
     fake_drive.gate = asyncio.Event()
     await asyncio.gather(_upload(client, alice), _upload(client, alice))
@@ -652,3 +690,26 @@ async def test_tick_starts_builds_without_waiting_and_caps_them(
     fake_drive.gate.set()
     await song_builds.wait_for_builds()
     assert len(fake_drive.uploads) == 1
+
+
+async def test_a_failed_drive_share_is_reported_and_the_build_still_lands(
+    client: httpx.AsyncClient,
+    person: Callable,
+    fake_drive: FakeDrive,
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[BaseException] = []
+    monkeypatch.setattr(song_builds.sentry_sdk, "capture_exception", captured.append)
+
+    async def refuse(file_id: str, emails: Any) -> Any:
+        raise RuntimeError("drive said no")
+
+    monkeypatch.setattr(song_builds.drive, "share_song_file", refuse)
+    alice = await person("alice")
+    song = await _upload(client, alice)
+    await song_builds.wait_for_builds()
+
+    row = await db.fetchrow("SELECT drive_file_id FROM songs WHERE id = $1", song["id"])
+    assert row["drive_file_id"]
+    assert any(str(e) == "drive said no" for e in captured)

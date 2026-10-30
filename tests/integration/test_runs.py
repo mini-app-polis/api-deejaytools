@@ -191,6 +191,6 @@ async def test_labels_filters_order_and_limit(
     assert res.json()["data"] == []
     res = await client.get("/v1/runs", params={"limit": "2"}, headers=admin.headers)
     assert [r["completed_at"] for r in res.json()["data"]] == [500, 400]
-    # An empty filter is no filter, as in Node.
+    # An empty filter is no filter.
     res = await client.get("/v1/runs?session_id=&event_id=", headers=admin.headers)
     assert res.json()["meta"]["count"] == 5

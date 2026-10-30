@@ -1,4 +1,4 @@
-"""``/v1/sessions`` (docs/API.md; deejaytools-api src/routes/sessions.ts).
+"""``/v1/sessions`` (docs/API.md).
 
 The two reads are public with an optional caller: a valid, synced caller
 also gets ``has_active_checkin`` (and on the detail, the division of their
@@ -14,10 +14,10 @@ always computed fresh.
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Annotated, Any, ClassVar, Literal
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, Header, Path, Request
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
@@ -34,6 +34,7 @@ from ..auth import (
     require_event_scope,
 )
 from ..cache import SESSION_TTL_SECONDS, invalidate_session_cache, response_cache
+from ..clock import now_ms
 from ..database import get_db_session
 from ..domain import ms_to_date_in_zone
 from ..errors import (
@@ -42,6 +43,7 @@ from ..errors import (
     ListMeta,
     Meta,
     api_error,
+    bad_request,
     error_body,
     success,
     success_list,
@@ -59,7 +61,7 @@ from ..models import (
 )
 from ..validation import JsInt, JsNumber, NonEmptyStr, NonNegativeJsInt, ZodModel
 from ..zod_coerce import js_trim
-from ..zod_types import QueryStr, parse_zod_query, zod_body
+from ..zod_types import QueryStr, documents_zod_query, parse_zod_query, zod_body
 
 logger = get_logger()
 
@@ -224,7 +226,7 @@ def map_session_base(row: Session, now: int | None = None) -> dict[str, Any]:
         "floor_trial_ends_at": row.floor_trial_ends_at,
         "active_priority_max": row.active_priority_max,
         "active_non_priority_max": row.active_non_priority_max,
-        "status": derive_status(row, now if now is not None else _now_ms()),
+        "status": derive_status(row, now if now is not None else now_ms()),
         "created_by": row.created_by,
         "created_at": row.created_at,
     }
@@ -239,10 +241,6 @@ def map_division(d: SessionDivision) -> dict[str, Any]:
         "sort_order": d.sort_order,
         "priority_run_limit": d.priority_run_limit,
     }
-
-
-def _now_ms() -> int:
-    return int(time.time() * 1000)
 
 
 def _empty_depth() -> dict[str, int]:
@@ -367,10 +365,6 @@ async def _outside_event(
     return None
 
 
-def _bad_request(message: str) -> Exception:
-    return api_error(400, ErrorCode.BAD_REQUEST, message)
-
-
 def _division_rows(session_id: str, items: list[DivisionItem]) -> list[dict[str, Any]]:
     rows = []
     for i, d in enumerate(items):
@@ -422,6 +416,7 @@ class SessionListQuery(ZodModel):
         "gets has_active_checkin on each."
     ),
 )
+@documents_zod_query(SessionListQuery)
 async def list_sessions(
     request: Request,
     authorization: Authorization = None,
@@ -476,7 +471,7 @@ async def list_sessions(
             ).scalars()
         )
 
-    now = _now_ms()
+    now = now_ms()
     results = []
     for row in rows:
         item = {
@@ -524,29 +519,29 @@ async def create_session(
         or body.floor_trial_starts_at <= 0
         or body.floor_trial_ends_at <= 0
     ):
-        raise _bad_request(
+        raise bad_request(
             "Missing or invalid required fields: name, checkin_opens_at, "
             "floor_trial_starts_at, floor_trial_ends_at"
         )
     if body.floor_trial_starts_at <= body.checkin_opens_at:
-        raise _bad_request("floor_trial_starts_at must be after checkin_opens_at")
+        raise bad_request("floor_trial_starts_at must be after checkin_opens_at")
     if body.floor_trial_ends_at <= body.floor_trial_starts_at:
-        raise _bad_request("floor_trial_ends_at must be after floor_trial_starts_at")
+        raise bad_request("floor_trial_ends_at must be after floor_trial_starts_at")
     if standard_max > priority_max:
-        raise _bad_request("active_non_priority_max must be <= active_priority_max")
+        raise bad_request("active_non_priority_max must be <= active_priority_max")
 
     if body.event_id:
         if await _overlaps(
             db, body.event_id, body.floor_trial_starts_at, body.floor_trial_ends_at
         ):
-            raise _bad_request(
+            raise bad_request(
                 "Session floor-trial window overlaps another session in this event"
             )
         problem = await _outside_event(
             db, body.event_id, body.checkin_opens_at, body.floor_trial_ends_at
         )
         if problem:
-            raise _bad_request(problem)
+            raise bad_request(problem)
 
     session_id = str(uuid.uuid4())
     db.add(
@@ -562,7 +557,7 @@ async def create_session(
             active_non_priority_max=standard_max,
             status="scheduled",
             created_by=caller.user_id,
-            created_at=_now_ms(),
+            created_at=now_ms(),
         )
     )
     await db.flush()
@@ -615,7 +610,7 @@ async def put_divisions(
                 )
             )
         await db.commit()
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except Exception as exc:  # noqa: BLE001 - one 500 for any failure
         await db.rollback()
         logger.error(
             with_log_prefix(
@@ -624,12 +619,12 @@ async def put_divisions(
                 f"divisions={[d.division_name for d in body.divisions]}: {exc!r}",
             )
         )
+        sentry_sdk.capture_exception(exc)
+        # The database's own text stays in the log: it names tables and
+        # constraints, which are not the caller's business.
         return JSONResponse(
             status_code=500,
-            content=error_body(
-                "DIVISIONS_UPDATE_FAILED",
-                str(getattr(exc, "orig", None) or exc) or "Failed to update divisions",
-            ),
+            content=error_body("DIVISIONS_UPDATE_FAILED", "Failed to update divisions"),
         )
     invalidate_session_cache(id)
     return success(await _full(db, id))
@@ -702,20 +697,20 @@ async def patch_session(
     event_id = next_value("event_id")
 
     if starts <= checkin_opens_at:
-        raise _bad_request("floor_trial_starts_at must be after checkin_opens_at")
+        raise bad_request("floor_trial_starts_at must be after checkin_opens_at")
     if ends <= starts:
-        raise _bad_request("floor_trial_ends_at must be after floor_trial_starts_at")
+        raise bad_request("floor_trial_ends_at must be after floor_trial_starts_at")
     if {"active_priority_max", "active_non_priority_max"} & sent:
         if next_value("active_non_priority_max") > next_value("active_priority_max"):
-            raise _bad_request("active_non_priority_max must be <= active_priority_max")
+            raise bad_request("active_non_priority_max must be <= active_priority_max")
     if event_id:
         if await _overlaps(db, event_id, starts, ends, exclude=id):
-            raise _bad_request(
+            raise bad_request(
                 "Session floor-trial window overlaps another session in this event"
             )
         problem = await _outside_event(db, event_id, checkin_opens_at, ends)
         if problem:
-            raise _bad_request(problem)
+            raise bad_request(problem)
 
     for field in sent:
         value = getattr(body, field)

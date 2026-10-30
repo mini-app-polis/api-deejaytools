@@ -344,7 +344,7 @@ async def test_role_change_errors(
         assert bad.status_code == 400, body
         assert bad.json()["error"]["code"] == "VALIDATION_ERROR"
 
-    # Body validation runs before the self-demotion guard, as in Node.
+    # Body validation runs before the self-demotion guard.
     bad_self = await client.patch(
         f"{URL}/{admin.id}/role", json={"role": "owner"}, headers=admin.headers
     )

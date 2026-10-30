@@ -34,7 +34,7 @@ async def scratch() -> AsyncIterator[str]:
 
 
 async def _build_like_production(url: str) -> None:
-    """Apply deejaytools-api's drizzle history, as production has it."""
+    """Apply the drizzle migration history production's schema was built by."""
     drizzle = ROOT / "conformance" / "drizzle"
     journal = json.loads((drizzle / "meta" / "_journal.json").read_text())
     conn = await asyncpg.connect(url)

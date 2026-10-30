@@ -1,4 +1,4 @@
-"""``/v1/songs`` (docs/API.md; deejaytools-api src/routes/songs.ts).
+"""``/v1/songs`` (docs/API.md).
 
 A user's song library. Reads are behind ``deejaytools.songs.read``, changes
 behind ``deejaytools.songs.write``; every route sees only live (not
@@ -9,18 +9,20 @@ chunked upload, ``POST /v1/songs/upload/chunk``, is not here.
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Annotated, Any, ClassVar
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
+from ..clock import now_ms
 from ..database import get_db_session
 from ..errors import (
     ErrorCode,
@@ -121,10 +123,6 @@ class SongListResponse(BaseModel):
 
     data: list[SongData] = Field(..., description="The songs.")
     meta: ListMeta = Field(..., description="Response metadata.")
-
-
-def _now_ms() -> int:
-    return int(time.time() * 1000)
 
 
 def _blank_to_none(value: str | None) -> str | None:
@@ -272,7 +270,7 @@ async def create_song(
     ):
         raise api_error(400, ErrorCode.BAD_REQUEST, PARTNER_NOT_OWNED)
 
-    now = _now_ms()
+    now = now_ms()
     song_id = str(uuid.uuid4())
     session.add(
         Song(
@@ -299,7 +297,7 @@ async def create_song(
     await session.commit()
     row = await session.get(Song, song_id, populate_existing=True)
     assert row is not None
-    # No join: deejaytools-api answers with null partner names here.
+    # No join: partner names are null in this answer.
     return success(map_song(row))
 
 
@@ -354,7 +352,7 @@ async def patch_song(
         raise api_error(400, ErrorCode.BAD_REQUEST, PARTNER_NOT_OWNED)
 
     sent = body.model_fields_set
-    values: dict[str, Any] = {"updated_at": _now_ms()}
+    values: dict[str, Any] = {"updated_at": now_ms()}
     if "partner_id" in sent:
         values["partner_id"] = body.partner_id or None
         # The build shared the file with the partner it had; a partner set
@@ -432,10 +430,9 @@ async def delete_song(
             "Complete or withdraw the check-in first.",
         )
 
-    # Fix of a docs/DRIVE.md known defect: deejaytools-api moved the song's own
-    # file to _deprecated inline, before the transaction, so a failed
-    # transaction left a live song with a deprecated file. Its file is now
-    # queued for trashing after commit, with the event copies.
+    # The song's own file is queued for trashing after commit, with the event
+    # copies, so a failed transaction never leaves a live song with a
+    # deprecated file.
     try:
         # The row stays for the run and check-in history that references it.
         # Its file id comes from RETURNING, not the read above: the UPDATE
@@ -445,7 +442,7 @@ async def delete_song(
             await session.execute(
                 update(Song)
                 .where(Song.id == id, Song.user_id == user_id)
-                .values(deleted_at=_now_ms())
+                .values(deleted_at=now_ms())
                 .returning(Song.drive_file_id, Song.drive_folder_id)
             )
         ).first()
@@ -466,8 +463,9 @@ async def delete_song(
             if file_id is not None
         ]
         await session.commit()
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
         await session.rollback()
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(
                 LOG_FAILURE, f"song_delete_failed song={id} user={user_id}: {exc!r}"

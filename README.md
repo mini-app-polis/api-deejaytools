@@ -2,48 +2,53 @@
 
 The FastAPI service behind [deejaytools.com](https://deejaytools.com): events,
 floor-trial sessions and their queues, check-ins, songs and their Google Drive
-files. It replaced `deejaytools-api` (Hono/Node) **on the same database**,
-answering the web app exactly as that service did, so the web app did not
-change at the switch. deejaytools-api was retired on 2026-10-02 and serves
-no traffic.
+files.
 
-The decisions behind it are in [docs/decisions/](docs/decisions/), ported
-from deejaytools-api when it was archived: ADR-0007 (the replacement),
-ADR-0008 (authorization), ADR-0009 (migrations) and ADR-0010 (wire contract
-and testing). The behavior spec is ADR-0006 and [docs/API.md](docs/API.md),
+The decisions behind it are in [docs/decisions/](docs/decisions/):
+ADR-0007 (the service), ADR-0008 (authorization), ADR-0009 (migrations),
+ADR-0010 (wire contract and testing) and ADR-0012 (per-event staff roles).
+The behavior spec is ADR-0006 and [docs/API.md](docs/API.md),
 [docs/SCHEMA.md](docs/SCHEMA.md), [docs/DRIVE.md](docs/DRIVE.md) and
-[docs/AUDIO-TAGGING.md](docs/AUDIO-TAGGING.md), ported from the archived
-[legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api). See
+[docs/AUDIO-TAGGING.md](docs/AUDIO-TAGGING.md). See
 [docs/DESIGN.md](docs/DESIGN.md) for how this repo is laid out against them.
 
 ## Inputs and outputs
 
 - **In:** HTTPS requests from the deejaytools.com web app, authenticated with
   Clerk session JWTs from this environment's Clerk instance.
-- **Out:** JSON in deejaytools-api's envelope —
+- **Out:** JSON in the envelope
   `{ data, meta: { version } }` / `{ error: { code, message } }` — and rows
   in the shared deejaytools Postgres database.
 
 ## Endpoints
 
 Every route of [docs/API.md](docs/API.md), at the same path, with the
-scope ADR-0008 maps it to (`require_scope(...)` in
-`src/api_deejaytools/auth.py`). "public" routes need no token.
+scope ADR-0008 maps it to (`require_scope(...)` or
+`require_event_scope(...)` in `src/api_deejaytools/auth.py`). "public" routes
+need no token. "On the event" means the scope is decided for the event the
+request names: a global role carrying it allows on every event, an explicit
+grant from a per-event staff role (ADR-0012) on that event only.
 
 | Route | Auth |
 |-------|------|
 | `GET /` | public — redirects to `/docs` (Swagger UI); the OpenAPI schema is at `/openapi.json` |
 | `GET /health` | public — always `200 {"status":"ok"}`, liveness only |
-| `GET /version` | public — package version and deployed commit, for the post-deploy smoke test (not a deejaytools-api route) |
+| `GET /version` | public — package version and deployed commit, for the post-deploy smoke test and the web app's `useApiVersion` hook |
 | `GET /internal/tick` | `x-tick-secret` header matching `TICK_SECRET` (or `TICK_SECRET_PREVIOUS` while a rotation overlaps); `403` when `TICK_SECRET` is unset |
 | `POST /v1/auth/sync` | authenticated-only — upserts the `users` row and provisions the principal |
 | `GET /v1/auth/me` | authenticated-only — the caller's record, `role` derived from their grants |
 | `PATCH /v1/auth/me` | `deejaytools.profile.write` |
 | `GET /v1/events`, `GET /v1/events/{id}` | public |
 | `GET /v1/events/{id}/entities` | `deejaytools.entities.read` |
-| `POST /v1/events`, `PATCH`/`DELETE /v1/events/{id}` | `deejaytools.events.write` |
+| `POST /v1/events` | `deejaytools.events.write` |
+| `PATCH`/`DELETE /v1/events/{id}` | `deejaytools.events.write` on the event |
+| `GET /v1/events/{id}/staff` | `deejaytools.staff.read` on the event |
+| `PUT`/`DELETE /v1/events/{id}/staff/{user_id}/{role}` | `deejaytools.staff.write` on the event |
+| `GET /v1/events/{id}/drive-folder` | `deejaytools.queue.read` on the event |
+| `GET /v1/events/{id}/song-submissions`, `GET /v1/events/{id}/people` | `deejaytools.entries.read` on the event |
+| `GET /v1/events/{id}/people/{user_id}/partners` | `deejaytools.delegation.act` on the event |
 | `GET /v1/sessions`, `GET /v1/sessions/{id}` | public; a valid synced caller also gets their check-in fields |
-| `POST /v1/sessions`, `PATCH`/`DELETE /v1/sessions/{id}`, `PUT /v1/sessions/{id}/divisions`, `PATCH /v1/sessions/{id}/status` | `deejaytools.sessions.write` |
+| `POST /v1/sessions`, `PATCH`/`DELETE /v1/sessions/{id}`, `PUT /v1/sessions/{id}/divisions`, `PATCH /v1/sessions/{id}/status` | `deejaytools.sessions.write` on the session's event |
 | `GET /v1/partners`, `GET /v1/partners/leading-pairs`, `GET /v1/partners/{id}`, `GET /v1/partners/{id}/associations` | `deejaytools.partners.read` |
 | `POST /v1/partners`, `PATCH`/`DELETE /v1/partners/{id}`, `POST /v1/pairs/find-or-create` | `deejaytools.partners.write` |
 | `GET /v1/teams` | `deejaytools.teams.read` |
@@ -53,13 +58,13 @@ scope ADR-0008 maps it to (`require_scope(...)` in
 | `GET /v1/event-song-submissions` | `deejaytools.submissions.read` |
 | `POST /v1/event-song-submissions`, `DELETE /v1/event-song-submissions/{id}` | `deejaytools.submissions.write` |
 | `GET /v1/songs`, `GET /v1/songs/{id}` | `deejaytools.songs.read` |
-| `POST /v1/songs`, `POST /v1/songs/upload/chunk`, `PATCH`/`DELETE /v1/songs/{id}` | `deejaytools.songs.write`; acting for another user also needs `deejaytools.delegation.act` |
-| `POST /v1/checkins`, `DELETE /v1/checkins/{id}` | `deejaytools.checkins.write`; on behalf of another user also `deejaytools.delegation.act` |
+| `POST /v1/songs`, `POST /v1/songs/upload/chunk`, `PATCH`/`DELETE /v1/songs/{id}` | `deejaytools.songs.write`; acting for another user also needs `deejaytools.delegation.act` (an event's DJ or event manager only for people connected to that event) |
+| `POST /v1/checkins`, `DELETE /v1/checkins/{id}` | `deejaytools.checkins.write`; on behalf of another user also `deejaytools.delegation.act` (an event's DJ or event manager only for people connected to that event) |
 | `GET /v1/checkins/mine` | `deejaytools.checkins.read` |
-| `GET /v1/queue/{session_id}/active`, `GET /v1/queue/{session_id}/waiting` | public |
-| `GET /v1/queue/{session_id}/priority`, `GET /v1/queue/{session_id}/non-priority` | `deejaytools.queue.read` |
-| `POST /v1/queue/promote`, `/complete`, `/incomplete`, `/move-down`, `/withdraw` | `deejaytools.queue.manage` |
-| `GET /v1/runs` | `deejaytools.runs.read` |
+| `GET /v1/queue/{session_id}/active`, `GET /v1/queue/{session_id}/waiting` | public; `notes` always null |
+| `GET /v1/queue/{session_id}/active/staff`, `GET /v1/queue/{session_id}/priority`, `GET /v1/queue/{session_id}/non-priority` | `deejaytools.queue.read` on the session's event |
+| `POST /v1/queue/promote`, `/complete`, `/incomplete`, `/move-down`, `/withdraw` | `deejaytools.queue.manage` on the entry's event |
+| `GET /v1/runs` | `deejaytools.runs.read` (on the event named by `event_id`, when given) |
 | `POST /v1/feedback` | public |
 | `GET /v1/divisions` | public |
 | `GET /v1/admin/users`, `GET /v1/admin/users/{id}/partners`, `GET /v1/admin/users/{id}/event-song-submissions` | `deejaytools.users.read` |
@@ -71,12 +76,11 @@ scope ADR-0008 maps it to (`require_scope(...)` in
 | `POST /v1/admin/checkins`, `DELETE /v1/admin/checkins/test` | `deejaytools.testdata.write` |
 | `GET /v1/admin/checkins/test` | `deejaytools.testdata.read` |
 
-Requests are limited as deejaytools-api limits them
-(`src/api_deejaytools/middleware.py`): 11 MiB bodies, 300 requests a minute
+Requests are limited by `src/api_deejaytools/middleware.py`: 11 MiB bodies, 300 requests a minute
 per client address on `/v1/*`, and a 30 s deadline (300 s for uploads).
 
 The full contract is checked by the conformance suite
-([conformance/README.md](conformance/README.md)). Background work (session
+([docs/CONFORMANCE.md](docs/CONFORMANCE.md)). Background work (session
 statuses, queue fill, song builds, Drive jobs) runs on the in-process
 scheduler every `TICK_INTERVAL_MS`, or once per `GET /internal/tick`.
 
@@ -121,10 +125,7 @@ PGURL=postgres://postgres:postgres@localhost:5432 bash scripts/check_baseline.sh
 
 ## Database and migrations
 
-The database is the one deejaytools-api served, taken over in production as
-it was. ADR-0009's **additive only** rule, which kept a switch back to
-deejaytools-api possible, lapsed when deejaytools-api was retired on
-2026-10-02.
+[docs/SCHEMA.md](docs/SCHEMA.md) describes the schema these files build.
 
 - `migrations/001_baseline.sql` is the schema drizzle's `0000`–`0015` build,
   generated by `REGENERATE=1 scripts/check_baseline.sh`, never by hand.
@@ -173,7 +174,7 @@ applies Terraform: the `dev` → `main` pull request is planned and, once
 merged, applied — removals only with the `allow-destroy` label. Development
 keeps its dashboard settings (`.railway/README.md`).
 Configuration comes from this repo's own Doppler project, whose configs
-reference the `DEEJAYTOOLS_` names deejaytools-api read; see `.env.example`.
+hold the names in `.env.example`.
 Discord notifications (`DISCORD_WEBHOOK_URL`, optionally
 `DISCORD_WEBHOOK_URL_ERRORS` and `DISCORD_WEBHOOK_URL_ACTIVITY`; off when
 unset), the change-feed switch `NOTIFY_DATA_CHANGES` and the

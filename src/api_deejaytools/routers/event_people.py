@@ -30,25 +30,18 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
-from sqlalchemy import CompoundSelect, func, or_, select, union
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import Caller, EventRef, require_event_scope
+from ..auth import Caller, EventRef, is_admin, require_event_scope
 from ..database import get_db_session
 from ..errors import ErrorCode, ErrorResponse, ListMeta, api_error, success_list
+from ..event_connections import connected_user_ids, mask_email
 from ..models import (
-    Checkin,
     Event,
-    EventSongSubmission,
-    EventStaffGrant,
-    ManagedPartnership,
-    Pair,
     Partner,
-    QueueEntry,
-    Song,
     User,
 )
-from ..models import Session as FloorSession
 from ..validation import ZodModel
 from ..zod_types import QueryStr, trimmed, zod_query
 from .partners import PartnerListResponse, map_partner
@@ -59,24 +52,6 @@ THIS_EVENT = EventRef(source="path", name="id")
 
 MIN_QUERY_LENGTH = 2
 RESULT_LIMIT = 20
-MASK = "•••"
-
-
-def mask_email(email: str | None) -> str | None:
-    """An email with its local part hidden: ``k•••@gmail.com``.
-
-    The local part's first character, three bullets whatever its length,
-    then ``@`` and the whole domain. The domain starts after the last ``@``,
-    so a quoted local part holding an ``@`` is hidden with the rest. No
-    email, or one without a local part or a domain, is None: the address is
-    never returned as it is.
-    """
-    if not email:
-        return None
-    local, at, domain = email.strip().rpartition("@")
-    if not at or not local or not domain:
-        return None
-    return f"{local[0]}{MASK}@{domain}"
 
 
 class PeopleQuery(ZodModel):
@@ -108,40 +83,6 @@ class EventPeopleResponse(BaseModel):
 
     data: list[EventPersonData] = Field(..., description="The people.")
     meta: ListMeta = Field(..., description="Response metadata.")
-
-
-def connected_user_ids(event_id: str) -> CompoundSelect:
-    """The ``users.id`` of everyone connected to the event, once each."""
-    submission = EventSongSubmission
-    of_event = submission.event_id == event_id
-    selects: list[Any] = [
-        select(submission.submitted_by_user_id.label("user_id")).where(of_event),
-        select(Song.user_id)
-        .join(submission, submission.song_id == Song.id)
-        .where(of_event),
-        select(Partner.linked_user_id)
-        .join(Song, Song.partner_id == Partner.id)
-        .join(submission, submission.song_id == Song.id)
-        .where(of_event),
-        select(EventStaffGrant.user_id).where(EventStaffGrant.event_id == event_id),
-    ]
-    event_sessions = select(FloorSession.id).where(FloorSession.event_id == event_id)
-    for entry in (Checkin, QueueEntry):
-        in_event = entry.session_id.in_(event_sessions)
-        selects += [
-            select(entry.entity_solo_user_id).where(in_event),
-            select(Pair.user_a_id)
-            .join(entry, entry.entity_pair_id == Pair.id)
-            .where(in_event),
-            select(Partner.linked_user_id)
-            .join(Pair, Pair.partner_b_id == Partner.id)
-            .join(entry, entry.entity_pair_id == Pair.id)
-            .where(in_event),
-            select(ManagedPartnership.user_id)
-            .join(entry, entry.entity_managed_partnership_id == ManagedPartnership.id)
-            .where(in_event),
-        ]
-    return union(*selects)
 
 
 @router.get(
@@ -210,7 +151,9 @@ async def find_event_people(
     description=(
         "The partners (kind partner) of one person connected to the event, by "
         "last then first name: the list a staff upload on their behalf picks "
-        "partner_id from. Requires deejaytools.delegation.act on the event."
+        "partner_id from. Emails are masked and linked accounts withheld "
+        "unless the caller is an admin. Requires deejaytools.delegation.act "
+        "on the event."
     ),
     responses={
         401: {"model": ErrorResponse, "description": "Missing or invalid token."},
@@ -224,7 +167,7 @@ async def find_event_people(
 async def list_event_person_partners(
     id: Annotated[str, Path(description="Event id.")],
     user_id: Annotated[str, Path(description="users.id of the person.")],
-    _caller: Caller = Depends(
+    caller: Caller = Depends(
         require_event_scope("deejaytools.delegation.act", THIS_EVENT)
     ),
     session: AsyncSession = Depends(get_db_session),
@@ -252,4 +195,18 @@ async def list_event_person_partners(
         .scalars()
         .all()
     )
-    return success_list([map_partner(r) for r in rows])
+    whole = is_admin(caller)
+    return success_list([_partner_for_staff(r, whole=whole) for r in rows])
+
+
+def _partner_for_staff(row: Any, *, whole: bool) -> dict[str, Any]:
+    """A partner as the event's staff see it: the email masked and the linked
+    account withheld, unless the caller is an admin."""
+    partner = map_partner(row)
+    if whole:
+        return partner
+    return {
+        **partner,
+        "email": mask_email(partner["email"]),
+        "linked_user_id": None,
+    }

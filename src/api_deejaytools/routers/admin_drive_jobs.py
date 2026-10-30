@@ -1,5 +1,4 @@
-"""``/v1/admin/drive-jobs`` (docs/API.md and docs/DRIVE.md;
-deejaytools-api src/routes/admin-drive-jobs.ts).
+"""``/v1/admin/drive-jobs`` (docs/API.md and docs/DRIVE.md).
 
 The operator view of the ``drive_jobs`` queue: health summary and recent
 jobs behind ``deejaytools.drivejobs.read``; the rename backfill and the
@@ -10,18 +9,20 @@ from __future__ import annotations
 
 import math
 import re
-import time
 from typing import Annotated, Any, Literal
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, LOG_SUCCESS, get_logger, with_log_prefix
 from pydantic import BaseModel, BeforeValidator, Field
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from ..auth import Caller, require_scope
+from ..clock import now_ms
 from ..database import get_db_session
 from ..errors import (
     ErrorCode,
@@ -202,10 +203,6 @@ def _internal() -> JSONResponse:
     )
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
 @router.get(
     "/summary",
     response_model=SummaryResponse,
@@ -240,7 +237,8 @@ async def summary(
                 "submissions_without_copy": int(uncopied or 0),
             }
         )
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(LOG_FAILURE, f"drive_jobs_summary_failed: {exc!r}")
         )
@@ -302,7 +300,8 @@ async def list_jobs(
             )
         ).all()
         return success_list([dict(r._mapping) for r in rows])
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
+        sentry_sdk.capture_exception(exc)
         logger.error(with_log_prefix(LOG_FAILURE, f"drive_jobs_list_failed: {exc!r}"))
         return _internal()
 
@@ -343,8 +342,9 @@ async def backfill_renames(
             )
         )
         return success({"enqueued": len(ids)})
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
         await session.rollback()
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(LOG_FAILURE, f"drive_rename_backfill_failed: {exc!r}")
         )
@@ -388,7 +388,7 @@ async def retry_job(
 
     # The status guard is repeated so a tick claiming the job between the
     # read and this write loses the race safely.
-    now = _now_ms()
+    now = now_ms()
     updated = (
         await session.execute(
             update(DriveJob)

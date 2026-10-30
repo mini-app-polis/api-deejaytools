@@ -9,6 +9,7 @@ from typing import Any
 
 import asyncpg
 import httpx
+import pytest
 
 HOUR = 3_600_000
 
@@ -205,6 +206,35 @@ async def test_put_divisions_upserts_by_name(
     assert divisions["Classic"]["id"] == classic_id  # kept its row
     assert divisions["Classic"]["is_priority"] is False
     assert set(divisions) == {"Classic", "Showcase", "Masters"}
+
+
+async def test_a_failed_divisions_update_hides_the_database_text(
+    client: httpx.AsyncClient, person: Callable, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from api_deejaytools.routers import sessions as session_routes
+
+    admin = await person("admin", admin=True)
+    session = (await _session(client, admin)).json()["data"]
+    captured: list[BaseException] = []
+    monkeypatch.setattr(session_routes.sentry_sdk, "capture_exception", captured.append)
+
+    def boom(*_: Any) -> Any:
+        raise RuntimeError('update or delete on table "session_divisions" violates')
+
+    monkeypatch.setattr(session_routes, "_division_rows", boom)
+    res = await client.put(
+        f"/v1/sessions/{session['id']}/divisions",
+        json={"divisions": [{"division_name": "Classic", "is_priority": False}]},
+        headers=admin.headers,
+    )
+    assert res.status_code == 500
+    assert res.json() == {
+        "error": {
+            "code": "DIVISIONS_UPDATE_FAILED",
+            "message": "Failed to update divisions",
+        }
+    }
+    assert len(captured) == 1
 
 
 async def test_status_patch_and_cache_invalidation(

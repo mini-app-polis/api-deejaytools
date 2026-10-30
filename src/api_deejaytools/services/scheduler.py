@@ -1,4 +1,4 @@
-"""The in-process scheduler (deejaytools-api src/services/scheduler.ts, index.ts).
+"""The in-process scheduler.
 
 One pass (``run_tick``) advances session statuses, auto-fills the active queue
 of every running floor trial, then drains one batch of the Drive job queue,
@@ -7,12 +7,11 @@ emptied folders of deleted events (``drive_jobs.sweep_event_folders``).
 The background loop runs a pass at startup and then every ``TICK_INTERVAL_MS``
 (default 30 s); ``GET /internal/tick`` runs the same pass on demand.
 
-**When the loop runs.** Never with ``DISABLE_SCHEDULER=1`` (read as
-deejaytools-api reads it: only ``"1"``), and never when ``ENVIRONMENT`` is
+**When the loop runs.** Never with ``DISABLE_SCHEDULER=1`` (only
+``"1"`` counts), and never when ``ENVIRONMENT`` is
 ``test``, so no test, and no suite that builds the app, ever starts a
 background loop; tests drive ``run_tick`` directly. Only one scheduler may
-run against the database (ADR-0007 point 5); since deejaytools-api's
-retirement this loop is that scheduler.
+run against the database (ADR-0007 point 5); this loop is that scheduler.
 
 Several replicas are safe: session status updates are idempotent, the queue
 fill locks each session row, and Drive jobs are claimed with SKIP LOCKED.
@@ -211,7 +210,7 @@ class Scheduler:
     """A background loop calling ``tick`` now and then every ``interval_ms``.
 
     A tick that comes due while the previous one is still running is skipped
-    (overlap guard), as deejaytools-api's setInterval loop skips it.
+    (overlap guard).
     """
 
     def __init__(

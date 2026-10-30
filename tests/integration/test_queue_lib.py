@@ -1,9 +1,8 @@
 """The queue model (api_deejaytools.queue), against Postgres.
 
-Ports deejaytools-api src/lib/queue/{admission,compaction,fill,runCounts,
-singleEntry}.test.ts. Node mocked the database; these run the same cases
-against real rows, because the model's correctness rests on Postgres
-(FOR UPDATE, the unique position index).
+These run against real rows rather than a mocked database, because the
+model's correctness rests on Postgres (FOR UPDATE, the unique position
+index).
 """
 
 from __future__ import annotations

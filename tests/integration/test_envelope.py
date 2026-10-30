@@ -1,4 +1,4 @@
-"""The envelope and error rendering: deejaytools-api's shapes and codes."""
+"""The envelope and error rendering: the contract's shapes and codes."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ async def test_unknown_path_is_404_not_found() -> None:
     assert res.json() == {"error": {"code": "NOT_FOUND", "message": "Not found"}}
 
 
-async def test_wrong_method_is_404_like_hono() -> None:
+async def test_wrong_method_is_404() -> None:
     res = await _call("DELETE", "/things")
     assert res.status_code == 404
     assert res.json() == {"error": {"code": "NOT_FOUND", "message": "Not found"}}

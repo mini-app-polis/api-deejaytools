@@ -1,4 +1,4 @@
-"""``/v1/admin/checkins`` (docs/API.md; deejaytools-api src/routes/admin-checkins.ts).
+"""``/v1/admin/checkins`` (docs/API.md).
 
 Synthetic test check-ins for exercising the floor without real dancers:
 inject one (stub leader user, follower partner, pair and placeholder song,
@@ -6,13 +6,12 @@ all owned by the stub user), list them, and delete them all. Injection and
 deletion are behind ``deejaytools.testdata.write``, the list behind
 ``deejaytools.testdata.read``.
 
-Injection bypasses the check-in window, and, as in Node, neither takes the
+Injection bypasses the check-in window, and neither takes the
 session lock nor auto-fills: injected entries wait until the next fill.
 """
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Any, ClassVar, Literal
 
@@ -20,10 +19,11 @@ from fastapi import APIRouter, Depends
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, desc, insert, select
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
+from ..clock import now_ms
 from ..database import get_db_session
 from ..db_errors import driver_message
 from ..errors import (
@@ -32,6 +32,7 @@ from ..errors import (
     ListMeta,
     Meta,
     api_error,
+    conflict,
     success,
     success_list,
 )
@@ -140,14 +141,6 @@ class DeletedCountResponse(BaseModel):
     meta: Meta = Field(..., description="Response metadata.")
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
-def _conflict(message: str) -> Exception:
-    return api_error(409, "conflict", message)
-
-
 AUTH: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse, "description": "Missing or invalid token."},
     403: {"model": ErrorResponse, "description": "Lacks the scope."},
@@ -179,7 +172,7 @@ async def inject_checkin(
 ) -> dict[str, Any]:
     """Inject a synthetic check-in."""
     admin_id = caller.user_id
-    now = _now_ms()
+    now = now_ms()
     leader_first = js_trim(body.leaderFirstName)
     leader_last = js_trim(body.leaderLastName)
     follower_first = js_trim(body.followerFirstName)
@@ -245,7 +238,7 @@ async def inject_checkin(
             created_at=now,
         )
     )
-    # Node writes the stub rows outside any transaction: they stay even when
+    # The stub rows are written outside any transaction: they stay even when
     # admission refuses the check-in below.
     await db.commit()
 
@@ -256,13 +249,13 @@ async def inject_checkin(
     except AdmissionError as exc:
         raise api_error(400, ErrorCode.BAD_REQUEST, str(exc)) from exc
     except DBAPIError as exc:
-        # As deejaytools-api, which answers any error from the admission
-        # lookup (a NUL byte in divisionName, say) with 400 and its message.
+        # Any error from the admission lookup (a NUL byte in divisionName,
+        # say) is a 400 with the database's message.
         await db.rollback()
         raise api_error(400, ErrorCode.BAD_REQUEST, driver_message(exc)) from exc
 
     if await entity_has_live_entry(db, entity, body.sessionId):
-        raise _conflict("This entity already has a live queue entry in this session")
+        raise conflict("This entity already has a live queue entry in this session")
 
     checkin_id = str(uuid.uuid4())
     await db.commit()
@@ -308,7 +301,7 @@ async def inject_checkin(
             created_at=now,
         )
         await db.commit()
-    except Exception as exc:  # noqa: BLE001 - any failure is a 409, as in Node
+    except SQLAlchemyError as exc:  # the transaction failed: a 409
         await db.rollback()
         logger.error(
             with_log_prefix(
@@ -319,7 +312,7 @@ async def inject_checkin(
                 f"pair={pair_id}: {exc!r}",
             )
         )
-        raise _conflict(
+        raise conflict(
             "Check-in conflicted with concurrent activity; please retry"
         ) from exc
 
@@ -467,7 +460,7 @@ async def delete_test_injections(
         await db.execute(delete(User).where(User.id.in_(stub_user_ids)))
         await db.commit()
     except Exception:
-        # Node has no handler here: the failure is a 500.
+        # No handler here: the failure is a 500.
         await db.rollback()
         raise
 

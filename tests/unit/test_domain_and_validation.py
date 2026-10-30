@@ -1,4 +1,4 @@
-"""Ported domain rules and the zod-compatible validation types."""
+"""Domain rules and the zod-compatible validation types."""
 
 from __future__ import annotations
 

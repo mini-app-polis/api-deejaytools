@@ -122,6 +122,31 @@ async def test_the_events_staff_read_a_dancers_partners(
     assert res.json()["data"][0]["display_name"] == "Bea Lead"
 
 
+async def test_staff_see_a_partners_email_masked_and_no_linked_account(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    w = await _world(client, person, db)
+    linked = await person("linked")
+    await db.execute(
+        "UPDATE partners SET email = $1, linked_user_id = $2 WHERE id = $3",
+        "bea.lead@example.test",
+        linked.id,
+        w["partner"],
+    )
+    res = await client.get(_url(w["event"], w["dancer"].id), headers=w["dj"].headers)
+    assert res.status_code == 200, res.text
+    partner = res.json()["data"][0]
+    assert partner["email"] == "b•••@example.test"
+    assert partner["linked_user_id"] is None
+    assert "bea.lead@example.test" not in res.text
+
+    admin = await person("admin2", admin=True)
+    res = await client.get(_url(w["event"], w["dancer"].id), headers=admin.headers)
+    partner = res.json()["data"][0]
+    assert partner["email"] == "bea.lead@example.test"
+    assert partner["linked_user_id"] == linked.id
+
+
 async def test_the_partner_read_is_refused_to_anyone_else(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:

@@ -3,7 +3,14 @@
 
 type: api-service
 
-# No active deferrals.
+deferrals:
+  - rule: XSTACK-002
+    reason: "Errors use the shared ErrorEnvelope. Successes keep this service's own meta: {version} on an object, {version, count} on a list. The shared Meta requires count and total on every response, and the web app's schemas check this API's responses strictly, so adopting it is a coordinated change to both repos, not a swap of models."
+    until: null
+
+layout_exceptions:
+  - path: conformance
+    reason: "The frozen conformance suite (docs/CONFORMANCE.md): the retired service's integration tests, run against this service to show it answers the same wire contract. Only this repo replaced a service on the same contract, so no other repo carries one."
 
 exemptions:
   - rule: API-011

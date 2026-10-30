@@ -339,8 +339,8 @@ class DriveJob(Base):
 class SongUpload(Base):
     """An uploaded song's bytes and build progress, until its build finishes.
 
-    This service's own table (migration 003), not deejaytools-api's: it makes
-    the background build durable. See services/song_builds.py.
+    This service's own table (migration 003): it makes the background build
+    durable. See services/song_builds.py.
     """
 
     __tablename__ = "song_uploads"

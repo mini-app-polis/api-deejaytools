@@ -4,9 +4,10 @@
   on the trimmed value and leave the trimmed value in the body. Use it as
   ``Annotated[str, trimmed(min_length=1, max_length=100)]``.
 - ``Division``: ``z.enum(DIVISIONS)``.
-- ``zod_query``: a query string validated as zod validates one through
-  ``@hono/zod-validator``, where a repeated key arrives as an array.
-- ``zod_body``: a JSON body validated as ``zValidator("json", ...)`` does.
+- ``zod_query``: a query string validated by zod's rules, where a repeated
+  key arrives as an array.
+- ``zod_body``: a JSON body validated by zod's rules, read only under a JSON
+  content type.
 """
 
 from __future__ import annotations
@@ -84,11 +85,12 @@ QueryStr = Annotated[str, BeforeValidator(_string_only)]
 
 
 M = TypeVar("M", bound=ZodModel)
+E = TypeVar("E", bound=Callable[..., Any])
 
 
 def parse_zod_query(request: Request, model: type[M]) -> M:
     """Validate the query string against ``model``; a repeated key arrives
-    as a list, as ``@hono/zod-validator`` hands zod an array."""
+    as a list."""
     raw: dict[str, Any] = {}
     for key in request.query_params.keys():
         values = request.query_params.getlist(key)
@@ -108,7 +110,7 @@ def zod_query(model: type[M]) -> Callable[[Request], M]:
     """A dependency validating the query string against ``model``.
 
     Declare it after the auth dependency so a missing token wins over a bad
-    query, as Hono's middleware order has it. A route with no auth
+    query. A route with no auth
     dependency calls ``parse_zod_query`` in its handler instead: a request
     parser declared as a dependency reads, to a static audit of route
     guards (AUTH-003), as a guard it cannot resolve.
@@ -117,10 +119,23 @@ def zod_query(model: type[M]) -> Callable[[Request], M]:
     def _dependency(request: Request) -> M:
         return parse_zod_query(request, model)
 
+    _dependency.__zod_query__ = model  # type: ignore[attr-defined]
     return _dependency
 
 
-# hono's validator: a JSON body only under a JSON content type.
+def documents_zod_query(model: type[ZodModel]) -> Callable[[E], E]:
+    """Mark a handler that calls ``parse_zod_query(request, model)`` itself,
+    so ``document_zod_bodies`` documents its query parameters. Apply it below
+    the route decorator."""
+
+    def mark(endpoint: E) -> E:
+        endpoint.__zod_query__ = model  # type: ignore[attr-defined]
+        return endpoint
+
+    return mark
+
+
+# A JSON body is read only under a JSON content type.
 _JSON_CONTENT_TYPE = re.compile(
     r"application/([a-z-.]+\+)?json(;\s*[a-zA-Z0-9\-]+=([^;]+))*", re.IGNORECASE
 )
@@ -129,9 +144,8 @@ _JSON_CONTENT_TYPE = re.compile(
 class MalformedJsonError(Exception):
     """A JSON body that does not parse.
 
-    Not an ``ApiError``: hono throws an HTTPException that deejaytools-api's
-    onError does not recognise, so it answers 500 INTERNAL (with this
-    message outside production), and so does this service.
+    Not an ``ApiError``: the contract answers malformed JSON as an unhandled
+    error, 500 INTERNAL (with this message outside production).
     """
 
 
@@ -141,10 +155,9 @@ def _no_constants(name: str) -> Any:
 
 
 async def parse_zod_body(request: Request, model: type[M]) -> M:
-    """Parse and validate the JSON body against ``model``, as hono's
-    ``zValidator("json", ...)`` does: without a JSON content type the body
-    is ``{}`` (so an all-optional PATCH with no body changes nothing), and
-    malformed JSON is a 500 (``MalformedJsonError``)."""
+    """Parse and validate the JSON body against ``model``: without a JSON
+    content type the body is ``{}`` (so an all-optional PATCH with no body
+    changes nothing), and malformed JSON is a 500 (``MalformedJsonError``)."""
     value: Any = {}
     content_type = request.headers.get("content-type")
     if content_type and _JSON_CONTENT_TYPE.fullmatch(content_type):
@@ -170,8 +183,8 @@ def zod_body(model: type[M]) -> Callable[[Request], Any]:
     """A dependency parsing and validating the JSON body against ``model``
     (``parse_zod_body``).
 
-    Declare it after the auth dependency, which then runs first, as hono's
-    middleware order has it: FastAPI parses a plain body parameter before
+    Declare it after the auth dependency, which then runs first (a missing
+    token wins over a bad body): FastAPI parses a plain body parameter before
     any dependency. A route with no auth dependency calls ``parse_zod_body``
     in its handler and is marked with ``documents_zod_body`` instead (see
     ``zod_query`` for why).
@@ -182,9 +195,6 @@ def zod_body(model: type[M]) -> Callable[[Request], Any]:
 
     _dependency.__zod_body__ = model  # type: ignore[attr-defined]
     return _dependency
-
-
-E = TypeVar("E", bound=Callable[..., Any])
 
 
 def documents_zod_body(model: type[ZodModel]) -> Callable[[E], E]:
@@ -207,14 +217,34 @@ def document_zod_bodies(app: FastAPI, routers: Iterable[APIRouter]) -> None:
     dependency, so they are added after the schema is generated.
     """
 
-    def _models(dependant: Dependant) -> list[type[ZodModel]]:
+    def _models(
+        dependant: Dependant, mark: str = "__zod_body__"
+    ) -> list[type[ZodModel]]:
         found = []
         for dep in dependant.dependencies:
-            model = getattr(dep.call, "__zod_body__", None)
+            model = getattr(dep.call, mark, None)
             if model is not None:
                 found.append(model)
-            found.extend(_models(dep))
+            found.extend(_models(dep, mark))
         return found
+
+    def _query_parameters(model: type[ZodModel]) -> list[dict[str, Any]]:
+        model_schema = model.model_json_schema(by_alias=True)
+        required = set(model_schema.get("required", ()))
+        return [
+            {
+                "name": name,
+                "in": "query",
+                "required": name in required,
+                "schema": {k: v for k, v in prop.items() if k != "description"},
+                **(
+                    {"description": prop["description"]}
+                    if "description" in prop
+                    else {}
+                ),
+            }
+            for name, prop in model_schema.get("properties", {}).items()
+        ]
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is not None:
@@ -254,7 +284,47 @@ def document_zod_bodies(app: FastAPI, routers: Iterable[APIRouter]) -> None:
                                 }
                             },
                         }
+        for route in (r for router in routers for r in router.routes):
+            if not isinstance(route, APIRoute) or not route.include_in_schema:
+                continue
+            queries = _models(route.dependant, "__zod_query__")
+            marked = getattr(route.endpoint, "__zod_query__", None)
+            if marked is not None:
+                queries.append(marked)
+            for model in queries:
+                for method in route.methods or ():
+                    operation = schema["paths"][route.path_format].get(method.lower())
+                    if operation is not None:
+                        params = operation.setdefault("parameters", [])
+                        known = {(p["name"], p["in"]) for p in params}
+                        params += [
+                            p
+                            for p in _query_parameters(model)
+                            if (p["name"], p["in"]) not in known
+                        ]
+        _validation_is_400(schema)
         app.openapi_schema = schema
         return schema
 
     app.openapi = openapi  # type: ignore[method-assign]
+
+
+def _validation_is_400(schema: dict[str, Any]) -> None:
+    """Advertise what a refused request really gets: 400 VALIDATION_ERROR in
+    the error envelope, never FastAPI's default 422 HTTPValidationError."""
+    error_ref = {"$ref": "#/components/schemas/ErrorEnvelope"}
+    for path in schema.get("paths", {}).values():
+        for operation in path.values():
+            responses = operation.get("responses", {})
+            if responses.pop("422", None) is None:
+                continue
+            responses.setdefault(
+                "400",
+                {
+                    "description": "The request is refused (VALIDATION_ERROR).",
+                    "content": {"application/json": {"schema": error_ref}},
+                },
+            )
+    components = schema.get("components", {}).get("schemas", {})
+    for name in ("HTTPValidationError", "ValidationError"):
+        components.pop(name, None)

@@ -1,7 +1,5 @@
 # ADR-0006: Floor-trial queue model, as built
 
-**Ported from:** deejaytools-api ADR-0005 on 2026-10-25, when that repository was archived as [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api/tree/main/docs/decisions). Numbers are shifted by one to follow this repository's ADR-0001; only titles, citations and links were changed. In the body, "this repository" and "this service" mean deejaytools-api.
-
 Date: 2026-08-26
 
 ## Status
@@ -9,6 +7,10 @@ Date: 2026-08-26
 Accepted. Supersedes [ADR-0005](./ADR-0005-floor-trial-queue-model.md).
 
 ## Context
+
+Written in deejaytools-api, the Node service this one replaced (archived as
+legacy-graveyard/deejaytools-api); in this record "this service", "this
+API" and "this repository" mean deejaytools-api.
 
 ADR-0005 recorded the queue design agreed in April 2026. The system that
 shipped diverges from it far enough that the document is now actively

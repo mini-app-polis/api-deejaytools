@@ -1,4 +1,4 @@
-"""The scheduler's queue work (deejaytools-api src/services/cron.ts).
+"""The scheduler's queue work.
 
 - ``tick_session_statuses`` advances the stored ``sessions.status`` along
   scheduled → checkin_open → in_progress → completed as the clock passes each
@@ -10,13 +10,12 @@
 
 from __future__ import annotations
 
-import time
-
 from mini_app_polis.logger import LOG_FAILURE, LOG_SUCCESS, get_logger, with_log_prefix
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..cache import invalidate_queue_cache
+from ..clock import now_ms
 from ..models import Session
 from ..queue import fill_active_queue, lock_session_for_fill
 
@@ -25,16 +24,12 @@ logger = get_logger()
 _ADVANCING = ("scheduled", "checkin_open", "in_progress")
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
 async def tick_session_statuses(db: AsyncSession) -> int:
     """Advance stored session statuses one step each; returns how many changed.
 
     Commits its own work.
     """
-    now = _now_ms()
+    now = now_ms()
     rows = (
         await db.execute(
             select(
@@ -63,9 +58,9 @@ async def tick_session_statuses(db: AsyncSession) -> int:
                 .values(status=new_status)
                 .execution_options(synchronize_session=False)
             )
-            # Each update commits on its own, as deejaytools-api's autocommit
-            # did: a later failure keeps the earlier advances, and no session
-            # row stays locked while the rest of the pass runs.
+            # Each update commits on its own: a later failure keeps the earlier
+            # advances, and no session row stays locked while the rest of the
+            # pass runs.
             await db.commit()
             updated += 1
             logger.info(
@@ -94,7 +89,7 @@ async def fill_running_sessions(db: AsyncSession) -> int:
     back and logged, and the next session still runs. A session that
     promoted anything has its queue cache invalidated.
     """
-    now = _now_ms()
+    now = now_ms()
     session_ids = list(
         (
             await db.execute(

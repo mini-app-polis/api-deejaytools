@@ -1,4 +1,4 @@
-"""``/v1/admin/users`` (docs/API.md; deejaytools-api src/routes/admin-users.ts).
+"""``/v1/admin/users`` (docs/API.md).
 
 The admin user directory, role changes, and two per-user reads for the
 "Upload For" flow. Reads are behind ``deejaytools.users.read``, the role
@@ -252,7 +252,7 @@ async def update_role(
                 LOG_WARNING, f"admin_self_demote_blocked user={caller.user_id}"
             )
         )
-        # Lower-case code, as deejaytools-api answers here.
+        # Lower-case code, as the web app expects here.
         raise api_error(403, "forbidden", "You cannot change your own admin role.")
 
     target = (

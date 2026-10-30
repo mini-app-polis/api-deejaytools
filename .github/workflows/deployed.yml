@@ -15,10 +15,8 @@ name: deployed
 # answers (healthcheckPath in .railway/railway.ts), which keeps that wait
 # short.
 #
-# The hostnames are repository variables, not literals: until the cutover
-# (ADR-0007) this service answers on its own Railway domains,
-# and api-dev.deejaytools.com / api.deejaytools.com still point at
-# deejaytools-api. At the cutover only the variables change.
+# The hostnames are repository variables, not literals, so a domain change
+# is a variable change:
 #   API_URL_DEVELOPMENT   e.g. https://api-dev.deejaytools.com
 #   API_URL_PRODUCTION    e.g. https://api.deejaytools.com
 # (https:// is assumed when the value is a bare hostname).

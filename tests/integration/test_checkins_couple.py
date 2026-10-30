@@ -9,6 +9,7 @@ from typing import Any
 
 import asyncpg
 import httpx
+import pytest
 
 from .content_helpers import insert_song
 from .queue_helpers import (
@@ -288,3 +289,43 @@ async def test_a_pair_standing_for_nobody_elses_account_is_unaffected(
     other_song = await insert_song(db, alice.id, partner_id=other_row)
     res = await _check_in(client, alice, session_id, other_pair, other_song)
     assert res.status_code == 201, res.text
+
+
+async def test_the_couple_rule_holds_when_both_partners_check_in_at_once(
+    client: httpx.AsyncClient,
+    person: Callable[..., Any],
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bob's check-in lands after Alice's request has passed its first check
+    but before it takes the session lock: Alice's is refused under the lock."""
+    from api_deejaytools.routers import checkins as checkin_routes
+
+    alice, bob = await person("alice"), await person("bob")
+    c = await _couple(
+        db,
+        alice,
+        bob,
+        alices_row={"linked_user_id": bob.id},
+        bobs_row={"linked_user_id": alice.id},
+    )
+    session_id = await _session(db)
+    real_lock = checkin_routes.lock_session_for_fill
+    raced = False
+
+    async def bob_first(session: Any, sid: str) -> Any:
+        nonlocal raced
+        if not raced:
+            raced = True
+            res = await _check_in(client, bob, session_id, c["b_pair"], c["b_song"])
+            assert res.status_code == 201, res.text
+        return await real_lock(session, sid)
+
+    monkeypatch.setattr(checkin_routes, "lock_session_for_fill", bob_first)
+    res = await _check_in(client, alice, session_id, c["a_pair"], c["a_song"])
+    assert res.status_code == 409
+    assert res.json()["error"]["message"] == LIVE_ENTRY
+    entries = await db.fetch(
+        "SELECT entity_pair_id FROM queue_entries WHERE session_id = $1", session_id
+    )
+    assert [e["entity_pair_id"] for e in entries] == [c["b_pair"]]

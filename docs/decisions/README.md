@@ -1,19 +1,11 @@
 # Decisions
 
-ADR-0002 to ADR-0010 were made in deejaytools-api, the service this one
-replaced, and ported here on 2026-10-25 when that repository was archived
-as [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api).
-Each was renumbered by one (deejaytools-api ADR-0001 is ADR-0002 here, and
-so on) and says so in its header. The ones that define this service are
-ADR-0006 (floor-trial queue model, as built), ADR-0007 (the replacement),
-ADR-0008 (authorization), ADR-0009 (migrations) and ADR-0010 (wire contract
-and testing).
-
-ADR-0001, ADR-0011 and ADR-0012 were written in this repository: ADR-0001
-is a decision it made where those ADRs leave room, ADR-0011 records a rule
-inherited from deejaytools-api that had no ADR, and ADR-0012 adds per-event
-staff roles to ADR-0008's authorization. Smaller choices of the same
-kind are listed in [../DESIGN.md](../DESIGN.md).
+ADR-0002 to ADR-0010 were written in deejaytools-api, the service this one
+replaced, and carry one line saying so in their Context. The ones that
+define this service are ADR-0006 (floor-trial queue model, as built),
+ADR-0007 (the service), ADR-0008 (authorization), ADR-0009 (migrations),
+ADR-0010 (wire contract and testing) and ADR-0012 (per-event staff roles).
+Smaller choices of the same kind are listed in [../DESIGN.md](../DESIGN.md).
 
 Files are named `ADR-NNNN-short-slug.md` (ecosystem-standards DOC-005). An
 ADR in another repository is cited with that repository's name first, as in
@@ -22,7 +14,7 @@ ADR in another repository is cited with that repository's name first, as in
 | ADR | Decision |
 |-----|----------|
 | [ADR-0001](ADR-0001-durable-song-builds.md) | Song builds are durable, staged in `song_uploads` |
-| [ADR-0002](ADR-0002-drizzle-migrations-at-deploy.md) | Run Drizzle migrations at Railway deploy time |
+| [ADR-0002](ADR-0002-drizzle-migrations-at-deploy.md) | Run Drizzle migrations at Railway deploy time — superseded by ADR-0009 |
 | [ADR-0003](ADR-0003-validation-envelope-shape.md) | Validation 400 responses use the canonical error envelope |
 | [ADR-0004](ADR-0004-jwt-only-clerk-verification.md) | Clerk verification: session JWTs only, no M2M |
 | [ADR-0005](ADR-0005-floor-trial-queue-model.md) | Floor-trial queue model — superseded by ADR-0006 |

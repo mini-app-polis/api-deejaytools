@@ -1,4 +1,4 @@
-"""``/v1/queue`` (docs/API.md; deejaytools-api src/routes/queue.ts).
+"""``/v1/queue`` (docs/API.md).
 
 Floor-manager actions on a session's queues, and the queue reads.
 
@@ -6,16 +6,17 @@ Floor-manager actions on a session's queues, and the queue reads.
   ``deejaytools.queue.manage`` on the event of the body's queue entry
   (event-scoped, ADR-0012). Each is one transaction that starts by
   locking the session row (ADR-0006, "Concurrency — pessimistic"), except
-  move-down, which Node runs without the lock. A failed transaction answers
+  move-down, which runs without the lock. A failed transaction answers
   409 ``conflict``; there is no server-side retry.
-- active and waiting: public (API-008). priority and non-priority: behind
-  ``deejaytools.queue.read`` on the path session's event. All four are
-  cached for 3 s per session and invalidated by every mutation of that session.
+- active and waiting: public (API-008), without check-in notes, which are
+  for the event's staff only. active/staff, priority and non-priority:
+  behind ``deejaytools.queue.read`` on the path session's event, with
+  notes. All are cached for 3 s per session and invalidated by every
+  mutation of that session.
 """
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Annotated, Any, ClassVar, Literal
 
@@ -28,14 +29,16 @@ from mini_app_polis.logger import (
 )
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, insert, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from ..auth import Caller, EventRef, require_event_scope
 from ..cache import QUEUE_TTL_SECONDS, invalidate_queue_cache, response_cache
+from ..clock import now_ms
 from ..database import get_db_session
 from ..domain import full_name
-from ..errors import ErrorCode, ErrorResponse, Meta, api_error, success
+from ..errors import ErrorResponse, Meta, bad_request, conflict, not_found, success
 from ..models import (
     Checkin,
     ManagedPartnership,
@@ -54,6 +57,7 @@ from ..queue import (
     fill_active_queue,
     lock_session_for_fill,
     next_bottom_position,
+    remove_entry_of_checkin,
 )
 from ..queue.audit import record_queue_event
 from ..queue.compaction import set_position
@@ -153,35 +157,19 @@ class _PromoteAbort(Exception):
         self.gate = gate
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
-def _bad_request(message: str) -> Exception:
-    return api_error(400, ErrorCode.BAD_REQUEST, message)
-
-
-def _not_found(what: str) -> Exception:
-    return api_error(404, ErrorCode.NOT_FOUND, f"{what} not found")
-
-
-def _conflict(message: str) -> Exception:
-    return api_error(409, "conflict", message)
-
-
 def _promote_refusal(exc: _PromoteAbort) -> Exception | None:
     gate = exc.gate
     if exc.reason == "session_not_found":
-        return _not_found("Session")
+        return not_found("Session")
     if gate is None:
         return None
     if exc.reason == "priority_cap":
-        return _bad_request(
+        return bad_request(
             f"Active queue is at its priority cap "
             f"({gate.active_count}/{gate.active_priority_max} active)."
         )
     if exc.reason == "non_priority_cap_full":
-        return _bad_request(
+        return bad_request(
             f"Active queue is at its standard cap "
             f"({gate.active_count}/{gate.active_non_priority_max} active). "
             "Finish or withdraw an active entry before promoting another "
@@ -189,7 +177,7 @@ def _promote_refusal(exc: _PromoteAbort) -> Exception | None:
         )
     if exc.reason == "non_priority_blocked_by_priority":
         noun = "entry" if gate.priority_count == 1 else "entries"
-        return _bad_request(
+        return bad_request(
             f"Cannot promote a standard entry while the priority queue has "
             f"{gate.priority_count} waiting {noun}. Promote priority entries first."
         )
@@ -228,7 +216,7 @@ async def promote(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Promote an entry to active."""
-    now = _now_ms()
+    now = now_ms()
     entry = (
         await db.execute(
             select(
@@ -244,9 +232,9 @@ async def promote(
         )
     ).first()
     if entry is None:
-        raise _not_found("Queue entry")
+        raise not_found("Queue entry")
     if entry.queue_type == "active":
-        raise _bad_request("Entry is already active")
+        raise bad_request("Entry is already active")
 
     await db.commit()
     try:
@@ -312,7 +300,10 @@ async def promote(
             created_at=now,
         )
         await db.commit()
-    except Exception as exc:  # noqa: BLE001 - refusals mapped, anything else is a 409
+    except (
+        SQLAlchemyError,
+        _PromoteAbort,
+    ) as exc:  # a refusal, or the transaction failed: a 409
         await db.rollback()
         if isinstance(exc, _PromoteAbort):
             if exc.gate is not None:
@@ -336,7 +327,7 @@ async def promote(
                 f"queue_promote_failed entry={body.queueEntryId}: {exc!r}",
             )
         )
-        raise _conflict(
+        raise conflict(
             "Promotion conflicted with concurrent activity; please retry"
         ) from exc
 
@@ -384,10 +375,10 @@ async def complete(
 ) -> dict[str, Any]:
     """Mark an active entry's run complete."""
     admin_id = caller.user_id
-    now = _now_ms()
+    now = now_ms()
     entry = await _load_active_entry(db, body.queueEntryId)
     if entry is None:
-        raise _bad_request("Active queue entry not found")
+        raise bad_request("Active queue entry not found")
     session_id = entry.session_id
 
     checkin = (
@@ -398,7 +389,7 @@ async def complete(
         )
     ).first()
     if checkin is None:
-        raise _not_found("Check-in")
+        raise not_found("Check-in")
     event_id = (
         await db.execute(select(Session.event_id).where(Session.id == session_id))
     ).scalar_one_or_none()
@@ -439,7 +430,7 @@ async def complete(
         if locked is not None:
             await fill_active_queue(db, locked, admin_id, now)
         await db.commit()
-    except Exception as exc:  # noqa: BLE001 - any failure is a 409, as in Node
+    except SQLAlchemyError as exc:  # the transaction failed: a 409
         await db.rollback()
         logger.error(
             with_log_prefix(
@@ -448,7 +439,7 @@ async def complete(
                 f"session={session_id}: {exc!r}",
             )
         )
-        raise _conflict(
+        raise conflict(
             "Completion conflicted with concurrent activity; please retry"
         ) from exc
 
@@ -483,10 +474,10 @@ async def incomplete(
 ) -> dict[str, Any]:
     """Rotate an active entry to the bottom."""
     admin_id = caller.user_id
-    now = _now_ms()
+    now = now_ms()
     entry = await _load_active_entry(db, body.queueEntryId)
     if entry is None:
-        raise _bad_request("Active queue entry not found")
+        raise bad_request("Active queue entry not found")
     session_id = entry.session_id
 
     await db.commit()
@@ -536,10 +527,13 @@ async def incomplete(
             if locked is not None:
                 await fill_active_queue(db, locked, admin_id, now)
         await db.commit()
-    except Exception as exc:  # noqa: BLE001 - any failure is a 409, as in Node
+    except (
+        SQLAlchemyError,
+        _EntryMissing,
+    ) as exc:  # a refusal, or the transaction failed: a 409
         await db.rollback()
         if isinstance(exc, _EntryMissing):
-            raise _bad_request("Active queue entry not found") from exc
+            raise bad_request("Active queue entry not found") from exc
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,
@@ -547,7 +541,7 @@ async def incomplete(
                 f"session={session_id}: {exc!r}",
             )
         )
-        raise _conflict(
+        raise conflict(
             "Rotation conflicted with concurrent activity; please retry"
         ) from exc
 
@@ -579,7 +573,7 @@ async def move_down(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Swap an entry with the one below it."""
-    now = _now_ms()
+    now = now_ms()
     entry = (
         await db.execute(
             select(
@@ -592,7 +586,7 @@ async def move_down(
         )
     ).first()
     if entry is None:
-        raise _not_found("Queue entry")
+        raise not_found("Queue entry")
 
     below = (
         await db.execute(
@@ -604,11 +598,11 @@ async def move_down(
         )
     ).first()
     if below is None:
-        raise _bad_request("Entry is already at the bottom of its queue")
+        raise bad_request("Entry is already at the bottom of its queue")
 
     await db.commit()
     try:
-        # Node takes no session lock here; the unique index on
+        # No session lock here; the unique index on
         # (session, queue, position) is what refuses a racing change.
         await set_position(db, entry.id, SWAP_SENTINEL)
         await set_position(db, below.id, entry.position)
@@ -627,7 +621,7 @@ async def move_down(
             created_at=now,
         )
         await db.commit()
-    except Exception as exc:  # noqa: BLE001 - any failure is a 409, as in Node
+    except SQLAlchemyError as exc:  # the transaction failed: a 409
         await db.rollback()
         logger.error(
             with_log_prefix(
@@ -636,7 +630,7 @@ async def move_down(
                 f"session={entry.session_id}: {exc!r}",
             )
         )
-        raise _conflict(
+        raise conflict(
             "Move conflicted with concurrent activity; please retry"
         ) from exc
 
@@ -667,7 +661,7 @@ async def withdraw(
 ) -> dict[str, Any]:
     """Withdraw an entry."""
     admin_id = caller.user_id
-    now = _now_ms()
+    now = now_ms()
     entry = (
         await db.execute(
             select(
@@ -680,22 +674,22 @@ async def withdraw(
         )
     ).first()
     if entry is None:
-        raise _not_found("Queue entry")
+        raise not_found("Queue entry")
 
     await db.commit()
     try:
         locked = await lock_session_for_fill(db, entry.session_id)
-        await db.execute(delete(QueueEntry).where(QueueEntry.id == entry.id))
-        await compact_after_removal(
-            db, entry.session_id, entry.queue_type, entry.position
-        )
+        removed = await remove_entry_of_checkin(db, entry.session_id, entry.checkin_id)
+        if removed is None:
+            raise _EntryMissing()
+        from_queue, from_position = removed
         await record_queue_event(
             db,
             session_id=entry.session_id,
             checkin_id=entry.checkin_id,
             action="withdrawn",
-            from_queue=entry.queue_type,
-            from_position=entry.position,
+            from_queue=from_queue,
+            from_position=from_position,
             to_queue=None,
             to_position=None,
             actor_user_id=admin_id,
@@ -705,8 +699,13 @@ async def withdraw(
         if locked is not None:
             await fill_active_queue(db, locked, admin_id, now)
         await db.commit()
-    except Exception as exc:  # noqa: BLE001 - any failure is a 409, as in Node
+    except (
+        SQLAlchemyError,
+        _EntryMissing,
+    ) as exc:  # a refusal, or the transaction failed: a 409
         await db.rollback()
+        if isinstance(exc, _EntryMissing):
+            raise not_found("Queue entry") from exc
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,
@@ -715,7 +714,7 @@ async def withdraw(
                 f"position={entry.position}: {exc!r}",
             )
         )
-        raise _conflict(
+        raise conflict(
             "Withdraw conflicted with concurrent activity; please retry"
         ) from exc
 
@@ -837,6 +836,11 @@ async def _cached(key: str, build: Any) -> dict[str, Any]:
     return result
 
 
+def _public(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Queue rows for anyone: check-in notes are for the event's staff."""
+    return [{**r, "notes": None} for r in rows]
+
+
 SessionId = Annotated[str, Path(description="Session id.")]
 READ: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse, "description": "Missing or invalid token."},
@@ -851,15 +855,43 @@ READ: dict[int | str, dict[str, Any]] = {
     description=(
         "The active queue, position 1 first (position 1 is on the floor). "
         "Intentionally public: the dancer-facing session page polls it. "
-        "Cached for 3 s."
+        "Check-in notes are left out (null): staff read them through "
+        "/active/staff. Cached for 3 s."
     ),
 )
 async def active_queue(
     session_id: SessionId, db: AsyncSession = Depends(get_db_session)
 ) -> dict[str, Any]:
-    """List the active queue. Public."""
+    """List the active queue. Public, so without notes."""
+
+    async def build() -> list[dict[str, Any]]:
+        return _public(await list_queue(db, session_id, "active"))
+
+    return await _cached(f"queue:{session_id}:active", build)
+
+
+@router.get(
+    "/{session_id}/active/staff",
+    response_model=QueueListResponse,
+    summary="Active queue, for the event's staff",
+    description=(
+        "Requires deejaytools.queue.read on the session's event. The active "
+        "queue as the public route gives it, with each entry's check-in notes. "
+        "Cached for 3 s."
+    ),
+    responses=READ,
+)
+async def active_queue_for_staff(
+    session_id: SessionId,
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.queue.read", SESSION_EVENT)
+    ),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """List the active queue, with notes."""
     return await _cached(
-        f"queue:{session_id}:active", lambda: list_queue(db, session_id, "active")
+        f"queue:{session_id}:active-staff",
+        lambda: list_queue(db, session_id, "active"),
     )
 
 
@@ -870,7 +902,7 @@ async def active_queue(
     description=(
         "Priority entries then standard entries, each tagged with subQueue. "
         "Intentionally public: the dancer-facing session page polls it. "
-        "Cached for 3 s."
+        "Check-in notes are left out (null). Cached for 3 s."
     ),
 )
 async def waiting_queue(
@@ -881,8 +913,8 @@ async def waiting_queue(
     async def build() -> list[dict[str, Any]]:
         priority = await list_queue(db, session_id, "priority")
         standard = await list_queue(db, session_id, "non_priority")
-        return [{**r, "subQueue": "priority"} for r in priority] + [
-            {**r, "subQueue": "non_priority"} for r in standard
+        return [{**r, "subQueue": "priority"} for r in _public(priority)] + [
+            {**r, "subQueue": "non_priority"} for r in _public(standard)
         ]
 
     return await _cached(f"queue:{session_id}:waiting", build)

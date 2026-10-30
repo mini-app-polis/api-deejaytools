@@ -90,3 +90,27 @@ def test_the_list_is_read_from_the_environment_as_json(
         assert get_settings().DISCORD_NOTIFY_EVENTS == {"staging": ["fault"]}
     finally:
         get_settings.cache_clear()
+
+
+def test_every_channel_resolves_from_declared_settings() -> None:
+    """Each channel's webhook comes from a declared Settings field: its own
+    where the service posts to it, else the shared fallback."""
+    from mini_app_polis import discord
+
+    from api_deejaytools.config import Settings
+    from api_deejaytools.services.notifications import webhook_source
+
+    settings = Settings.model_construct(
+        DISCORD_WEBHOOK_URL="https://discord.test/fallback",
+        DISCORD_WEBHOOK_URL_ERRORS="https://discord.test/errors",
+        DISCORD_WEBHOOK_URL_ACTIVITY="https://discord.test/activity",
+    )
+    source = webhook_source(settings)
+    resolved = {
+        channel: discord.webhook_url(channel, source=source)
+        for channel in discord.CHANNEL_ENV
+    }
+    assert resolved[discord.CHANNEL_ERRORS] == "https://discord.test/errors"
+    assert resolved[discord.CHANNEL_ACTIVITY] == "https://discord.test/activity"
+    for channel, url in resolved.items():
+        assert url is not None, channel

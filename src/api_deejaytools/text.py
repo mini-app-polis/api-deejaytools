@@ -1,4 +1,4 @@
-"""Name casing helpers (deejaytools-api src/lib/text.ts)."""
+"""Name casing helpers."""
 
 from __future__ import annotations
 

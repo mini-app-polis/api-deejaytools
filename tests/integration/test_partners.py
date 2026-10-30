@@ -254,7 +254,7 @@ async def test_associations(
         queued=False,
     )
     data = (await client.get(url, headers=alice.headers)).json()["data"]
-    # Soft-deleted songs are counted, as in deejaytools-api.
+    # Soft-deleted songs are counted.
     assert data == {
         "song_count": 2,
         "has_active_checkin": False,

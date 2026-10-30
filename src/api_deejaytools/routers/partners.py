@@ -1,4 +1,4 @@
-"""``/v1/partners`` (docs/API.md; deejaytools-api src/routes/partners.ts).
+"""``/v1/partners`` (docs/API.md).
 
 A user's address book of dance partners. Reads are behind
 ``deejaytools.partners.read``, changes behind ``deejaytools.partners.write``;
@@ -7,7 +7,6 @@ every route sees only the caller's own partners.
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Annotated, Any, ClassVar, Literal
 
@@ -17,6 +16,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
+from ..clock import now_ms
 from ..database import get_db_session
 from ..errors import (
     ErrorCode,
@@ -140,10 +140,6 @@ def map_partner(row: Partner) -> dict[str, Any]:
         "updated_at": row.updated_at,
         "display_name": partner_display_name(row.first_name, row.last_name),
     }
-
-
-def _now_ms() -> int:
-    return int(time.time() * 1000)
 
 
 async def _load_owned(session: AsyncSession, partner_id: str, user_id: str) -> Partner:
@@ -270,7 +266,7 @@ async def create_partner(
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Create a partner."""
-    now = _now_ms()
+    now = now_ms()
     partner_id = str(uuid.uuid4())
     session.add(
         Partner(
@@ -307,7 +303,7 @@ async def partner_associations(
 ) -> dict[str, Any]:
     """Count what uses a partner."""
     await _load_owned(session, id, caller.user_id)
-    # Soft-deleted songs count too, as in deejaytools-api.
+    # Soft-deleted songs count too.
     song_count = (
         await session.execute(
             select(func.count())
@@ -387,7 +383,7 @@ async def patch_partner(
         row.partner_role = body.partner_role
     if "email" in sent:
         row.email = js_trim(body.email or "") or None
-    row.updated_at = _now_ms()
+    row.updated_at = now_ms()
     await session.commit()
     return success(map_partner(row))
 
