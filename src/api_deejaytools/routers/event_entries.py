@@ -14,7 +14,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import Caller, EventRef, require_event_scope
+from ..auth import Caller, EventRef, is_admin, require_event_scope
 from ..database import get_db_session
 from ..errors import ErrorCode, ErrorResponse, api_error
 from ..models import Event
@@ -46,7 +46,7 @@ THIS_EVENT = EventRef(source="path", name="id")
 )
 async def list_event_entries(
     id: Annotated[str, Path(description="Event id.")],
-    _caller: Caller = Depends(
+    caller: Caller = Depends(
         require_event_scope("deejaytools.entries.read", THIS_EVENT)
     ),
     session: AsyncSession = Depends(get_db_session),
@@ -54,4 +54,4 @@ async def list_event_entries(
     """List the event's submissions."""
     if await session.get(Event, id) is None:
         raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
-    return await event_submissions_response(session, id)
+    return await event_submissions_response(session, id, whole_emails=is_admin(caller))

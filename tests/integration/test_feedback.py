@@ -150,7 +150,7 @@ async def test_blank_contact_fields(
     [
         ("data:image/png;base64,iVBORw0KGgo=", "screenshot.png", "iVBORw0KGgo="),
         ("data:image/jpeg;base64,/9j/4AAQ", "screenshot.jpg", "/9j/4AAQ"),
-        # The prefix check ignores case; the JPEG check does not, as in Node.
+        # The prefix check ignores case; the JPEG check does not.
         ("DATA:IMAGE/JPEG;BASE64,/9j/4AAQ", "screenshot.png", "/9j/4AAQ"),
     ],
 )
@@ -206,6 +206,27 @@ async def test_brevo_failure_is_502(
         }
     }
     assert brevo.routes["brevo"].call_count == 1
+
+
+async def test_a_brevo_timeout_is_502_and_reported(
+    client: httpx.AsyncClient, brevo: respx.Router, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from api_deejaytools.routers import feedback
+
+    captured: list[BaseException] = []
+    monkeypatch.setattr(feedback.sentry_sdk, "capture_exception", captured.append)
+    _key(monkeypatch, "BREVO_API_KEY", "key")
+    brevo.routes["brevo"].mock(side_effect=httpx.ReadTimeout("slow"))
+    res = await client.post(URL, json={"type": "bug", "subject": "s", "message": "m"})
+    assert res.status_code == 502
+    assert res.json()["error"]["code"] == "EMAIL_FAILED"
+    assert len(captured) == 1 and isinstance(captured[0], httpx.ReadTimeout)
+
+
+def test_the_brevo_call_is_bounded() -> None:
+    from api_deejaytools.routers import feedback
+
+    assert 0 < feedback.BREVO_TIMEOUT_SECONDS <= 30
 
 
 @pytest.mark.parametrize(

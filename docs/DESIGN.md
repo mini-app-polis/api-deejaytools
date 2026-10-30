@@ -1,24 +1,22 @@
 # Design
 
-The settled decisions are ADR-0007 to ADR-0010, made in deejaytools-api and
-ported to [decisions/](decisions/); they remain the spec now that
-deejaytools-api is retired (2026-10-02). This file
-records how this repository carries them out, and the places where it had
-to decide something they leave open.
+The settled decisions are ADR-0007 to ADR-0010 and ADR-0012, in
+[decisions/](decisions/). This file records how this repository carries them
+out, and the places where it decides something they leave open.
 
 ## Shape
 
 Copied from api-kaianolevine-com: FastAPI, SQLAlchemy async with asyncpg,
 pydantic-settings, uv, Sentry, `mini_app_polis.logger`, the request-metrics
-middleware, Railway (now declared in `.railway/railway.ts`), and its raw-SQL
+middleware, Railway (declared in `.railway/railway.ts`), and its raw-SQL
 migration runner.
-Not its routes, and not its error style: this service answers in
-deejaytools-api's codes and shapes (`errors.py`).
+Not its routes, and not its error style: this service answers in the codes
+and shapes of [API.md](API.md) (`errors.py`).
 
 ## Decisions made here
 
-- **Configuration names.** Settings read the `DEEJAYTOOLS_`-prefixed names
-  deejaytools-api reads. The shared Doppler config holds the other Clerk
+- **Configuration names.** Settings read `DEEJAYTOOLS_`-prefixed names
+  (`.env.example`). The shared Doppler config holds the other Clerk
   tenant's `CLERK_*` values, so the bare names would point this service at
   the wrong issuer.
 - **The issuer is per environment.** Each environment has its own Clerk
@@ -32,19 +30,19 @@ deejaytools-api's codes and shapes (`errors.py`).
   column. Sync and the backfill grant only `deejaytools-dancer`, so admin
   is given and taken only through `PATCH /v1/admin/users/{id}/role`.
 - **`/internal/tick` fails closed** with `403 FORBIDDEN` "Admin access
-  required" when `TICK_SECRET` is unset, the answer deejaytools-api gives
-  for a wrong secret (ADR-0008 leaves the status open).
+  required" when `TICK_SECRET` is unset, the same answer as a wrong secret
+  (ADR-0008 leaves the status open).
 - **Bootstrap needs an exclude list.** The runner has no default
   `BOOTSTRAP_EXCLUDE` (ADR-0009) and refuses a bootstrap without one when
   there is more than one migration, which would otherwise mark the identity
   store applied without creating it.
 - **Wire details.** `meta.version` is `"v1"`; errors carry `code` and
   `message` only; validation failures are `400 VALIDATION_ERROR`; a wrong
-  method is `404 NOT_FOUND` as in Hono; `/v1/auth/sync` validates its body
+  method is `404 NOT_FOUND`; `/v1/auth/sync` validates its body
   before its token; a missing scope answers `403 FORBIDDEN` "Admin access
   required" while the audit row records the real scope.
 - **`/v1/auth/me`** answers `401 USER_NOT_SYNCED` when there is no `users`
-  row, as today. A `users` row with no principal yet answers with
+  row. A `users` row with no principal yet answers with
   `role: "user"`.
 
 - **Request validation follows zod, not pydantic's defaults**
@@ -59,9 +57,9 @@ deejaytools-api's codes and shapes (`errors.py`).
   timezones are what `Intl` accepts: IANA names case-insensitively and
   `+HH:MM` offsets, stored as sent.
 - **Bodies are parsed by a dependency** (`zod_types.zod_body`), declared
-  after the auth dependency: as with hono's middleware, a missing token wins
-  over a bad body, a body without a JSON content type is `{}`, and
-  malformed JSON answers `500 INTERNAL`, deejaytools-api's answer.
+  after the auth dependency, so a missing token wins over a bad body; a body
+  without a JSON content type is `{}`, and malformed JSON answers
+  `500 INTERNAL`.
   `document_zod_bodies` puts those bodies back into the OpenAPI schema.
 - **Durable song builds** (`services/song_builds.py`, migration 003). The
   uploaded bytes wait in `song_uploads` until the Drive build finishes, so a
@@ -69,16 +67,18 @@ deejaytools-api's codes and shapes (`errors.py`).
   a lease it renews every minute and identifies itself with a `claim_id`; a
   build that stops renewing is taken over, and its later writes match
   nothing. The tick starts due builds in the background, at most
-  `MAX_IN_FLIGHT` at once. This fixes [DRIVE.md](DRIVE.md)'s known defects; the wire
-  behaviour (an unreferenced song vanishing when its build fails) is kept.
+  `MAX_IN_FLIGHT` at once. A song already submitted or checked in is
+  retried rather than lost; one nothing references still vanishes when its
+  build fails ([DRIVE.md](DRIVE.md#background-build)).
 - **Drive clients are per thread** (`services/drive.py`): Drive calls run in
   worker threads, and googleapiclient's transport is not thread-safe.
 - **Deletes take Drive file ids from the rows they delete**
   (`DELETE … RETURNING`, `UPDATE … RETURNING`), so a copy or build finishing
   concurrently is never left behind in Drive.
-- **Request limits** (`middleware.py`) are deejaytools-api's, keyed the same
-  way. The deadline does not cancel the handler, as Node could not: it runs
-  on and its writes land, only its response is discarded.
+- **Request limits** (`middleware.py`): 11 MiB bodies, 300 requests a minute
+  per client address on `/v1/*`, a 30 s deadline (300 s for uploads). The
+  deadline does not cancel the handler: it runs on and its writes land, only
+  its response is discarded.
 - **Discord notifications** (`services/notifications.py`, on
   common-python-utils' `activity`): the change feed and request faults as
   api-kaianolevine-com has them, plus "song added" posted on the commit of
@@ -86,24 +86,23 @@ deejaytools-api's codes and shapes (`errors.py`).
   retry, a restart), so whoever uploaded a song for someone else is staged
   with the bytes (`song_uploads.uploaded_by_user_id`, migration 004)
   rather than kept in memory. What posts where: docs/OPERATIONS.md.
-- **Who a song belongs to reads leader first** (`domain.entity_name_pair`).
-  deejaytools-api named the song's owner first ("owner & partner"). Here a
-  managed partnership is its leader and follower, a team or other
+- **Who a song belongs to reads leader first** (`domain.entity_name_pair`),
+  never simply owner first. A managed partnership is its leader and follower, a team or other
   placeholder partner is its own name alone, and a real partner is ordered
   leader then follower by `partner_role`. ProAm reads amateur then pro, so
   ProAm FollowerAm swaps the pair. One rule names the event's entered
   entities, submission and run labels, the processed filename, and the
   queue, check-in and run entity labels.
 - **No prepared-statement caching** (`database.py`): the service survives
-  its schema being rebuilt underneath it, which deejaytools-api's
-  [CONFORMANCE.md](CONFORMANCE.md) requires of a target, for one extra round trip per query.
+  its schema being rebuilt underneath it, which
+  [CONFORMANCE.md](CONFORMANCE.md) requires of a target, for one extra round
+  trip per query.
 
 ## Testing
 
 Tests build a real Postgres database from `migrations/` with the runner, so
 the baseline is exercised on every run. `scripts/check_baseline.sh` checks
-the baseline against drizzle's result in CI. The conformance suite
-(deejaytools-api's integration suite, copied into `conformance/` with
-ADR-0010's three harness changes) runs in CI against this service. Its one
-further change: the tick test sends `x-tick-secret`, since `/internal/tick`
-fails closed here (see `conformance/README.md`).
+the baseline against drizzle's result in CI. The conformance suite in
+`conformance/` (with ADR-0010's three harness changes) runs in CI against
+this service over HTTP; its tick test sends `x-tick-secret`, since
+`/internal/tick` fails closed. How to run it: [CONFORMANCE.md](CONFORMANCE.md).

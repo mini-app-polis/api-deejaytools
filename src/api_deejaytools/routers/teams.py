@@ -1,4 +1,4 @@
-"""``/v1/teams`` (docs/API.md; deejaytools-api src/routes/teams.ts).
+"""``/v1/teams`` (docs/API.md).
 
 Team names a user competes under. Reads are behind ``deejaytools.teams.read``,
 changes behind ``deejaytools.teams.write``; every route sees only the
@@ -11,12 +11,13 @@ import time
 import uuid
 from typing import Annotated, Any
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
@@ -183,10 +184,11 @@ async def create_team(
             )
         )
         await session.commit()
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
         await session.rollback()
         if is_unique_violation(exc):
             raise _conflict() from exc
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,

@@ -1,10 +1,8 @@
 """Event song submissions: rounds, The Open, the per-event Drive filename, and
 the caller's joined submission rows.
 
-Ported from deejaytools-api src/schemas/index.ts (submission rounds,
-``isOpenEvent``, ``isFollowerAmDivision``), src/lib/submissionFilename.ts and
-the exported ``fetchUserSubmissionRows`` / ``mapSubmissionRow`` of
-src/routes/event-song-submissions.ts, which admin routes reuse.
+``fetch_user_submission_rows`` and ``map_submission_row`` are shared with the
+admin routes.
 """
 
 from __future__ import annotations
@@ -78,21 +76,12 @@ def resolve_submission_filename(
     processed_filename: str | None,
     original_filename: str | None,
     song_id: str,
-    event_name: str,
 ) -> str:
     """Filename for a submission's per-event Drive copy: the processed
-    filename, else the original, else the song id.
-
-    The Open is expected to get its own convention; that branch is kept here
-    so there is one place to change, and today returns the same value.
-    """
-    filename = (
+    filename, else the original, else the song id. The same for every event."""
+    return (
         js_trim(processed_filename or "") or js_trim(original_filename or "") or song_id
     )
-    if is_open_event(event_name):
-        # TODO(open): apply The Open's naming convention once defined.
-        return filename
-    return filename
 
 
 async def entity_slot_taken(
@@ -211,7 +200,7 @@ def map_submission_row(row: Any) -> dict[str, Any]:
     """A row from ``fetch_user_submission_rows`` on the wire.
 
     ``division`` is the override or the song's, untrimmed and possibly null,
-    as deejaytools-api returns it.
+    as the web app expects it.
     """
     division = (
         row.submission_division

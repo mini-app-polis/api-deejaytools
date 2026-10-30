@@ -1,4 +1,4 @@
-"""The session lock and auto-fill of the active queue (deejaytools-api lib/queue/fill.ts).
+"""The session lock and auto-fill of the active queue.
 
 Every queue transaction starts with ``lock_session_for_fill``: the session
 row is the first lock taken, before any queue_entries row, so all mutations

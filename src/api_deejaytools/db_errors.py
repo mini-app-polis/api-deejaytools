@@ -1,4 +1,4 @@
-"""Database error classification (deejaytools-api src/lib/db-errors.ts)."""
+"""Database error classification."""
 
 from __future__ import annotations
 

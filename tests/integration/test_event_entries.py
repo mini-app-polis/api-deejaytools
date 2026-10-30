@@ -8,6 +8,8 @@ from typing import Any
 import asyncpg
 import httpx
 
+from api_deejaytools.event_connections import mask_email
+
 from .content_helpers import insert_song
 
 EVENT = {"name": "Swing Fling", "start_date": "2026-05-01", "end_date": "2026-05-03"}
@@ -82,13 +84,26 @@ async def test_a_coordinator_sees_their_event_and_only_theirs(
     }
     assert all(r["song_label"] for r in body["data"])
 
-    # The same answer the admin list gives for the event.
+    # The same answer the admin list gives for the event, but with the
+    # submitter's email masked: staff never see an email whole.
     admin_list = await client.get(
         "/v1/admin/event-song-submissions",
         params={"event_id": event_a},
         headers=admin.headers,
     )
-    assert admin_list.json() == body
+    whole = admin_list.json()
+    assert [r["submitter_email"] for r in body["data"]] == [
+        mask_email(r["submitter_email"]) for r in whole["data"]
+    ]
+    assert all("@" in r["submitter_email"] for r in whole["data"])
+    assert all("•••@" in r["submitter_email"] for r in body["data"])
+    for row in (*body["data"], *whole["data"]):
+        row.pop("submitter_email")
+    assert whole == body
+
+    # An admin on the event-scoped route sees emails whole.
+    as_admin = await client.get(_url(event_a), headers=admin.headers)
+    assert all("•••" not in r["submitter_email"] for r in as_admin.json()["data"])
 
     other = await client.get(_url(event_b), headers=coordinator.headers)
     assert other.status_code == 403

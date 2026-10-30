@@ -70,6 +70,8 @@ for _name in (
 
 from api_deejaytools.main import app  # noqa: E402
 
+from . import route_ledger  # noqa: E402
+
 # Seed rows migration 002 writes; spared by the per-test reset, as the
 # conformance harness spares them (ADR-0010).
 SPARED_TABLES = {"schema_migrations", "identity_roles", "identity_role_scopes"}
@@ -298,3 +300,39 @@ async def _no_discord_network(
     await song_builds.wait_for_builds()
     await activity.wait_for_deliveries()
     assert leaked == [], "a test posted to Discord"
+
+
+# --- the route ledger (TEST-018) --------------------------------------------------
+
+route_ledger.install()
+_ledger = {"partial": False}
+
+
+def pytest_deselected(items: list[pytest.Item]) -> None:
+    if items:
+        _ledger["partial"] = True
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """The ledger is checked only when the whole integration suite runs: no
+    single tests, and no path inside the integration directory."""
+    here = Path(__file__).resolve().parent
+    whole = {here, here.parent, here.parent.parent}
+    for arg in session.config.args:
+        path, _, node = arg.partition("::")
+        target = Path(path).resolve()
+        if node or (target not in whole and target.is_relative_to(here)):
+            _ledger["partial"] = True
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    if _ledger["partial"] or exitstatus != 0:
+        return
+    problems = route_ledger.problems(app)
+    if problems:
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter is not None:
+            reporter.write_sep("=", "route ledger (TEST-018)", red=True)
+            for line in problems:
+                reporter.write_line(line)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED

@@ -8,6 +8,7 @@ from collections.abc import Callable
 import asyncpg
 import httpx
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from api_deejaytools.routers import admin_drive_jobs
 
@@ -128,7 +129,7 @@ async def test_summary_failure_is_internal(
     admin = await person("admin", admin=True)
 
     def boom(*_: object, **__: object) -> None:
-        raise RuntimeError("boom")
+        raise OperationalError("boom", {}, Exception("boom"))
 
     monkeypatch.setattr(admin_drive_jobs, "success", boom)
     res = await client.get(f"{URL}/summary", headers=admin.headers)
@@ -238,7 +239,7 @@ async def test_list_failure_is_internal(
     admin = await person("admin", admin=True)
 
     def boom(*_: object, **__: object) -> None:
-        raise RuntimeError("boom")
+        raise OperationalError("boom", {}, Exception("boom"))
 
     monkeypatch.setattr(admin_drive_jobs, "success_list", boom)
     res = await client.get(URL, headers=admin.headers)
@@ -303,7 +304,7 @@ async def test_backfill_failure_is_internal_and_keeps_earlier_jobs(
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise RuntimeError("insert failed")
+            raise OperationalError("insert failed", {}, Exception("insert failed"))
         await real(*args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(admin_drive_jobs, "enqueue_drive_job", flaky)

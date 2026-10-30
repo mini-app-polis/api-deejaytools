@@ -276,7 +276,14 @@ async def _checkin_for(client, db, w, who, event_id):  # type: ignore[no-untyped
 
 
 async def _upload_for(client, db, w, who, event_id):  # type: ignore[no-untyped-def]
+    await _connect(db, event_id, w.target.id)
     return await _upload_chunk(client, who, w.target.id, event_id)
+
+
+async def _connect(db: asyncpg.Connection, event_id: str, user_id: str) -> None:
+    """Connect a dancer to an event: a song of theirs submitted to it."""
+    pair = await dancer_pair(db, user_id=user_id)
+    await _submit(db, event_id, user_id, pair["song_id"])
 
 
 async def _upload_chunk(
@@ -328,6 +335,7 @@ ROUTES = [
     ),
     Route("priority", "deejaytools.queue.read", _queue_read("priority")),
     Route("non-priority", "deejaytools.queue.read", _queue_read("non-priority")),
+    Route("active-staff", "deejaytools.queue.read", _queue_read("active/staff")),
     Route("runs-by-event", "deejaytools.runs.read", _runs_by_event),
     Route("runs-by-session", "deejaytools.runs.read", _runs_by_session),
     Route("create-session", "deejaytools.sessions.write", _create_session),
@@ -508,9 +516,14 @@ async def test_moving_a_session_needs_the_scope_on_both_events(
 
 
 async def test_uploads_on_behalf_by_staff_name_the_event(
-    client: httpx.AsyncClient, db: asyncpg.Connection, world: World
+    client: httpx.AsyncClient,
+    db: asyncpg.Connection,
+    world: World,
+    person: Callable[..., Any],
 ) -> None:
     w = world
+    stranger = await person("stranger")
+    await _connect(db, w.event_a, w.target.id)
     # A scoped caller without event_id: refused, and the decision audited,
     # naming the dancer acted for.
     res = await _upload_chunk(client, w.dj, w.target.id, None)
@@ -519,11 +532,19 @@ async def test_uploads_on_behalf_by_staff_name_the_event(
     assert (
         await _upload_chunk(client, w.dj, w.target.id, w.event_a)
     ).status_code == 200
+    # Someone with no tie to the event: the DJ's grant there does not reach
+    # them, so it is decided on roles alone, and refused.
+    assert (
+        await _upload_chunk(client, w.dj, stranger.id, w.event_a)
+    ).status_code == 403
     assert (
         await _upload_chunk(client, w.dj, w.target.id, "evt_none")
     ).status_code == 403
-    # An admin needs no event_id.
+    # An admin needs no event_id, and may act for anyone.
     assert (await _upload_chunk(client, w.admin, w.target.id, None)).status_code == 200
+    assert (
+        await _upload_chunk(client, w.admin, stranger.id, w.event_a)
+    ).status_code == 200
 
     audited = await db.fetch(
         "SELECT subject, resource, allowed FROM identity_audit_events"
@@ -533,9 +554,48 @@ async def test_uploads_on_behalf_by_staff_name_the_event(
     assert [(r["subject"], r["resource"], r["allowed"]) for r in audited] == [
         (w.dj.id, w.target.id, False),
         (w.dj.id, f"event:{w.event_a}/on-behalf-of/{w.target.id}", True),
-        (w.dj.id, f"event:evt_none/on-behalf-of/{w.target.id}", False),
+        (w.dj.id, stranger.id, False),
+        (w.dj.id, w.target.id, False),
         (w.admin.id, w.target.id, True),
+        (w.admin.id, stranger.id, True),
     ]
+
+
+async def test_a_dj_cannot_check_in_someone_with_no_tie_to_the_event(
+    client: httpx.AsyncClient,
+    db: asyncpg.Connection,
+    world: World,
+    person: Callable[..., Any],
+) -> None:
+    w = world
+    stranger = await person("stranger")
+    now = _now()
+    session_id = await insert_floor_session(
+        db,
+        event_id=w.event_a,
+        status="checkin_open",
+        checkin_opens_at=now - HOUR,
+        starts_at=now + HOUR,
+        ends_at=now + 2 * HOUR,
+    )
+    pair = await dancer_pair(db, user_id=stranger.id)
+    res = await client.post(
+        "/v1/checkins",
+        json={
+            "sessionId": session_id,
+            "divisionName": "Classic",
+            "songId": pair["song_id"],
+            "on_behalf_of_user_id": stranger.id,
+        },
+        headers=w.dj.headers,
+    )
+    assert res.status_code == 403, res.text
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM checkins WHERE session_id = $1", session_id
+        )
+        == 0
+    )
 
 
 async def test_a_dj_checks_in_a_dancer_and_is_named_as_actor(

@@ -1,8 +1,14 @@
-> Ported from [deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api)'s docs/SCHEMA.md when that repository was archived. "This service" and `src/` paths below mean deejaytools-api, whose contract api-deejaytools reproduces.
-
 # Database schema reference
 
-Source of truth: [`src/db/schema.ts`](https://github.com/legacy-graveyard/deejaytools-api/tree/main/src/db/schema.ts). Cross-checked against SQL migrations in [`drizzle/`](https://github.com/legacy-graveyard/deejaytools-api/tree/main/drizzle/).
+Source of truth: the numbered SQL files in [`migrations/`](../migrations/),
+applied in order by `scripts/apply_migrations.py` and recorded in
+`schema_migrations`. `001_baseline.sql` holds every table below except
+`song_uploads` (003), `event_staff_grants` (007) and the `identity_*`
+tables (002); later files alter what earlier ones built (005 drops
+`users.role`, 006 adds `identity_audit_events.key_slot`, 008 adds
+`drive_jobs.event_id` and `user_id`). The SQLAlchemy models in
+`src/api_deejaytools/models.py` mirror the tables the app reads; they never
+create or alter anything.
 
 ---
 
@@ -10,31 +16,35 @@ Source of truth: [`src/db/schema.ts`](https://github.com/legacy-graveyard/deejay
 
 ### Timestamps
 
-All time columns use Drizzle `bigint({ mode: "number" })` mapped to PostgreSQL `bigint`. Values are **epoch milliseconds** (`Date.now()`), not `timestamptz` or `timestamp`.
+Time columns in the app's tables are PostgreSQL `bigint` holding **epoch milliseconds**, not `timestamptz` or `timestamp`. The `identity_*` tables and `schema_migrations` are the exception: they use `timestamptz` (see [Identity store](#identity-store)).
 
 When writing raw SQL or ad-hoc queries, compare against numeric ms (e.g. `WHERE checkin_opens_at <= 1735689600000`) or convert explicitly. Do not pass ISO strings to bigint columns without conversion. Mixing types (`to_timestamp(ms/1000.0)` vs direct bigint compare) is a common source of off-by-timezone or off-by-unit bugs.
 
-Columns using this pattern: `created_at`, `updated_at`, `deleted_at` (where present), `checkin_opens_at`, `floor_trial_starts_at`, `floor_trial_ends_at`, `entered_queue_at`, `completed_at`, `next_attempt_at`.
+Columns using this pattern: `created_at`, `updated_at`, `deleted_at` (where present), `checkin_opens_at`, `floor_trial_starts_at`, `floor_trial_ends_at`, `entered_queue_at`, `completed_at`, `next_attempt_at`, `granted_at` (`event_staff_grants`).
 
 ### Primary keys
 
-Every table primary key is `text` holding a UUID string from `crypto.randomUUID()`, **except**:
+Every app table's primary key is `text` holding a UUID string (`uuid.uuid4()`), **except**:
 
 | Table | PK column | Value |
 |-------|-----------|--------|
 | `users` | `id` | Clerk user id (JWT `sub` claim), not a random UUID |
 | `event_division_run_limits` | *(none)* | Logical key `(event_id, division_name)` via unique index `uq_event_division_run_limits_pk` |
+| `song_uploads` | `song_id` | The song it stages (`songs.id`) |
+| `event_staff_grants` | `(event_id, user_id, role)` | Composite |
+
+The `identity_*` tables have their own keys; see [Identity store](#identity-store).
 
 ### Foreign-key delete behavior
 
-Unless noted below, foreign keys use PostgreSQL **`NO ACTION`** (Drizzle default when `onDelete` is omitted).
+Unless noted below, foreign keys use PostgreSQL's default, **`NO ACTION`**.
 
-Explicit overrides in `schema.ts`:
+Explicit overrides:
 
 | Table | Column | References | onDelete |
 |-------|--------|------------|----------|
-| `events` | `created_by` | `users.id` | `SET NULL` |
-| `sessions` | `created_by` | `users.id` | `SET NULL` |
+| `checkins` | `session_id` | `sessions.id` | `RESTRICT` |
+| `checkins` | `(session_id, division_name)` | `session_divisions (session_id, division_name)` | `RESTRICT` |
 | `checkins` | `entity_pair_id` | `pairs.id` | `RESTRICT` |
 | `checkins` | `entity_solo_user_id` | `users.id` | `RESTRICT` |
 | `checkins` | `entity_managed_partnership_id` | `managed_partnerships.id` | `RESTRICT` |
@@ -46,19 +56,21 @@ Explicit overrides in `schema.ts`:
 | `runs` | `entity_solo_user_id` | `users.id` | `RESTRICT` |
 | `runs` | `entity_managed_partnership_id` | `managed_partnerships.id` | `RESTRICT` |
 | `runs` | `song_id` | `songs.id` | `RESTRICT` |
+| `song_uploads` | `song_id` | `songs.id` | `CASCADE` |
+| `event_staff_grants` | `event_id` | `events.id` | `CASCADE` |
+| `event_staff_grants` | `user_id` | `users.id` | `CASCADE` |
 
-### PostgreSQL enums (`pgEnum`)
+### PostgreSQL enums
 
 | Enum name | Values |
 |-----------|--------|
-| `user_role` | `user`, `admin` |
 | `session_status` | `scheduled`, `checkin_open`, `in_progress`, `completed`, `cancelled` |
 | `partner_role` | `leader`, `follower` |
 | `queue_type` | `priority`, `non_priority`, `active` |
-| `queue_event_action` | `checked_in`, `promoted_to_active`, `run_completed`, `run_incomplete_rotated`, `withdrawn`, `moved_within_queue` (added in `0015`) |
+| `queue_event_action` | `checked_in`, `promoted_to_active`, `run_completed`, `run_incomplete_rotated`, `withdrawn`, `moved_within_queue` |
 | `initial_queue` | `priority`, `non_priority` |
 
-**Removed enums** (present in early migrations, no longer in schema): `checkin_status`, `event_status`; old `queue_type` value `standard` was replaced by `non_priority` in migration `0003`.
+Other enumerated columns are plain `text`, some with a `CHECK` constraint: `partners.kind`, `event_song_submissions.round`, `drive_jobs.kind` and `status` (no check), `song_uploads.status` and `event_staff_grants.role` (checked). Admin access is not a column: it is the `deejaytools-admin` role on the person's principal in `identity_principal_roles`.
 
 ### Entity columns (check-ins, queue, runs)
 
@@ -72,13 +84,11 @@ The same entity columns are **denormalized** onto `queue_entries` and `runs` for
 
 ---
 
-## Migration-only / schema drift
+## Tables the app does not read
 
-### Table in migrations, absent from `schema.ts`
+### `legacy_songs`
 
-#### `legacy_songs` (migration `0002_legacy_songs.sql`)
-
-Historical catalog import table. **Not modeled in Drizzle** and **not referenced by application code**. May still exist in databases that ran migration `0002`.
+Historical catalog import table, created by the baseline. **No model in `models.py` and not referenced by application code.**
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
@@ -93,13 +103,17 @@ Historical catalog import table. **Not modeled in Drizzle** and **not referenced
 
 **Indexes:** `idx_legacy_songs_division` on `(division)`.
 
-Legacy metadata now lives in `songs` rows whose `processed_filename` starts with `"[Legacy] "` (see `isLegacySong()` in `routes/songs.ts`).
+Legacy metadata lives in `songs` rows whose `processed_filename` starts with `"[Legacy] "` (see `is_legacy_song()` in `src/api_deejaytools/song_records.py`).
 
-### Other drift notes
+### `schema_migrations`
 
-- Migration `0003` added composite FK `fk_checkins_session_division` on `(session_id, division_name)` → `session_divisions`. It is **not** declared in `schema.ts` or the latest Drizzle snapshot; division validity is enforced in application code (`loadAdmissionContext()`).
-- Migration `0003` declared `checkins.session_id` FK as `ON DELETE RESTRICT`; `schema.ts` omits `onDelete` (`NO ACTION`).
-- **Dropped tables** (no longer exist after migrations): `event_registrations` (dropped `0004`), `floor_slots` (dropped `0003`).
+Created and written by `scripts/apply_migrations.py`, not by a migration: one row per applied file.
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `filename` | `text` | NO | — | PK; e.g. `001_baseline.sql` |
+| `applied_at` | `timestamptz` | NO | `now()` | |
+| `duration_ms` | `integer` | YES | — | |
 
 ---
 
@@ -116,17 +130,16 @@ Clerk-authenticated accounts; anchor for ownership and audit.
 | `display_name` | `text` | YES | — | Optional profile display name |
 | `first_name` | `text` | YES | — | |
 | `last_name` | `text` | YES | — | |
-| `role` | `user_role` | NO | `user` | `user` or `admin` |
 | `created_at` | `bigint` | NO | — | Epoch ms |
 | `updated_at` | `bigint` | NO | — | Epoch ms |
 
 **Primary key:** `id`
 
-**Unique constraints:** `email`
+**Unique constraints:** `users_email_unique` on `email`
 
-**Relationships:** `partners`, `teams`, `managed_partnerships`, `pairs` (as `user_a_id`), `songs`, `events.created_by`, `sessions.created_by`, `event_song_submissions.submitted_by_user_id`, `checkins` (solo entity and submitter), `queue_entries.entity_solo_user_id`, `runs` (solo entity and `completed_by_user_id`), `queue_events.actor_user_id`, `partners.linked_user_id`
+**Relationships:** `partners`, `teams`, `managed_partnerships`, `pairs` (as `user_a_id`), `songs`, `events.created_by`, `sessions.created_by`, `event_song_submissions.submitted_by_user_id`, `checkins` (solo entity and submitter), `queue_entries.entity_solo_user_id`, `runs` (solo entity and `completed_by_user_id`), `queue_events.actor_user_id`, `partners.linked_user_id`, `event_staff_grants.user_id`
 
-**Gotchas:** `id` is not generated by this app; it comes from Clerk on first sign-in.
+**Gotchas:** `id` is not generated by this app; it comes from Clerk on first sign-in (`POST /v1/auth/sync`). There is no role column: admin access is the `deejaytools-admin` grant in the identity store, and per-event staff roles are `event_staff_grants` rows. The person's principal is the `identity_principals` row whose `subject` is this `id`.
 
 ---
 
@@ -136,7 +149,7 @@ Per-user address book of dance partners and placeholder entities (solo/team/othe
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
-| `id` | `text` | NO | — | PK; `crypto.randomUUID()` |
+| `id` | `text` | NO | — | PK; UUID |
 | `user_id` | `text` | NO | — | Owning user |
 | `first_name` | `text` | NO | — | |
 | `last_name` | `text` | NO | — | |
@@ -262,7 +275,7 @@ Uploaded or metadata-only music records tied to a user (and optional partner or 
 | `division` | `text` | YES | — | Competition division label |
 | `routine_name` | `text` | YES | — | Routine title segment in processed filename |
 | `personal_descriptor` | `text` | YES | — | Optional disambiguator in processed filename |
-| `season_year` | `text` | YES | — | Season year string (e.g. `"2026"`), set from upload timestamp |
+| `season_year` | `text` | YES | — | Season year string (e.g. `"2026"`), fixed when the upload is accepted, from its UTC date (rolls over at 00:00 UTC on October 1, [ADR-0011](decisions/ADR-0011-season-year-rolls-over-october-1.md)) |
 | `deleted_at` | `bigint` | YES | — | Soft delete; null = active |
 | `created_at` | `bigint` | NO | — | Epoch ms |
 | `updated_at` | `bigint` | NO | — | Epoch ms |
@@ -279,9 +292,9 @@ Uploaded or metadata-only music records tied to a user (and optional partner or 
 
 **Indexes:** `idx_songs_user_id`
 
-**Relationships:** `event_song_submissions.song_id`, `checkins.song_id`, `runs.song_id`
+**Relationships:** `event_song_submissions.song_id`, `checkins.song_id`, `runs.song_id`, `song_uploads.song_id`
 
-**Gotchas:** Row may exist with `processed_filename` / Drive ids null while async upload completes. Legacy rows have no Drive file and cannot be used for check-in. `deleted_at` filters most user-facing lists.
+**Gotchas:** Row may exist with `processed_filename` / Drive ids null while its build is staged in `song_uploads`. Legacy rows have no Drive file and cannot be used for check-in. `deleted_at` filters most user-facing lists.
 
 ---
 
@@ -296,18 +309,18 @@ Multi-day competition container.
 | `start_date` | `text` | NO | — | `YYYY-MM-DD` (validated in API) |
 | `end_date` | `text` | NO | — | `YYYY-MM-DD`; must be `>= start_date` |
 | `timezone` | `text` | NO | `America/Chicago` | IANA timezone; session timestamps displayed in this zone |
-| `season_year` | `text` | YES | — | Season the event belongs to (e.g. `"2027"`). Set on create from the body or derived from `start_date` (October 1 rollover); **not** recomputed when `start_date` changes. Migration `0013` backfilled existing rows. Reads fall back to deriving from `start_date` when null. Decides the Drive year folder for event copies |
+| `season_year` | `text` | YES | — | Season the event belongs to (e.g. `"2027"`). Set on create from the body or derived from `start_date` (October 1 rollover, [ADR-0011](decisions/ADR-0011-season-year-rolls-over-october-1.md)); **not** recomputed when `start_date` changes. Reads fall back to deriving from `start_date` when null. Decides the Drive year folder for event copies |
 | `created_by` | `text` | YES | — | Admin who created the event |
 | `created_at` | `bigint` | NO | — | Epoch ms |
 | `updated_at` | `bigint` | NO | — | Epoch ms |
 
 **Primary key:** `id`
 
-**Foreign keys:** `created_by` → `users.id` (SET NULL)
+**Foreign keys:** `created_by` → `users.id` (NO ACTION)
 
 **Check constraints:** `ck_events_date_range`: `start_date <= end_date`
 
-**Relationships:** `sessions`, `event_song_submissions`, `event_division_run_limits`, `runs.event_id` (denormalized)
+**Relationships:** `sessions`, `event_song_submissions`, `event_division_run_limits`, `event_staff_grants`, `runs.event_id` (denormalized)
 
 **Gotchas:** Event "status" (`upcoming` / `active` / `completed`) is derived from dates in API code, not stored.
 
@@ -362,7 +375,7 @@ Optional per-event cap on priority-eligible runs for a division across all sessi
 
 **Relationships:** `events`
 
-**Gotchas:** Absence of a row means no event-level limit for that division. Used by `determineInitialQueue()` when assigning priority vs non-priority at check-in.
+**Gotchas:** Absence of a row means no event-level limit for that division. Used by `determine_initial_queue()` (`src/api_deejaytools/queue/admission.py`) when assigning priority vs non-priority at check-in.
 
 ---
 
@@ -392,7 +405,7 @@ One floor-trial time block (check-in window + floor trial window).
 | Column | → Table | onDelete |
 |--------|---------|----------|
 | `event_id` | `events.id` | NO ACTION |
-| `created_by` | `users.id` | SET NULL |
+| `created_by` | `users.id` | NO ACTION |
 
 **Indexes:** `idx_sessions_event_id`
 
@@ -400,7 +413,7 @@ One floor-trial time block (check-in window + floor trial window).
 
 **Relationships:** `session_divisions`, `checkins`, `queue_entries`, `runs`, `queue_events`
 
-**Gotchas:** `status = cancelled` is a manual admin override and is preserved by the scheduler. Non-cancelled status shown to clients is recomputed from timestamps in `deriveSessionStatus()`.
+**Gotchas:** `status = cancelled` is a manual admin override and is preserved by the scheduler. Non-cancelled status shown to clients is recomputed from timestamps in `derive_status()` (`src/api_deejaytools/routers/sessions.py`).
 
 ---
 
@@ -423,9 +436,9 @@ Divisions configured for check-in on a specific session.
 
 **Unique constraints:** `uq_session_divisions_session_division` on `(session_id, division_name)`
 
-**Relationships:** `sessions`; referenced logically by `checkins.division_name`
+**Relationships:** `sessions`; `checkins (session_id, division_name)` via `fk_checkins_session_division`
 
-**Gotchas:** Deleting or renaming divisions is restricted when check-ins exist (see `sessions.ts` division PUT handler).
+**Gotchas:** Deleting or renaming divisions is restricted when check-ins exist (`fk_checkins_session_division`, and the `PUT /v1/sessions/{id}/divisions` handler in `src/api_deejaytools/routers/sessions.py`).
 
 ---
 
@@ -453,7 +466,8 @@ Append-only record of one check-in submission (intent to run in a session + divi
 
 | Column | → Table | onDelete |
 |--------|---------|----------|
-| `session_id` | `sessions.id` | NO ACTION |
+| `session_id` | `sessions.id` | RESTRICT |
+| `(session_id, division_name)` | `session_divisions (session_id, division_name)` | RESTRICT (`fk_checkins_session_division`) |
 | `entity_pair_id` | `pairs.id` | RESTRICT |
 | `entity_solo_user_id` | `users.id` | RESTRICT |
 | `entity_managed_partnership_id` | `managed_partnerships.id` | RESTRICT |
@@ -577,7 +591,7 @@ Append-only audit log of queue state transitions.
 | `from_position` | `integer` | YES | — | Source position |
 | `to_queue` | `queue_type` | YES | — | Destination queue |
 | `to_position` | `integer` | YES | — | Destination position |
-| `actor_user_id` | `text` | YES | — | Admin or check-in submitter; nullable per migration `0011` |
+| `actor_user_id` | `text` | YES | — | Staff member or check-in submitter; null for the scheduler |
 | `reason` | `text` | YES | — | Optional admin note (e.g. withdraw, incomplete) |
 | `created_at` | `bigint` | NO | — | Epoch ms |
 
@@ -595,7 +609,7 @@ Append-only audit log of queue state transitions.
 
 **Relationships:** `sessions`, `checkins`, `users`
 
-**Gotchas:** No read API in v1; table exists for future audit/replay. ADR-0005 lists intended action semantics.
+**Gotchas:** No read API; written by `src/api_deejaytools/queue/audit.py`. [ADR-0006](decisions/ADR-0006-floor-trial-queue-model-as-built.md) gives the action semantics.
 
 ---
 
@@ -609,8 +623,8 @@ Durable queue of background Google Drive work: per-event copies of submitted son
 | `kind` | `text` | NO | — | `copy` \| `rename` \| `trash` \| `share_event_folder` \| `unshare_event_folder` \| `share_song` (plain text, not an enum) |
 | `submission_id` | `text` | YES | — | Set for `copy` and `rename`. **Not a FK**: the job outlives a deleted submission |
 | `file_id` | `text` | YES | — | Set for `trash`: the Drive file to move to `_deprecated`. For `share_song`: the song's Drive file. For `share_event_folder`, the folder it shared, recorded when it runs |
-| `event_id` | `text` | YES | — | Migration 008. Set for `share_event_folder` and `unshare_event_folder`: the event. **Not a FK**: an unshare runs after an event delete |
-| `user_id` | `text` | YES | — | Migration 008. Set for the two folder kinds: the person (`users.id`) the folder is shared with or unshared from. Not a FK |
+| `event_id` | `text` | YES | — | Set for `share_event_folder` and `unshare_event_folder`: the event. **Not a FK**: an unshare runs after an event delete |
+| `user_id` | `text` | YES | — | Set for the two folder kinds: the person (`users.id`) the folder is shared with or unshared from. Not a FK |
 | `status` | `text` | NO | `'pending'` | `pending` \| `running` \| `done` \| `failed` (plain text) |
 | `attempts` | `integer` | NO | `0` | Failed attempts so far. Reset to 0 by the admin retry endpoint; not incremented by lease reclaim |
 | `next_attempt_at` | `bigint` | NO | — | Epoch ms; a `pending` job is claimable once this is `<= now` |
@@ -624,7 +638,167 @@ Durable queue of background Google Drive work: per-event copies of submitted son
 
 **Indexes:** `idx_drive_jobs_due` on `(status, next_attempt_at)` (the claim query), `idx_drive_jobs_submission_id` on `(submission_id)`
 
-**Gotchas:** Rows are never deleted; `done` jobs accumulate. Claimed with `FOR UPDATE SKIP LOCKED`, so concurrent replicas take disjoint batches. Added in migration `0012`, together with `event_song_submissions.drive_copy_file_id`.
+**Gotchas:** Rows are never deleted; `done` jobs accumulate. Claimed with `FOR UPDATE SKIP LOCKED`, so concurrent replicas take disjoint batches.
+
+---
+
+### `song_uploads`
+
+Staging for a song's build ([ADR-0001](decisions/ADR-0001-durable-song-builds.md)): an accepted upload's bytes and progress until its Drive build finishes. The row is deleted when the build succeeds; deleting the song deletes it too. Drained by the scheduler tick. Behaviour: [DRIVE.md](./DRIVE.md).
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `song_id` | `text` | NO | — | PK; the song being built |
+| `data` | `bytea` | NO | — | The uploaded file |
+| `mime_type` | `text` | NO | — | |
+| `original_filename` | `text` | NO | — | Client filename |
+| `status` | `text` | NO | `'pending'` | `pending` \| `running` \| `failed` (CHECK) |
+| `attempts` | `integer` | NO | `0` | Failed attempts so far |
+| `next_attempt_at` | `bigint` | NO | — | Epoch ms; a `pending` row is due once this is `<= now` |
+| `last_error` | `text` | YES | — | Message of the most recent failure |
+| `claim_id` | `text` | YES | — | The running build that owns the row. A build renews `updated_at` while it runs; one that stops renewing for the lease is taken over under a new `claim_id`, and the old one's later writes match nothing |
+| `season_year` | `text` | YES | — | Fixed when the upload is accepted |
+| `processed_filename` | `text` | YES | — | Reserved under a per-slot advisory lock, so concurrent uploads for the same slot get distinct version numbers |
+| `drive_file_id` | `text` | YES | — | Recorded as soon as the Drive upload returns, so a retry never uploads twice |
+| `drive_folder_id` | `text` | YES | — | |
+| `uploaded_by_user_id` | `text` | YES | — | Who uploaded it, when that is not the song's owner (an upload on someone's behalf). Null reads as "uploaded by the owner". Not a FK |
+| `created_at` | `bigint` | NO | — | Epoch ms |
+| `updated_at` | `bigint` | NO | — | Epoch ms; doubles as the lease while `running` |
+
+**Primary key:** `song_id`
+
+**Foreign keys:** `song_id` → `songs.id` (CASCADE)
+
+**Indexes:** `idx_song_uploads_due` on `(status, next_attempt_at)`
+
+---
+
+### `event_staff_grants`
+
+Who is on an event's staff, and as what ([ADR-0012](decisions/ADR-0012-per-event-staff-roles.md)). Each row is written together with one `identity_explicit_grants` row per scope of the role, on the resource `event:<event_id>`, by the grant and revoke routes and the event delete (`src/api_deejaytools/staff.py`); never one without the other.
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `event_id` | `text` | NO | — | Part of PK |
+| `user_id` | `text` | NO | — | Part of PK; the staff member |
+| `role` | `text` | NO | — | Part of PK. `coordinator` \| `dj` \| `event-manager` (CHECK) |
+| `granted_by` | `text` | NO | — | `users.id` of the admin or event manager who granted it. Not a FK |
+| `granted_at` | `bigint` | NO | — | Epoch ms |
+
+**Primary key:** `(event_id, user_id, role)`
+
+**Foreign keys:**
+
+| Column | → Table | onDelete |
+|--------|---------|----------|
+| `event_id` | `events.id` | CASCADE |
+| `user_id` | `users.id` | CASCADE |
+
+**Indexes:** `idx_event_staff_grants_user` on `(user_id)` (a person's roles across events, for `GET /v1/auth/me`)
+
+**Gotchas:** The cascade removes these rows but not the matching `identity_explicit_grants`; the app's event delete removes both.
+
+---
+
+## Identity store
+
+The principal store the identity library (`miniapppolis-identity`) reads to authorize every request ([ADR-0008](decisions/ADR-0008-replacement-api-identity-authorization.md)). Created by `002_identity_store.sql`, which also seeds the global roles `deejaytools-dancer` and `deejaytools-admin` with their scopes; `007_event_staff_grants.sql` adds the per-event roles `deejaytools-event-coordinator`, `deejaytools-event-dj` and `deejaytools-event-manager` and the admin's two staff scopes. The migrations are the list of which scope each role holds. The issuer row and each person's principal and `deejaytools-dancer` grant are per environment, written by `scripts/backfill_principals.py` on every deploy and by `POST /v1/auth/sync`.
+
+Unlike the app's tables, these use `timestamptz` and UUID keys generated by the database (`gen_random_uuid()`).
+
+### `identity_issuers`
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `issuer` | `text` | NO | — | PK; the token `iss` (this environment's Clerk instance) |
+| `display_name` | `text` | NO | `''` | |
+| `jwks_url` | `text` | YES | — | |
+| `enabled` | `boolean` | NO | `true` | |
+| `created_at` | `timestamptz` | NO | `now()` | |
+
+### `identity_roles`
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `name` | `text` | NO | — | PK; CHECK `^[a-z][a-z0-9-]*$` |
+| `description` | `text` | NO | `''` | |
+| `created_at` | `timestamptz` | NO | `now()` | |
+
+### `identity_role_scopes`
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `role_name` | `text` | NO | — | → `identity_roles.name` (CASCADE) |
+| `scope` | `text` | NO | — | Three dot-separated parts, e.g. `deejaytools.queue.manage` (CHECK) |
+
+**Primary key:** `(role_name, scope)`
+
+### `identity_principals`
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `id` | `uuid` | NO | `gen_random_uuid()` | PK |
+| `kind` | `text` | NO | — | `human` \| `machine` (CHECK) |
+| `issuer` | `text` | NO | — | → `identity_issuers.issuer` (NO ACTION) |
+| `subject` | `text` | NO | — | Token `sub`; for a person, their `users.id` |
+| `display_name` | `text` | NO | `''` | |
+| `email` | `text` | YES | — | |
+| `status` | `text` | NO | `'active'` | `active` \| `suspended` (CHECK) |
+| `created_at` | `timestamptz` | NO | `now()` | |
+| `last_seen_at` | `timestamptz` | YES | — | |
+
+**Unique constraints:** `(issuer, subject)`
+
+**Indexes:** `idx_identity_principals_issuer_subject` on `(issuer, subject)`, `idx_identity_principals_kind` on `(kind)`
+
+### `identity_principal_roles`
+
+Global role grants. The per-event staff roles are never written here (that would make them global); they are `identity_explicit_grants`.
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `principal_id` | `uuid` | NO | — | → `identity_principals.id` (CASCADE) |
+| `role_name` | `text` | NO | — | → `identity_roles.name` (RESTRICT) |
+| `granted_by` | `text` | NO | `''` | |
+| `granted_at` | `timestamptz` | NO | `now()` | |
+
+**Primary key:** `(principal_id, role_name)`
+
+### `identity_explicit_grants`
+
+One scope on one resource, e.g. `deejaytools.queue.manage` on `event:<event_id>`.
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `principal_id` | `uuid` | NO | — | → `identity_principals.id` (CASCADE) |
+| `scope` | `text` | NO | — | Same CHECK as `identity_role_scopes.scope` |
+| `resource` | `text` | NO | — | e.g. `event:<event_id>` |
+| `granted_by` | `text` | NO | `''` | |
+| `granted_at` | `timestamptz` | NO | `now()` | |
+
+**Primary key:** `(principal_id, scope, resource)`
+
+### `identity_audit_events`
+
+One row per authorization decision the library records.
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `event_id` | `uuid` | NO | `gen_random_uuid()` | PK |
+| `occurred_at` | `timestamptz` | NO | `now()` | |
+| `enforcement_point` | `text` | NO | — | |
+| `principal_id` | `uuid` | YES | — | **Not a FK**: the trail survives deletion of the principal |
+| `principal_kind` | `text` | YES | — | `human` \| `machine` (CHECK) |
+| `issuer` | `text` | YES | — | |
+| `subject` | `text` | YES | — | |
+| `scope` | `text` | NO | — | |
+| `resource` | `text` | YES | — | |
+| `allowed` | `boolean` | NO | — | |
+| `reason` | `text` | NO | — | |
+| `request_id` | `text` | YES | — | |
+| `key_slot` | `text` | YES | — | `current` \| `previous` (CHECK): which of a machine's keys proved a key-authenticated request; null for every other credential |
+
+**Indexes:** `idx_identity_audit_occurred_at` on `(occurred_at DESC)`, `idx_identity_audit_principal` on `(principal_id, occurred_at DESC)`, `idx_identity_audit_enforcement_point` on `(enforcement_point, occurred_at DESC)`, `idx_identity_audit_previous_key` on `(subject, occurred_at DESC) WHERE key_slot = 'previous'`
 
 ---
 
@@ -650,13 +824,16 @@ Legend:
   ──<  one-to-many (child holds FK to parent)
   pairs / solo user / managed_partnership are alternate entity FKs on checkins,
   queue_entries, and runs (exactly one set per row).
+
+Not drawn: song_uploads (songs 1:0..1), event_staff_grants (events × users),
+drive_jobs (no FKs) and the identity_* tables (linked to users by subject).
 ```
 
 ---
 
 ## Reading the queue tables
 
-The floor-trial queue splits **historical intent** (`checkins`), **live ordering** (`queue_entries`), **completed outcomes** (`runs`), and **audit** (`queue_events`). Full state-machine detail lives in [ADR-0005: Floor-trial queue model](decisions/ADR-0005-floor-trial-queue-model.md); this section orients readers to the tables only.
+The floor-trial queue splits **historical intent** (`checkins`), **live ordering** (`queue_entries`), **completed outcomes** (`runs`), and **audit** (`queue_events`). Full state-machine detail lives in [ADR-0006: Floor-trial queue model, as built](decisions/ADR-0006-floor-trial-queue-model-as-built.md); this section orients readers to the tables only.
 
 ### Lifecycle
 
@@ -684,12 +861,12 @@ Replay a session timeline with `SELECT * FROM queue_events WHERE session_id = $1
 
 ### Position compaction
 
-Positions are **1-based** and **dense** within each `(session_id, queue_type)`: no gaps after deletes. When a row is removed, `compactAfterRemoval()` in `lib/queue/compaction.ts` shifts all higher positions down by one inside the same transaction (two-step sentinel update to avoid unique-index races on `(session_id, queue_type, position)`).
+Positions are **1-based** and **dense** within each `(session_id, queue_type)`: no gaps after deletes. When a row is removed, `compact_after_removal()` in `src/api_deejaytools/queue/compaction.py` shifts all higher positions down by one inside the same transaction (two-step sentinel update to avoid unique-index races on `(session_id, queue_type, position)`).
 
-New append operations use `nextBottomPosition()` (`MAX(position) + 1`).
+New append operations use `next_bottom_position()` (`MAX(position) + 1`).
 
 ### Related reading
 
-- [ADR-0005: Floor-trial queue model](decisions/ADR-0005-floor-trial-queue-model.md) — admission predicate, promotion caps, state-transition table, auto-compaction rationale
-- `lib/queue/admission.ts` — `determineInitialQueue()`
-- `lib/queue/compaction.ts` — compaction helpers
+- [ADR-0006: Floor-trial queue model, as built](decisions/ADR-0006-floor-trial-queue-model-as-built.md) — admission, promotion caps, state transitions (supersedes [ADR-0005](decisions/ADR-0005-floor-trial-queue-model.md))
+- `src/api_deejaytools/queue/admission.py` — `determine_initial_queue()`
+- `src/api_deejaytools/queue/compaction.py` — compaction helpers

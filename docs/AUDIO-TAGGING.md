@@ -1,5 +1,3 @@
-> Ported from [deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api)'s docs/AUDIO-TAGGING.md when that repository was archived. "This service" and `src/` paths below mean deejaytools-api, whose contract api-deejaytools reproduces.
-
 # Audio tagging
 
 What the API writes into every uploaded song file before it goes to Drive.
@@ -8,10 +6,10 @@ the output is part of the contract: a reimplementation must produce the same
 fields with the same values. It does **not** need to be byte-identical. Frame
 order, padding and text encoding are free as long as the fields read back the same.
 
-Source: [`src/services/tagger.ts`](https://github.com/legacy-graveyard/deejaytools-api/tree/main/src/services/tagger.ts) (`tagSongBytes`), called once
-per upload from `buildAndUploadSong` in [`src/routes/songs.ts`](https://github.com/legacy-graveyard/deejaytools-api/tree/main/src/routes/songs.ts).
-Tests: [`src/services/tagger.test.ts`](https://github.com/legacy-graveyard/deejaytools-api/tree/main/src/services/tagger.test.ts).
-Where the tagged file goes: [DRIVE.md](./DRIVE.md#background-build-buildanduploadsong).
+Source: [`src/api_deejaytools/services/tagging.py`](../src/api_deejaytools/services/tagging.py) (`tag_song_bytes`), called once
+per build from [`services/song_builds.py`](../src/api_deejaytools/services/song_builds.py).
+Tests: [`tests/unit/test_tagging.py`](../tests/unit/test_tagging.py).
+Where the tagged file goes: [DRIVE.md](./DRIVE.md#background-build).
 
 ---
 
@@ -19,7 +17,7 @@ Where the tagged file goes: [DRIVE.md](./DRIVE.md#background-build-buildanduploa
 
 | Field | Value | Example |
 |-------|-------|---------|
-| **Title** | Entity names, first `&` second; second omitted for solo, team and other entries. Same order as the filename, including the ProAm FollowerAm swap ([DRIVE.md](./DRIVE.md#background-build-buildanduploadsong) step 4) | `Ada Lovelace & Bob Jones` |
+| **Title** | Entity names, first `&` second; second omitted for solo, team and other entries. Same order as the filename, including the ProAm FollowerAm swap ([DRIVE.md](./DRIVE.md#background-build) step 4) | `Ada Lovelace & Bob Jones` |
 | **Artist** | Division and routine name joined with ` \| ` (space, pipe, space), blanks dropped. `\|` rather than `-` because division names contain hyphens | `Classic \| Blue Monday`, or just `Classic` |
 | **Genre** | Always the constant `_Routine_`, so DJ software can select an event's tracks as one set | `_Routine_` |
 | **Year** | Upload season year (October 1 rollover). Always present on uploads; the tagger omits the field if it is ever empty | `2027` |
@@ -125,7 +123,7 @@ space), not prepended to the file.
   real length, so the audio survives. The new `id3 ` chunk goes after it.
 - Fewer than 8 bytes left over after the last whole chunk are dropped.
 
-### FLAC — Vorbis comments (`flac-tagger`)
+### FLAC — Vorbis comments
 
 - Existing comments are read into a map with **upper-cased keys**; repeated keys
   become multi-valued. Every comment not listed below is kept (including
@@ -135,13 +133,12 @@ space), not prepended to the file.
   set). Existing keys keep their position; new keys are appended at the end.
 - `COMMENT` is set to the provenance, or removed when provenance is empty.
 - The vendor string is kept. If the file had no `VORBIS_COMMENT` block, one is
-  appended after the existing metadata blocks with flac-tagger's default vendor
-  string.
+  appended after the existing metadata blocks with a default vendor string.
 - Comments without an `=` are dropped. Quirk of the reader: if a repeated key's
   first value is empty, the next value replaces it instead of being added.
 - **All `PADDING` blocks are removed.** Other blocks (`STREAMINFO`, `SEEKTABLE`,
   `PICTURE`, …) are kept.
-- Provenance reads title and artist through `music-metadata` (album is not read).
+- Provenance reads title and artist from the Vorbis comments (album is not read).
 
 Example — an encoder-tagged file in, tagged out:
 
@@ -191,6 +188,6 @@ appended to the end of `ilst`. Other `ilst` entries (album, cover art, …) are 
 ## Checking a reimplementation
 
 Read the output back with an independent reader (`ffprobe -show_format`, `mutagen`,
-`music-metadata`) and compare fields, not bytes. `tagger.test.ts` has fixtures for
-each format, including provenance, missing containers, fast-start offsets and
-64-bit atoms, worth porting as golden cases.
+`music-metadata`) and compare fields, not bytes. `tests/unit/test_tagging.py`
+has fixtures for each format, including provenance, missing containers,
+fast-start offsets and 64-bit atoms.

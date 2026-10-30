@@ -203,7 +203,7 @@ and still returns success, by design. The Discord `activity` post for that feedb
 3. A healthy scheduler logs **`tick_completed sessions_checked=<n> sessions_updated=<n>`** and **`auto_fill_completed …`** on every pass. Look for **`tick_failed`** (session work), **`auto_fill_failed session_id=<id>`** (one session), **`song_builds_tick_failed`** and **`drive_jobs_tick_failed`**. A failing step is also posted to Discord `errors` once per run of failures (`scheduler · sessions`, `scheduler · song builds`, `scheduler · drive jobs`).
 4. Manual pass: `GET /internal/tick` with header `x-tick-secret: <TICK_SECRET>`; it answers `{ "data": { "ticked": true }, … }` once the pass has finished.
 
-**Reassurance:** Session **display** status on reads is **derived from the wall clock** in API responses (`derive_status` in api-deejaytools `routers/sessions.py`), so the Floor Trials UI can show "check-in open" even when the DB `status` column lags. What actually stops is **DB status transitions** and **automatic active-queue fill**, plus song builds and Drive jobs, which run on the same pass. Check-ins and manual manager actions still work.
+**Reassurance:** Session **display** status on reads is **derived from the wall clock** in API responses (`derive_status` in `routers/sessions.py`), so the Floor Trials UI can show "check-in open" even when the DB `status` column lags. What actually stops is **DB status transitions** and **automatic active-queue fill**, plus song builds and Drive jobs, which run on the same pass. Check-ins and manual manager actions still work.
 
 ---
 
@@ -211,7 +211,7 @@ and still returns success, by design. The Discord `activity` post for that feedb
 
 **Symptom:** Browser console blocks a fetch to the API; preflight or response missing CORS headers.
 
-**Cause:** The frontend origin is not in the API's `DEEJAYTOOLS_CORS_ORIGINS`. Unset, it allows only `http://localhost:5173`. The legacy unprefixed `CORS_ORIGINS` is **not** read.
+**Cause:** The frontend origin is not in the API's `DEEJAYTOOLS_CORS_ORIGINS`. Unset, it allows only `http://localhost:5173`. The unprefixed `CORS_ORIGINS` is **not** read.
 
 **Fix:**
 
@@ -225,7 +225,7 @@ and still returns success, by design. The Discord `activity` post for that feedb
 
 **Symptom:** HTTP **403** `FORBIDDEN` with message `Admin access required` when calling `/internal/tick`.
 
-**Cause:** The `x-tick-secret` header is missing or does not match `TICK_SECRET`, **or `TICK_SECRET` is unset**: the route fails closed and refuses every call when no secret is configured. An empty `TICK_SECRET` counts as a set secret, so leave it unset rather than blank.
+**Cause:** The `x-tick-secret` header is missing or does not match `TICK_SECRET`, **or `TICK_SECRET` is unset**: the route fails closed and refuses every call when no secret is configured. An empty `TICK_SECRET` counts as unset, so it closes the route too.
 
 **Fix:** Set `TICK_SECRET` to a long random string in Doppler and send `x-tick-secret: <exact value>` from whatever calls the route. The in-process scheduler does not use the route; it is an operator override.
 

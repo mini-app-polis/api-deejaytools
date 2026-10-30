@@ -1,5 +1,4 @@
-"""Entity labels on queue, check-in and run reads (deejaytools-api routes/queue.ts,
-routes/checkins.ts, routes/runs.ts).
+"""Entity labels on queue, check-in and run reads.
 
 Ordered by :func:`..domain.entity_name_pair`, the one ordering rule: leader
 first, the amateur first in ProAm FollowerAm, a placeholder partner by its

@@ -16,7 +16,7 @@ from .config import get_settings
 def async_url(database_url: str) -> str:
     """Point a Postgres URL at the asyncpg driver.
 
-    The shared config holds the plain form deejaytools-api uses
+    The shared config holds the plain form
     (``postgresql://`` or ``postgres://``); SQLAlchemy would otherwise try
     psycopg2, which is not installed.
     """

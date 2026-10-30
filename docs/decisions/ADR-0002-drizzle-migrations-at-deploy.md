@@ -1,14 +1,18 @@
 # ADR-0002: Run Drizzle migrations at Railway deploy time
 
-**Ported from:** deejaytools-api ADR-0001 on 2026-10-25, when that repository was archived as [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api/tree/main/docs/decisions). Numbers are shifted by one to follow this repository's ADR-0001; only titles, citations and links were changed. In the body, "this repository" and "this service" mean deejaytools-api.
-
 Date: 2026-04-20
 
 ## Status
 
-Accepted
+Superseded by [ADR-0009](./ADR-0009-replacement-api-raw-sql-migrations.md):
+migrations are numbered raw-SQL files under `migrations/`, applied by
+`scripts/apply_migrations.py` before the app starts.
 
 ## Context
+
+Written in deejaytools-api, the Node service this one replaced (archived as
+legacy-graveyard/deejaytools-api); in this record "this service", "this
+API" and "this repository" mean deejaytools-api.
 
 This service uses Drizzle ORM against PostgreSQL. Drizzle produces
 timestamped migration files under `drizzle/` via

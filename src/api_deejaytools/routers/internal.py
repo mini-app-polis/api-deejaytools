@@ -7,14 +7,12 @@ one batch of the Drive job queue) and answers once it has finished. Errors insid
 Unversioned on purpose: operators, monitors and the conformance suite call it
 at this stable path. ``evaluator.yaml`` carries the API-004 exemption for it
 (ADR-0010). Being outside ``/v1/*`` it is also outside the rate
-limit and the request deadline, which cover only ``/v1/*`` (middleware.py), as
-in deejaytools-api.
+limit and the request deadline, which cover only ``/v1/*`` (middleware.py).
 
 Gate: the ``x-tick-secret`` header must equal ``TICK_SECRET``, compared in
-constant time; otherwise ``403 FORBIDDEN "Admin access required"``. An empty
-``TICK_SECRET`` is a set secret, as in deejaytools-api. **Difference from
-deejaytools-api (ADR-0008):** with ``TICK_SECRET`` unset the route fails closed
-with the same 403, where deejaytools-api left it open.
+constant time; otherwise ``403 FORBIDDEN "Admin access required"``. With
+``TICK_SECRET`` unset (an empty value counts as unset) the route fails closed
+with the same 403 (ADR-0008).
 
 Rotation overlap: ``TICK_SECRET_PREVIOUS``, when set, is accepted as well, so
 callers holding the old value keep working until the rotation retires it.

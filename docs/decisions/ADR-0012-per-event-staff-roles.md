@@ -53,7 +53,8 @@ them global.
 - `deejaytools.entries.read`: the event's song submissions, through a new
   non-admin route `GET /v1/events/:id/song-submissions`. It returns what
   `GET /v1/admin/event-song-submissions` returns for that event, which
-  includes each submission's song label and division. The admin route stays
+  includes each submission's song label and division, with the submitter's
+  email masked (see "Staff see emails masked" below). The admin route stays
   admin-only. The event's songs are seen through its submissions:
   `deejaytools.library.read` (every user's songs) stays admin-only.
   Staff also find the event's own people by name, with their email masked,
@@ -75,12 +76,23 @@ them global.
   to an event today, so an upload on behalf by a scoped caller must carry an
   `event_id` and is authorized against that event. An admin's upload on
   behalf keeps working without one. The audit record still names the dancer
-  acted for.
+  acted for. On either route the event's grant reaches only the event's own
+  people (the same set `GET /v1/events/:id/people` searches): for anyone
+  else the decision is made on roles alone, so only an admin may act.
 - `deejaytools.events.write`: `PATCH` and `DELETE /v1/events/:id` for the
   event. Creating an event (`POST /v1/events`) names no existing event, so
   it stays admin-only, and an event manager cannot create events.
 - `deejaytools.staff.write` (new): grant and revoke coordinator and DJ on
   the event. Only an admin grants or revokes event manager.
+
+### Staff see emails masked
+
+An event's staff see the event's people, never their email addresses whole.
+Every event-scoped route that returns an email to a caller who is not an
+admin returns it masked (`k•••@example.com`): the people search, the
+submissions list, the staff list (and a grant's response), and a person's
+partners, which also withhold the partner's linked account. Admins see
+emails whole on the same routes.
 
 ### What stays admin-only
 

@@ -2,8 +2,8 @@
 
 Verification, the decision and the store come from the shared ``identity``
 library (AUTH-004); this module is configuration and thin FastAPI adapters,
-shaped like api-kaianolevine-com's ``auth.py``. Its answers are
-deejaytools-api's (ADR-0010):
+shaped like api-kaianolevine-com's ``auth.py``. Its answers are the web
+app's contract (ADR-0010):
 
     no or bad credential              401 UNAUTHORIZED   "Authentication required"
     valid credential, no principal    401 USER_NOT_SYNCED "Call POST /v1/auth/sync first"
@@ -50,7 +50,7 @@ There are no machine callers (CD-030 is exempt), so the only verifier is
 Clerk's, for the one issuer in settings.
 
 Header parity (AUTH-002): callers send ``Authorization: Bearer <token>``, the
-header common-python-utils' ``CommonPythonApiClient`` sends. Today the only
+header common-python-utils' ``KaianoApiClient`` sends. Today the only
 caller is the web app; a cog calling this API would use that client.
 """
 
@@ -84,6 +84,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .config import get_settings
 from .database import get_db_session
 from .errors import api_error, forbidden, unauthorized, user_not_synced
+from .event_connections import is_connected
 from .models import QueueEntry, User
 from .models import Session as FloorSession
 
@@ -176,6 +177,11 @@ async def resolve_principal(
 ) -> Principal | None:
     """The caller's principal, or None if they have not been provisioned."""
     return await _store(session).resolve(subject)
+
+
+def is_admin(caller: Caller) -> bool:
+    """Whether the caller holds the admin role (and so sees emails whole)."""
+    return wire_role(caller.principal) == "admin"
 
 
 def wire_role(principal: Principal | None) -> Literal["user", "admin"]:
@@ -411,7 +417,7 @@ def require_scope(scope: str):
 
     Runs the whole contract once per request: verify, resolve, authorize,
     emit audit. The audit event is written for allow and deny alike, with
-    the real scope, even though a deny answers deejaytools-api's generic
+    the real scope, even though a deny answers the generic
     "Admin access required".
     """
 
@@ -515,7 +521,7 @@ async def _authorize_request(
     )
 
     if principal is None:
-        # deejaytools-api's answer for a valid token with no users row.
+        # The answer for a valid token with no users row.
         raise user_not_synced()
     # The actor the Discord change feed names (services/notifications):
     # what the principal already holds, so no extra query.
@@ -574,10 +580,9 @@ async def optional_synced_user_id(
 
     Used only by GET /v1/sessions and GET /v1/sessions/{id}, which are
     public: a credential is read, never required. No token, a bad token or
-    an unsynced caller all mean anonymous, with no error (deejaytools-api
-    lib/optional-user.ts). No scope is checked and no decision is audited:
-    nothing is authorized here, the caller only learns about their own
-    check-ins.
+    an unsynced caller all mean anonymous, with no error. No scope is
+    checked and no decision is audited: nothing is authorized here, the
+    caller only learns about their own check-ins.
     """
     if not authorization or not authorization.startswith("Bearer "):
         return None
@@ -617,10 +622,17 @@ async def authorize_delegation(
     through a role (an admin's) allows. The target is the subject of the
     action, never the caller's identity: the audit event's resource names
     it, as ``<target>`` or, with an event,
-    ``event:<event_id>/on-behalf-of/<target>``. A deny answers what
-    deejaytools-api answers to a non-admin here, 403 FORBIDDEN "Admin access
-    required". Call it before reading the target.
+    ``event:<event_id>/on-behalf-of/<target>``. A deny answers 403 FORBIDDEN
+    "Admin access required". Call it before reading the target.
+
+    An event's staff act only for the event's own people: a target who is not
+    connected to the event (``event_connections``) is decided as though no
+    event were sent, so only the scope held through a role allows it.
     """
+    if event_id is not None and not await is_connected(
+        session, event_id, target_user_id
+    ):
+        event_id = None
     audit_resource = (
         f"{event_resource(event_id)}/on-behalf-of/{target_user_id}"
         if event_id is not None

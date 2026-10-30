@@ -1,5 +1,4 @@
-"""``/v1/event-song-submissions`` (docs/API.md;
-deejaytools-api src/routes/event-song-submissions.ts).
+"""``/v1/event-song-submissions`` (docs/API.md).
 
 A user's songs entered in events. The list is behind
 ``deejaytools.submissions.read``, create and delete behind
@@ -14,11 +13,13 @@ import time
 import uuid
 from typing import Annotated, Any
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
@@ -148,7 +149,8 @@ async def list_submissions(
             session, caller.user_id, event_id=query.event_id or None
         )
         return success_list([map_submission_row(r) for r in rows])
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,
@@ -192,8 +194,8 @@ async def create_submission(
 ) -> Any:
     """Submit a song to an event."""
     user_id = caller.user_id
-    # The owner's soft-deleted songs are not excluded, as in deejaytools-api.
-    # A linked partner sees only a live song shared with them.
+    # A deleted song is not submitted, by its owner or a linked partner: its
+    # Drive file is queued for trashing, so there is nothing to copy.
     song = (
         await session.execute(
             select(
@@ -206,10 +208,8 @@ async def create_submission(
             .outerjoin(Partner, Partner.id == Song.partner_id)
             .where(
                 Song.id == body.song_id,
-                or_(
-                    Song.user_id == user_id,
-                    (Song.deleted_at.is_(None)) & shared_with(user_id),
-                ),
+                Song.deleted_at.is_(None),
+                or_(Song.user_id == user_id, shared_with(user_id)),
             )
             .limit(1)
         )
@@ -275,12 +275,13 @@ async def create_submission(
             )
         )
         await session.commit()
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
         await session.rollback()
         if is_unique_violation(exc):
             raise api_error(
                 409, "conflict", "That song is already submitted to this event."
             ) from exc
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,
@@ -355,8 +356,9 @@ async def delete_submission(
             )
         ).scalar_one_or_none()
         await session.commit()
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
         await session.rollback()
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,

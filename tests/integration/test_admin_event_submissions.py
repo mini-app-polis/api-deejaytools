@@ -7,6 +7,7 @@ from collections.abc import Callable
 import asyncpg
 import httpx
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from api_deejaytools.routers import admin_event_submissions
 
@@ -174,7 +175,7 @@ async def test_a_failed_query_is_internal(
     await _submit(db, "s1", event, song, admin.id, 1)
 
     def boom(**_: object) -> str:
-        raise RuntimeError("boom")
+        raise OperationalError("boom", {}, Exception("boom"))
 
     monkeypatch.setattr(admin_event_submissions, "build_structured_song_label", boom)
     res = await client.get(URL, params={"event_id": event}, headers=admin.headers)

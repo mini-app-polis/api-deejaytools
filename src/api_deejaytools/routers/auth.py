@@ -11,6 +11,7 @@ import time
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Request
+from identity.types import VerifiedSubject
 from mini_app_polis.logger import LOG_WARNING, get_logger, with_log_prefix
 from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy.dialects.postgresql import insert
@@ -27,6 +28,7 @@ from ..auth import (
     wire_role,
 )
 from ..database import get_db_session
+from ..db_errors import is_unique_violation
 from ..errors import (
     ErrorCode,
     ErrorResponse,
@@ -49,7 +51,13 @@ router = APIRouter(prefix="/v1/auth", tags=["auth"])
 class SyncBody(ZodModel):
     """Body of ``POST /v1/auth/sync``. Field names are the web app's (camelCase)."""
 
-    email: Email = Field(..., description="The caller's email address.")
+    email: Email = Field(
+        ...,
+        description=(
+            "The caller's email address, stored only when the session token "
+            "carries no email claim."
+        ),
+    )
     firstName: str | None = Field(None, description="First name, at creation only.")
     lastName: str | None = Field(None, description="Last name, at creation only.")
     displayName: str | None = Field(None, description="Display name, at creation only.")
@@ -133,9 +141,32 @@ def _user_data(row: User, role: Literal["user", "admin"]) -> dict[str, Any]:
     }
 
 
-def _is_unique_violation(exc: IntegrityError, constraint: str) -> bool:
-    cause = getattr(exc.orig, "__cause__", None)
-    return getattr(cause, "constraint_name", None) == constraint
+#: The session-token claims that may carry the caller's email, in order.
+_EMAIL_CLAIMS = ("email", "primary_email_address", "email_address")
+
+
+def _email_for(subject: VerifiedSubject, body_email: str) -> str:
+    """The email to store for the caller: the issuer's, when it says one.
+
+    A body is not a source of identity: a caller holding a valid token can
+    put any address in it, and the stored email drives Drive sharing, the
+    couple rule and staff lookups. The signed claim outranks it. The body is
+    the fallback only while the session token carries no email claim
+    (Clerk's default token has none until the instance's session token is
+    customized), and that fallback is logged so it can be seen and retired.
+    """
+    for key in _EMAIL_CLAIMS:
+        value = subject.claims.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    logger.warning(
+        with_log_prefix(
+            LOG_WARNING,
+            f"auth_sync_email_from_body user={subject.subject} "
+            "(no email claim on the session token)",
+        )
+    )
+    return body_email
 
 
 @router.post(
@@ -144,7 +175,9 @@ def _is_unique_violation(exc: IntegrityError, constraint: str) -> bool:
     summary="Create or refresh the caller's user record",
     description=(
         "Upserts the caller's users row and provisions their principal "
-        "(deejaytools-dancer) in one transaction. On conflict only email and "
+        "(deejaytools-dancer) in one transaction. The email stored is the "
+        "session token's email claim; the body's email is used only when the "
+        "token carries none. On conflict only email and "
         "updated_at change; names are user-managed after creation. "
         "Authenticated-only: a verified credential, no scope."
     ),
@@ -165,7 +198,7 @@ async def sync(
     """Upsert the users row and provision the principal.
 
     The body is validated before the token is checked, so a bad body answers
-    400 even without a token — the order deejaytools-api has.
+    400 even without a token — the contract's order.
     """
     body = await parse_zod_body(request, SyncBody)
     subject = await verify_bearer(authorization)
@@ -173,13 +206,14 @@ async def sync(
     # the verified Clerk subject, never the body's email — unverified text
     # the caller chose, and personal data in a shared channel.
     request.state.caller = subject.subject
+    email = _email_for(subject, body.email)
     now = int(time.time() * 1000)
     try:
         await session.execute(
             insert(User)
             .values(
                 id=subject.subject,
-                email=body.email,
+                email=email,
                 first_name=body.firstName,
                 last_name=body.lastName,
                 display_name=body.displayName,
@@ -190,7 +224,7 @@ async def sync(
             # overwrite them.
             .on_conflict_do_update(
                 index_elements=[User.id],
-                set_={"email": body.email, "updated_at": now},
+                set_={"email": email, "updated_at": now},
             )
         )
     except IntegrityError as exc:
@@ -198,7 +232,7 @@ async def sync(
         # The email already belongs to another users row: a Clerk account
         # deleted and re-created, or an email changed in Clerk to one an old
         # row still holds. Refused rather than handed the other row's data.
-        if _is_unique_violation(exc, "users_email_unique"):
+        if is_unique_violation(exc, "users_email_unique"):
             logger.warning(
                 with_log_prefix(
                     LOG_WARNING, f"auth_sync_email_conflict user={subject.subject}"

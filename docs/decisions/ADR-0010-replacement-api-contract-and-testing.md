@@ -1,7 +1,5 @@
 # ADR-0010: Replacement API: wire contract, reuse, and how it is tested
 
-**Ported from:** deejaytools-api ADR-0009 on 2026-10-25, when that repository was archived as [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api/tree/main/docs/decisions). Numbers are shifted by one to follow this repository's ADR-0001; only titles, citations and links were changed. In the body, "this repository" and "this service" mean deejaytools-api.
-
 Date: 2026-10-01
 
 ## Status
@@ -9,6 +7,10 @@ Date: 2026-10-01
 Accepted
 
 ## Context
+
+Written in deejaytools-api, the Node service this one replaced (archived as
+legacy-graveyard/deejaytools-api); in this record "this service", "this
+API" and "this repository" mean deejaytools-api.
 
 ADR-0007 keeps the web app unchanged through the cutover, so the new service
 has to answer exactly as this API does. The ecosystem's Python conventions

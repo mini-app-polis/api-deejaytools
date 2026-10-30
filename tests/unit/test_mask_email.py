@@ -1,10 +1,10 @@
-"""The masked email the event people search returns (routers/event_people.py)."""
+"""The masked email the event's staff see (event_connections.py)."""
 
 from __future__ import annotations
 
 import pytest
 
-from api_deejaytools.routers.event_people import mask_email
+from api_deejaytools.event_connections import mask_email
 
 
 @pytest.mark.parametrize(

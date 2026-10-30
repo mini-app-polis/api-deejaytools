@@ -16,7 +16,7 @@ async def test_health_is_ok_without_auth_or_database() -> None:
     assert res.json() == {"status": "ok"}  # not wrapped in the envelope
 
 
-async def test_cors_preflight_matches_deejaytools_api() -> None:
+async def test_cors_preflight_answers_an_allowed_origin() -> None:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
         res = await c.options(
@@ -31,7 +31,7 @@ async def test_cors_preflight_matches_deejaytools_api() -> None:
     assert res.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
-async def test_head_health_and_routing_edges_match_hono() -> None:
+async def test_head_health_and_routing_edges() -> None:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
         head = await c.head("/health")

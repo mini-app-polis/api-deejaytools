@@ -21,8 +21,7 @@ runs, so jobs that run out of order still leave access matching it.
 live is left in them. It is not a job: the scheduler runs it now and then
 (``services.scheduler``), since a deleted event leaves no row to queue it on.
 
-Processing is deejaytools-api's ``processDriveJobs`` with the three "Known
-defects" in this area fixed rather than reproduced (ADR-0007 point 4):
+Processing guards against three failure modes (ADR-0007 point 4):
 
 - overlapping copy runs, and a copy followed by a failed DB write, do not
   leave a duplicate copy: copies are tagged with their submission id and an
@@ -50,9 +49,10 @@ from mini_app_polis.logger import (
     get_logger,
     with_log_prefix,
 )
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..clock import now_ms
 from ..domain import season_year_from_date_string
 from ..models import (
     DriveJob,
@@ -211,6 +211,9 @@ LEASE_TIMEOUT_MS = 10 * 60_000
 """A job ``running`` longer than this is presumed orphaned (process died
 holding it) and returned to ``pending``."""
 
+# Raw SQL on purpose: the claim is one statement that picks a batch with
+# FOR UPDATE SKIP LOCKED and returns whole rows, so concurrent passes take
+# disjoint batches. The ORM can spell the parts, but not more plainly than this.
 _CLAIM_SQL = text(
     """
     UPDATE drive_jobs SET status = 'running', updated_at = :now
@@ -230,10 +233,6 @@ def backoff_ms(attempts: int) -> int:
     """Delay before the next try, given the attempt count after the failure
     just recorded: ``min(60 s × 2^attempts, 30 min)``."""
     return min(60_000 * 2**attempts, 30 * 60_000)
-
-
-def _now_ms() -> int:
-    return int(time.time() * 1000)
 
 
 @dataclass(frozen=True)
@@ -265,11 +264,13 @@ async def _reclaim_stuck_jobs(db: AsyncSession, now: int) -> int:
     """Return jobs whose lease expired to ``pending``, attempts unchanged: the
     job never got a real try, the process holding it died."""
     result = await db.execute(
-        text(
-            "UPDATE drive_jobs SET status = 'pending', updated_at = :now "
-            "WHERE status = 'running' AND updated_at < :cutoff RETURNING id"
-        ),
-        {"now": now, "cutoff": now - LEASE_TIMEOUT_MS},
+        update(DriveJob)
+        .where(
+            DriveJob.status == "running",
+            DriveJob.updated_at < now - LEASE_TIMEOUT_MS,
+        )
+        .values(status="pending", updated_at=now)
+        .returning(DriveJob.id)
     )
     ids = [r.id for r in result]
     await db.commit()
@@ -343,7 +344,6 @@ def _submission_filename(row: Any) -> str:
         processed_filename=row.processed_filename,
         original_filename=row.original_filename,
         song_id=row.song_id,
-        event_name=row.event_name,
     )
 
 
@@ -407,18 +407,19 @@ async def _record_copy(
 ) -> None:
     """Store a copy's id on its submission, or discard the copy if it lost.
 
-    Fix for docs/DRIVE.md "Known defects" (a copy finishing after its submission
-    was deleted was orphaned; the old update had no IS NULL guard): the id is
-    written only into a still-empty column. When nothing is updated, the
+    A copy finishing after its submission was deleted must not be orphaned,
+    so the id is written only into a still-empty column. When nothing is updated, the
     submission is gone or holds another copy, so this copy is soft-deleted,
     unless it is the very copy recorded (another run reused and recorded it).
     """
     result = await db.execute(
-        text(
-            "UPDATE event_song_submissions SET drive_copy_file_id = :new "
-            "WHERE id = :id AND drive_copy_file_id IS NULL RETURNING id"
-        ),
-        {"new": file_id, "id": submission_id},
+        update(EventSongSubmission)
+        .where(
+            EventSongSubmission.id == submission_id,
+            EventSongSubmission.drive_copy_file_id.is_(None),
+        )
+        .values(drive_copy_file_id=file_id)
+        .returning(EventSongSubmission.id)
     )
     updated = result.first() is not None
     await db.commit()
@@ -584,8 +585,7 @@ async def _run_share_folder_job(db: AsyncSession, job: _Job) -> None:
             "can share with"
         )
     await db.execute(
-        text("UPDATE drive_jobs SET file_id = :folder WHERE id = :id"),
-        {"folder": folder_id, "id": job.id},
+        update(DriveJob).where(DriveJob.id == job.id).values(file_id=folder_id)
     )
     await db.commit()
     logger.info(
@@ -745,11 +745,10 @@ async def _run_job(db: AsyncSession, job: _Job) -> None:
 async def _mark_done(db: AsyncSession, job: _Job) -> bool:
     """Complete a job if this run still holds its lease; False when superseded."""
     result = await db.execute(
-        text(
-            "UPDATE drive_jobs SET status = 'done', last_error = NULL, "
-            "updated_at = :now WHERE id = :id AND status = 'running' RETURNING id"
-        ),
-        {"now": _now_ms(), "id": job.id},
+        update(DriveJob)
+        .where(DriveJob.id == job.id, DriveJob.status == "running")
+        .values(status="done", last_error=None, updated_at=now_ms())
+        .returning(DriveJob.id)
     )
     completed = result.first() is not None
     await db.commit()
@@ -759,16 +758,16 @@ async def _mark_done(db: AsyncSession, job: _Job) -> bool:
 async def _record_failure(db: AsyncSession, job: _Job, exc: Exception) -> None:
     """Reschedule (or fail) a job after its run raised, then log and report.
 
-    Fix for docs/DRIVE.md "Known defects" (a DB error here escaped and left the
-    rest of the batch in ``running`` for the whole lease): the update is
-    guarded on its own. If it fails the error is logged and the batch goes on;
-    the job stays ``running`` until the lease reclaims it.
+    The update is guarded on its own, so a DB error here does not leave the
+    rest of the batch in ``running`` for the whole lease. If it fails the
+    error is logged and the batch goes on; the job stays ``running`` until
+    the lease reclaims it.
     """
     attempts = job.attempts + 1
     # A refused job is failed at once: no retry would change its outcome.
     exhausted = isinstance(exc, DriveJobRefused) or attempts >= MAX_ATTEMPTS
     message = str(exc) or type(exc).__name__
-    now = _now_ms()
+    now = now_ms()
     next_attempt_at = now + backoff_ms(attempts)
     # recorded: this run's outcome is the job's. superseded: the guard matched
     # no row — the lease ran out and the job was reclaimed, so another run
@@ -776,19 +775,16 @@ async def _record_failure(db: AsyncSession, job: _Job, exc: Exception) -> None:
     recorded = superseded = False
     try:
         result = await db.execute(
-            text(
-                "UPDATE drive_jobs SET status = :status, attempts = :attempts, "
-                "next_attempt_at = :next, last_error = :error, updated_at = :now "
-                "WHERE id = :id AND status = 'running' RETURNING id"
-            ),
-            {
-                "status": "failed" if exhausted else "pending",
-                "attempts": attempts,
-                "next": next_attempt_at,
-                "error": message,
-                "now": now,
-                "id": job.id,
-            },
+            update(DriveJob)
+            .where(DriveJob.id == job.id, DriveJob.status == "running")
+            .values(
+                status="failed" if exhausted else "pending",
+                attempts=attempts,
+                next_attempt_at=next_attempt_at,
+                last_error=message,
+                updated_at=now,
+            )
+            .returning(DriveJob.id)
         )
         recorded = result.first() is not None
         await db.commit()
@@ -876,7 +872,7 @@ async def process_drive_jobs(
     Returns ``{"claimed", "succeeded", "failed"}``; a superseded completion
     counts as failed.
     """
-    now = _now_ms()
+    now = now_ms()
 
     try:
         await _reclaim_stuck_jobs(db, now)
@@ -907,8 +903,8 @@ async def process_drive_jobs(
     for job in jobs:
         try:
             await _run_job(db, job)
-            # As deejaytools-api, a DB error here is handled as the job
-            # failing: the work is retried (and a copy reuses its tagged file).
+            # A DB error here is handled as the job failing: the work is
+            # retried (and a copy reuses its tagged file).
             if await _mark_done(db, job):
                 done += 1
             else:

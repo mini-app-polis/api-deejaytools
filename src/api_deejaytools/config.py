@@ -14,8 +14,7 @@ class Settings(BaseSettings):
 
     Most names carry a DEEJAYTOOLS_ prefix because they live in the shared
     ecosystem Doppler config, which also holds the other Clerk tenant's
-    CLERK_* values and other services' DATABASE_URL. They are the names
-    deejaytools-api read, so its config carried over unchanged.
+    CLERK_* values and other services' DATABASE_URL.
     """
 
     DEEJAYTOOLS_DATABASE_URL: str = Field(
@@ -32,7 +31,7 @@ class Settings(BaseSettings):
     )
 
     # The one trusted Clerk issuer (ADR-0008). Unset means
-    # every authenticated request is rejected, as it is in deejaytools-api.
+    # every authenticated request is rejected.
     DEEJAYTOOLS_CLERK_ISSUER: str | None = Field(
         default=None, description="The iss every session JWT must carry."
     )
@@ -40,7 +39,7 @@ class Settings(BaseSettings):
         default=None, description="JWKS URL of that Clerk instance."
     )
 
-    # Comma-separated, as deejaytools-api reads the same value.
+    # Comma-separated.
     DEEJAYTOOLS_CORS_ORIGINS: Annotated[list[str], NoDecode] = Field(
         default=["http://localhost:5173"],
         description="Origins allowed by CORS.",
@@ -69,7 +68,7 @@ class Settings(BaseSettings):
     )
 
     # POST /v1/feedback emails through Brevo when a key is set; unset, the
-    # feedback is accepted and no email is sent (deejaytools-api feedback.ts).
+    # feedback is accepted and no email is sent.
     # One Brevo account serves the fleet, so this is the same key
     # api-kaianolevine-com reads.
     BREVO_API_KEY: str | None = Field(
@@ -190,7 +189,7 @@ class Settings(BaseSettings):
 
     # Scheduler and its operator route (docs/DRIVE.md "Processing",
     # ADR-0007 point 5, ADR-0008). Unset TICK_SECRET makes GET /internal/tick
-    # refuse every call; an empty string is a set secret.
+    # refuse every call. Empty counts as unset (env_ignore_empty).
     TICK_SECRET: str | None = Field(
         default=None, description="Shared secret for GET /internal/tick."
     )
@@ -206,13 +205,13 @@ class Settings(BaseSettings):
     )
     DISABLE_SCHEDULER: bool = Field(
         default=False,
-        description="'1' turns the in-process scheduler off (as deejaytools-api).",
+        description="'1' turns the in-process scheduler off; any other value leaves it on.",
     )
 
     @field_validator("DISABLE_SCHEDULER", mode="before")
     @classmethod
     def scheduler_flag(cls, v: object) -> object:
-        """Read the flag as deejaytools-api does: only the string '1' disables.
+        """Read the flag strictly: only the string '1' disables.
 
         Any other string (including 'true' or '0') leaves the scheduler on,
         rather than failing settings validation at boot.

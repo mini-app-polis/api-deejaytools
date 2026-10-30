@@ -1,4 +1,4 @@
-"""The one-live-entry rule (deejaytools-api lib/queue/singleEntry.ts)."""
+"""The one-live-entry rule."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Closing gaps and appending to a queue (deejaytools-api lib/queue/compaction.ts).
+"""Closing gaps and appending to a queue.
 
 Positions are 1-based and dense per (session, queue). Callers run these in
 the same transaction as the delete or insert they accompany.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import QueueEntry
@@ -71,3 +71,29 @@ async def next_bottom_position(
         )
     ).scalar()
     return int(max_position or 0) + 1
+
+
+async def remove_entry_of_checkin(
+    db: AsyncSession, session_id: str, checkin_id: str
+) -> tuple[QueueType, int] | None:
+    """Remove the check-in's queue entry and close the gap it leaves.
+
+    Call it under the session lock. The entry is read here, by its check-in,
+    not from a read made before the lock: a promotion in between re-inserts
+    an entry under a new id in another queue, and a stale read would delete
+    nothing and compact the wrong queue. Returns the queue and position it
+    was removed from, or None when the check-in has no entry any more.
+    """
+    row = (
+        await db.execute(
+            select(QueueEntry.id, QueueEntry.queue_type, QueueEntry.position).where(
+                QueueEntry.session_id == session_id,
+                QueueEntry.checkin_id == checkin_id,
+            )
+        )
+    ).first()
+    if row is None:
+        return None
+    await db.execute(delete(QueueEntry).where(QueueEntry.id == row.id))
+    await compact_after_removal(db, session_id, row.queue_type, row.position)
+    return row.queue_type, row.position

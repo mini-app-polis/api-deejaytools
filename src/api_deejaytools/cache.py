@@ -1,4 +1,4 @@
-"""Process-local TTL cache for hot read-only responses (deejaytools-api lib/cache.ts).
+"""Process-local TTL cache for hot read-only responses.
 
 Queue reads are cached for 3 s and the shared part of session reads for 5 s,
 so a room full of polling phones hits the database once per window. Entries

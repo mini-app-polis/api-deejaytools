@@ -1,4 +1,4 @@
-"""Body limit, rate limit and deadline, with deejaytools-api's answers."""
+"""Body limit, rate limit and deadline, with the contract's answers."""
 
 from __future__ import annotations
 
@@ -128,7 +128,7 @@ async def test_deadline_answers_503_and_lets_the_handler_finish() -> None:
     assert res.json() == {
         "error": {"code": "request_timeout", "message": "Request timed out after 50ms"}
     }
-    await asyncio.wait_for(finished.wait(), 1)  # not cancelled, as in Node
+    await asyncio.wait_for(finished.wait(), 1)  # not cancelled
     assert upload.json() == {"ok": True}  # the longer upload budget
 
 

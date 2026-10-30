@@ -125,6 +125,25 @@ async def test_not_found_and_validation(
         assert res.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
+async def test_a_deleted_song_cannot_be_submitted(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    alice = await person("alice")
+    event = await insert_event(db)
+    song = await insert_song(db, alice.id, division="Classic")
+    await db.execute("UPDATE songs SET deleted_at = 1 WHERE id = $1", song)
+
+    res = await _submit(client, alice, event_id=event, song_id=song)
+    assert res.status_code == 404
+    assert res.json()["error"] == {"code": "NOT_FOUND", "message": "Song not found"}
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM event_song_submissions WHERE song_id = $1", song
+        )
+        == 0
+    )
+
+
 async def test_duplicate_and_entity_slot(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:

@@ -96,7 +96,7 @@ async def test_create_shape(client: httpx.AsyncClient, person: Callable) -> None
         "season_year": "2026",
         "is_legacy": False,
         "updated_at": created["created_at"],
-        # Not joined on create, as in deejaytools-api.
+        # Not joined on create.
         "partner_first_name": None,
         "partner_last_name": None,
         "partner_kind": None,

@@ -1,11 +1,10 @@
 """``process_drive_jobs`` against real Postgres (docs/DRIVE.md "Processing").
 
-The behaviour cases are deejaytools-api's src/services/driveJobs.test.ts,
-ported with the same inputs and expected outcomes (ADR-0010 "golden cases are
-ported"); there the database was mocked, here claims, leases and SKIP LOCKED
-run for real. Drive is mocked: most cases replace the Drive layer's functions,
-and the fixed-defect cases run the real Drive layer over the in-memory fake
-service so copy tagging and reuse are exercised end to end.
+The behaviour cases are golden cases (ADR-0010) run against a real database:
+claims, leases and SKIP LOCKED run for real. Drive is mocked: most cases
+replace the Drive layer's functions, and the copy-guard cases run the real
+Drive layer over the in-memory fake service so copy tagging and reuse are
+exercised end to end.
 """
 
 from __future__ import annotations
@@ -291,7 +290,7 @@ def test_lease_outlasts_a_slow_drive_call() -> None:
     assert drive_jobs.DEFAULT_BATCH_SIZE == 10
 
 
-# --- ported behaviour cases -------------------------------------------------------
+# --- golden behaviour cases -------------------------------------------------------
 
 
 async def test_claim_failure_returns_zero_and_reports(
@@ -755,7 +754,7 @@ async def test_concurrent_passes_take_disjoint_batches(
     assert sorted(fake_drive.soft_deletes) == [f"f{i}" for i in range(6)]
 
 
-# --- fixed defects (docs/DRIVE.md "Known defects") ---------------------------------------
+# --- copy guards: no duplicate or orphaned copies -----------------------------
 
 
 def tagged_copies(svc: FakeDriveService, submission_id: str) -> list[str]:
@@ -949,11 +948,9 @@ async def test_fixed_failure_update_error_does_not_strand_the_batch(
     real_execute = session.execute
 
     async def flaky_execute(stmt: Any, params: Any = None, *a: Any, **kw: Any) -> Any:
-        if (
-            isinstance(params, dict)
-            and params.get("id") == "a"
-            and "attempts" in params
-        ):
+        # The update that records job a's failure: the one setting attempts.
+        bound = stmt.compile().params if hasattr(stmt, "compile") else {}
+        if "attempts" in bound and "a" in bound.values():
             raise RuntimeError("db went away")
         return await real_execute(stmt, params, *a, **kw)
 

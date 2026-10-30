@@ -1,10 +1,9 @@
 """``POST /v1/songs/upload/chunk`` (docs/API.md, docs/DRIVE.md "Upload pipeline").
 
-Chunks are staged on local disk exactly as deejaytools-api stages them; the
-final chunk is checked, assembled and turned into a song row, which is
-returned at once with its Drive fields null. The build (tag, Drive upload,
-record) then runs in the background from durable staging: see
-``services/song_builds.py`` for how it differs from deejaytools-api's.
+Chunks are staged on local disk; the final chunk is checked, assembled and
+turned into a song row, which is returned at once with its Drive fields
+null. The build (tag, Drive upload, record) then runs in the background from
+durable staging (``services/song_builds.py``).
 
 The body is ``multipart/form-data`` with no zod schema: fields are read and
 checked by hand, in the order and with the messages docs/API.md lists.
@@ -63,6 +62,8 @@ CHUNK_TMP_BASE = Path("/tmp/dj-upload-chunks")
 MAX_CHUNK_BYTES = 10 * 1024 * 1024
 MAX_ASSEMBLED_BYTES = 110 * 1024 * 1024
 CHUNK_TTL_SECONDS = 2 * 60 * 60
+MAX_UPLOADS_IN_PROGRESS = 3
+"""Uploads one caller may have staged at once; a new one past this is 429."""
 _UUID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
 )
@@ -138,8 +139,10 @@ def _is_int(value: float) -> bool:
 
 @router.post(
     "/upload/chunk",
-    # No response_model: a non-final answer omits "song" rather than nulling it.
-    response_model=None,
+    # Unset fields stay out: a non-final answer omits "song" rather than
+    # nulling it, as the web app expects.
+    response_model=ChunkResponse,
+    response_model_exclude_unset=True,
     summary="Upload one chunk of a song",
     description=(
         "Chunked upload, multipart/form-data. Each chunk is staged; the final "
@@ -233,9 +236,8 @@ async def upload_chunk(
     # The event the song is submitted to, or None when it is not submitted.
     submit_event_id = event_id if submit_to_event else None
     if on_behalf_of:
-        # Where deejaytools-api checked the admin role: a second, audited
-        # decision (ADR-0008), on event_id's event when one is sent
-        # (ADR-0012). On every chunk, as there.
+        # A second, audited decision (ADR-0008), on event_id's event when
+        # one is sent (ADR-0012). On every chunk.
         await authorize_delegation(caller, on_behalf_of, db, request, event_id=event_id)
 
     chunk_bytes = await chunk_file.read()
@@ -246,11 +248,40 @@ async def upload_chunk(
     upload_dir = CHUNK_TMP_BASE / f"{caller.user_id}_{upload_id}"
     index, total = int(chunk_index), int(total_chunks)
 
-    def write_chunk() -> None:
+    def write_chunk() -> str | None:
+        """Stage the chunk, or say why not: the staging area is bounded per
+        caller and per upload, so no one can fill the disk with it."""
+        if not upload_dir.exists():
+            prefix = f"{caller.user_id}_"
+            try:
+                staged = sum(
+                    1 for d in CHUNK_TMP_BASE.iterdir() if d.name.startswith(prefix)
+                )
+            except OSError:
+                staged = 0
+            if staged >= MAX_UPLOADS_IN_PROGRESS:
+                return "too_many"
         upload_dir.mkdir(parents=True, exist_ok=True)
-        (upload_dir / f"chunk_{index:06d}").write_bytes(chunk_bytes)
+        target = upload_dir / f"chunk_{index:06d}"
+        others = sum(
+            f.stat().st_size for f in upload_dir.iterdir() if f.name != target.name
+        )
+        if others + len(chunk_bytes) > MAX_ASSEMBLED_BYTES:
+            _remove(upload_dir)
+            return "too_large"
+        target.write_bytes(chunk_bytes)
+        return None
 
-    await asyncio.to_thread(write_chunk)
+    refused = await asyncio.to_thread(write_chunk)
+    if refused == "too_many":
+        raise api_error(
+            429,
+            "TOO_MANY_UPLOADS",
+            f"You have {MAX_UPLOADS_IN_PROGRESS} uploads in progress. "
+            "Finish or wait for one before starting another.",
+        )
+    if refused == "too_large":
+        raise bad("File exceeds 100 MB limit")
     if index != total - 1:
         return success({"received": True, "complete": False})
 
@@ -290,8 +321,7 @@ async def upload_chunk(
                 raise refuse("Team not found")
             placeholder_name = identifier
         else:
-            # "other". deejaytools-api's third branch (solo) is unreachable:
-            # any other entity_type was refused above.
+            # "other": any other entity_type was refused above.
             if not entity_name:
                 raise refuse("entity_name is required for other uploads")
             placeholder_name = entity_name
@@ -430,7 +460,7 @@ async def upload_chunk(
             data=assembled,
             mime_type=mime_type,
             original_filename=original_name,
-            # Node takes the season when the upload is accepted; a build
+            # The season is taken when the upload is accepted; a build
             # retried across the October rollover keeps it.
             season_year=song_builds.season_year_now(),
             status="pending",
@@ -462,8 +492,7 @@ async def upload_chunk(
     await db.commit()
 
     song_builds.start_build(song.id)
-    # Partner names are null in this answer whatever the partner, as in
-    # deejaytools-api.
+    # Partner names are null in this answer whatever the partner.
     answer: dict[str, Any] = {
         "received": True,
         "complete": True,

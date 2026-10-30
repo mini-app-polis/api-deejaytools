@@ -1,7 +1,5 @@
 # ADR-0003: Validation 400 responses use the canonical error envelope
 
-**Ported from:** deejaytools-api ADR-0002 on 2026-10-25, when that repository was archived as [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api/tree/main/docs/decisions). Numbers are shifted by one to follow this repository's ADR-0001; only titles, citations and links were changed. In the body, "this repository" and "this service" mean deejaytools-api.
-
 Date: 2026-04-24
 
 ## Status
@@ -9,6 +7,10 @@ Date: 2026-04-24
 Accepted
 
 ## Context
+
+Written in deejaytools-api, the Node service this one replaced (archived as
+legacy-graveyard/deejaytools-api); in this record "this service", "this
+API" and "this repository" mean deejaytools-api.
 
 ecosystem-standards API-005 / XSTACK-002 require every API response
 to use one of two envelopes:

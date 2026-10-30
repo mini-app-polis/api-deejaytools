@@ -1,9 +1,8 @@
 """Building an uploaded song: name it, tag it, upload it to Drive, record it.
 
-docs/DRIVE.md "Background build" is the behaviour. The steps,
-the filename rule, the tag contents, the sharing and the re-queued event
-copies are the same. What is different is that the build is durable, which
-fixes the four known defects docs/DRIVE.md lists for it:
+docs/DRIVE.md "Background build" is the behaviour: the steps, the filename
+rule, the tag contents, the sharing and the re-queued event copies. The build
+is durable:
 
 - **A restart mid-build** does not leave a song with no file and nothing
   to sweep it. The bytes wait in ``song_uploads`` (migration 003), and the
@@ -19,8 +18,8 @@ fixes the four known defects docs/DRIVE.md lists for it:
   ``vNN``. The filename is reserved under a per-slot advisory lock, counting
   the filenames other builds have reserved as well as finished songs.
 
-A song nothing references is still deleted when its build fails, as in
-deejaytools-api: the uploader sees it vanish and uploads again. The web app
+A song nothing references is still deleted when its build fails: the
+uploader sees it vanish and uploads again. The web app
 and the conformance suite rely on that.
 """
 
@@ -29,9 +28,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
-import time
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import sentry_sdk
@@ -40,8 +38,9 @@ from sqlalchemy import delete, exists, select, text, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ..clock import now_ms
 from ..database import get_sessionmaker
-from ..domain import entity_name_pair
+from ..domain import entity_name_pair, season_year_for
 from ..models import (
     EventSongSubmission,
     ManagedPartnership,
@@ -76,7 +75,6 @@ SONG_APP_PROPERTY = "deejaytools_song_id"
 
 _VERSION_RE = re.compile(r"_v(\d+)(?:\.[^.]*)?$")
 _NON_ALNUM = re.compile(r"[^a-zA-Z0-9]")
-_SEASON_ROLLOVER_MONTH = 10  # ADR-0011
 
 _in_flight: set[asyncio.Task[bool]] = set()
 
@@ -85,19 +83,22 @@ class LostClaim(Exception):
     """Another build took this one over; stop without touching anything."""
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
 # ---------------------------------------------------------------------------
 # Naming (docs/DRIVE.md "Background build", steps 2-5)
 # ---------------------------------------------------------------------------
 
 
-def season_year_now() -> str:
-    """The upload-time season, in the server's local timezone as Node took it."""
-    now = datetime.now()
-    return str(now.year + 1 if now.month >= _SEASON_ROLLOVER_MONTH else now.year)
+def season_year_now(now: datetime | None = None) -> str:
+    """The upload-time season, by the UTC date (ADR-0011).
+
+    UTC whatever the server's own timezone, so the rollover happens at the
+    same instant wherever the API runs. ``now`` is for tests; a naive value
+    is read as UTC.
+    """
+    moment = now or datetime.now(UTC)
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(UTC)
+    return season_year_for(moment.year, moment.month)
 
 
 def sanitize_segment(value: str | None) -> str:
@@ -230,7 +231,7 @@ async def process_song_uploads(db: AsyncSession) -> int:
     room = MAX_IN_FLIGHT - len(_in_flight)
     if room <= 0:
         return 0
-    now = _now_ms()
+    now = now_ms()
     ids = list(
         (
             await db.execute(
@@ -291,7 +292,7 @@ async def build_song(song_id: str) -> bool:
 
 async def _claim(db: AsyncSession, song_id: str) -> str | None:
     """Take the build, or None if it is not due or another build holds it."""
-    now = _now_ms()
+    now = now_ms()
     claim = str(uuid.uuid4())
     claimed = (
         await db.execute(
@@ -333,7 +334,7 @@ async def _heartbeat(
                 await db.execute(
                     update(SongUpload)
                     .where(*_mine(song_id, claim))
-                    .values(updated_at=_now_ms())
+                    .values(updated_at=now_ms())
                 )
                 await db.commit()
         except Exception as exc:  # noqa: BLE001 - the next beat tries again
@@ -352,7 +353,7 @@ async def _update_mine(
         await db.execute(
             update(SongUpload)
             .where(*_mine(song_id, claim))
-            .values(**values, updated_at=_now_ms())
+            .values(**values, updated_at=now_ms())
             .returning(SongUpload.song_id)
         )
     ).first()
@@ -433,6 +434,8 @@ async def _reserve_filename(
         "managed": song.managed_partnership_id or "",
     }
     async with maker() as db:
+        # Raw SQL on purpose: a transaction-scoped advisory lock is a
+        # Postgres function call the ORM has no construct for.
         await db.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:slot))"), {"slot": slot}
         )
@@ -631,7 +634,7 @@ def _announce(
 
 async def _share(song: Song, user: User, partner: Partner | None, file_id: str) -> None:
     """Reader access for the uploader and, for a partner song, the partner's
-    email. Best-effort, as in deejaytools-api."""
+    email. Best-effort."""
     targets: list[str | None] = [user.email]
     if partner is not None:
         targets.append(partner.email)
@@ -644,6 +647,7 @@ async def _share(song: Song, user: User, partner: Partner | None, file_id: str) 
                 f"song_drive_share_failed song={song.id} file={file_id}: {exc!r}",
             )
         )
+        sentry_sdk.capture_exception(exc)
         return
     if result.failed:
         failed = [(email, repr(err)) for email, err in result.failed]
@@ -689,7 +693,7 @@ async def _finish(
         song.season_year = season
         song.drive_file_id = drive_file_id
         song.drive_folder_id = drive_folder_id
-        song.updated_at = _now_ms()
+        song.updated_at = now_ms()
         deleted_meanwhile = song.deleted_at is not None
         dropped = (
             await db.execute(
@@ -775,7 +779,7 @@ async def _discard_file(
 async def _on_failure(
     maker: async_sessionmaker[AsyncSession], song_id: str, claim: str, exc: Exception
 ) -> None:
-    """Delete an unreferenced song, as deejaytools-api does; otherwise retry."""
+    """Delete an unreferenced song; otherwise retry."""
     logger.error(
         with_log_prefix(
             LOG_FAILURE, f"song_background_upload_failed song={song_id}: {exc!r}"
@@ -853,7 +857,7 @@ async def _schedule_retry(
             if row is None:
                 return
             attempts = row[0] + 1
-            now = _now_ms()
+            now = now_ms()
             exhausted = attempts >= MAX_ATTEMPTS
             recorded = (
                 await db.execute(

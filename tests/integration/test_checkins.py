@@ -8,6 +8,7 @@ from typing import Any
 
 import asyncpg
 import httpx
+import pytest
 
 from .content_helpers import insert_event, insert_song, new_id
 from .queue_helpers import (
@@ -613,6 +614,67 @@ async def test_delete_withdraws_own_entry(
     assert res.status_code == 404
 
 
+async def test_self_withdraw_reads_its_entry_under_the_lock(
+    client: httpx.AsyncClient,
+    person: Callable[..., Any],
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The entry moved before withdraw took the lock (a promotion re-inserts
+    it under a new id, in another queue): withdraw removes it from there."""
+    from api_deejaytools.routers import checkins as checkin_routes
+
+    me = await person()
+    session_id = await _waiting_session(db)
+    other = await dancer_pair(db)
+    first = await insert_entry(
+        db,
+        session_id=session_id,
+        queue_type="non_priority",
+        position=1,
+        song_id=other["song_id"],
+        submitted_by=other["user_id"],
+        pair_id=other["pair_id"],
+    )
+    d = await dancer_pair(db, user_id=me.id)
+    mine = await insert_entry(
+        db,
+        session_id=session_id,
+        queue_type="non_priority",
+        position=2,
+        song_id=d["song_id"],
+        submitted_by=me.id,
+        pair_id=d["pair_id"],
+    )
+    real_lock = checkin_routes.lock_session_for_fill
+
+    async def move_first(session: Any, sid: str) -> Any:
+        # As a promotion does: out of non_priority, into active, new id.
+        await db.execute("DELETE FROM queue_entries WHERE id = $1", mine["entry_id"])
+        await db.execute(
+            "INSERT INTO queue_entries (id, session_id, checkin_id, queue_type,"
+            " position, entered_queue_at, entity_pair_id)"
+            " VALUES ($1, $2, $3, 'active', 1, 1, $4)",
+            new_id("qe"),
+            session_id,
+            mine["checkin_id"],
+            d["pair_id"],
+        )
+        return await real_lock(session, sid)
+
+    monkeypatch.setattr(checkin_routes, "lock_session_for_fill", move_first)
+    res = await client.delete(f"/v1/checkins/{mine['checkin_id']}", headers=me.headers)
+    assert res.status_code == 200, res.text
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM queue_entries WHERE checkin_id = $1",
+            mine["checkin_id"],
+        )
+        == 0
+    )
+    assert await positions(db, session_id, "non_priority") == [(first["entry_id"], 1)]
+
+
 async def test_delete_managed_owner_and_refill(
     client: httpx.AsyncClient, person: Callable[..., Any], db: asyncpg.Connection
 ) -> None:
@@ -677,7 +739,7 @@ async def test_delete_solo_legacy_entry(
 async def test_post_admission_database_error_is_400(
     client: httpx.AsyncClient, person: Callable[..., Any], db: asyncpg.Connection
 ) -> None:
-    """As deejaytools-api: any error from the admission lookup is a 400 with
+    """Any error from the admission lookup is a 400 with
     the database's message (here Postgres refusing a NUL byte)."""
     me = await person()
     d = await dancer_pair(db, user_id=me.id)

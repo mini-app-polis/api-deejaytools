@@ -1,5 +1,4 @@
-"""Which waiting queue a check-in enters, and the promotion gates
-(deejaytools-api lib/queue/admission.ts).
+"""Which waiting queue a check-in enters, and the promotion gates.
 
 Priority requires all of: the session division is a priority division; the
 entity's completed runs in that division for the session are below its
@@ -24,8 +23,7 @@ InitialQueue = Literal["priority", "non_priority"]
 class AdmissionError(Exception):
     """The session or division a check-in names cannot be admitted to.
 
-    Its message is answered verbatim as a 400, as Node answers the Error
-    that ``loadAdmissionContext`` throws.
+    Its message is answered verbatim as a 400.
     """
 
 

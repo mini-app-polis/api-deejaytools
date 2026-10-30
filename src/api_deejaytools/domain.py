@@ -1,7 +1,6 @@
-"""Small domain rules shared across routes, ported from deejaytools-api.
+"""Small domain rules shared across routes.
 
-Each is a single definition there (src/schemas/index.ts, src/lib/*) and is a
-single definition here; do not reimplement them locally.
+Each is a single definition here; do not reimplement them locally.
 """
 
 from __future__ import annotations
@@ -14,8 +13,8 @@ from zoneinfo import ZoneInfo, available_timezones
 
 from .zod_coerce import js_trim
 
-# Source of truth for division order and grouping (schemas/index.ts
-# DIVISION_GROUPS); DIVISIONS is its flat order.
+# Source of truth for division order and grouping; DIVISIONS is its flat
+# order.
 DIVISION_GROUPS: tuple[tuple[str, ...], ...] = (
     ("Classic", "Showcase", "Rising Star Classic", "Rising Star Showcase"),
     ("ProAm LeaderAm", "ProAm FollowerAm", "NovInt Routines"),
@@ -30,7 +29,7 @@ DIVISIONS: tuple[str, ...] = tuple(d for group in DIVISION_GROUPS for d in group
 DEFAULT_TIMEZONE = "America/Chicago"
 
 # Seasons roll over on October 1: October to December belong to the next
-# calendar year's season (ADR-0011; deejaytools-com lib/seasonYear.ts).
+# calendar year's season (ADR-0011; the web app applies the same rule).
 SEASON_ROLLOVER_MONTH = 10
 
 
@@ -110,6 +109,11 @@ def entity_display(first: str, second: str | None) -> str:
     return f"{first} & {second}" if second else first
 
 
+def season_year_for(year: int, month: int) -> str:
+    """The season a calendar month belongs to (ADR-0011)."""
+    return str(year + 1 if month >= SEASON_ROLLOVER_MONTH else year)
+
+
 def season_year_from_date_string(date_str: str) -> str:
     """Season year for a YYYY-MM-DD string, read from its fields (no timezone)."""
     year_str, _, rest = date_str.partition("-")
@@ -118,7 +122,7 @@ def season_year_from_date_string(date_str: str) -> str:
         year, month = int(year_str), int(month_str)
     except ValueError as exc:
         raise ValueError(f"Invalid date string for season year: {date_str}") from exc
-    return str(year + 1 if month >= SEASON_ROLLOVER_MONTH else year)
+    return season_year_for(year, month)
 
 
 # Names zoneinfo can list that Intl (ICU) refuses: system files, not zones.
@@ -186,8 +190,8 @@ def ms_to_date_in_zone(ms: float, timezone: str) -> str:
     return datetime.fromtimestamp(ms / 1000, zone).strftime("%Y-%m-%d")
 
 
-# ICU root collation order (what Node's localeCompare uses), taken from Node
-# 22: the ASCII punctuation and symbols, and the combining accents.
+# ICU root collation order, as JavaScript's localeCompare applies it under
+# Node 22: the ASCII punctuation and symbols, and the combining accents.
 _ICU_PUNCTUATION = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$"
 _PUNCTUATION_RANK = {c: i for i, c in enumerate(_ICU_PUNCTUATION)}
 _ICU_ACCENTS = (

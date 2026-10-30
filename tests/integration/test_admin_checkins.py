@@ -74,7 +74,7 @@ async def test_inject_validation_and_refusals(
         "BAD_REQUEST",
         "Division not configured for this session",
     )
-    # As in Node, the stub rows written before admission stay.
+    # The stub rows written before admission stay.
     assert (
         await db.fetchval(
             "SELECT count(*) FROM users WHERE email LIKE 'admin-injected-%@test.local'"

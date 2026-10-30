@@ -1,14 +1,16 @@
 # ADR-0009: Replacement API: numbered raw-SQL migrations from a baseline
 
-**Ported from:** deejaytools-api ADR-0008 on 2026-10-25, when that repository was archived as [legacy-graveyard/deejaytools-api](https://github.com/legacy-graveyard/deejaytools-api/tree/main/docs/decisions). Numbers are shifted by one to follow this repository's ADR-0001; only titles, citations and links were changed. In the body, "this repository" and "this service" mean deejaytools-api.
-
 Date: 2026-10-01
 
 ## Status
 
-Accepted
+Accepted. Supersedes [ADR-0002](./ADR-0002-drizzle-migrations-at-deploy.md).
 
 ## Context
+
+Written in deejaytools-api, the Node service this one replaced (archived as
+legacy-graveyard/deejaytools-api); in this record "this service", "this
+API" and "this repository" mean deejaytools-api.
 
 This API owns the schema through drizzle (`drizzle/0000`–`0015`), applied at
 deploy time (ADR-0002). The replacement keeps the database (ADR-0007), so the

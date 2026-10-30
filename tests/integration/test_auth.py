@@ -1,4 +1,4 @@
-"""Authentication and authorization: the identity library, on deejaytools-api's answers."""
+"""Authentication and authorization: the identity library, on the contract's answers."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ async def _roles(db: asyncpg.Connection, subject: str) -> set[str]:
         "",
         "Bearer",
         "Bearer ",
-        "bearer {token}",  # the scheme is case-sensitive, as in deejaytools-api
+        "bearer {token}",  # the scheme is case-sensitive
         "Token {token}",
         "Bearer not-a-jwt",
     ],
@@ -191,6 +191,32 @@ async def test_sync_email_owned_by_another_sign_in_is_409(
 
     assert res.status_code == 409
     assert res.json()["error"]["code"] == "EMAIL_BELONGS_TO_ANOTHER_ACCOUNT"
+
+
+async def test_sync_stores_the_token_email_claim_over_the_body(
+    client: httpx.AsyncClient, clerk: Clerk, new_user_id: Callable[[], str]
+) -> None:
+    uid = new_user_id()
+    token = clerk.token(uid, email=f"{uid}@claimed.example.com")
+    res = await _sync(client, token, email="someone.else@example.com")
+
+    assert res.status_code == 200
+    assert res.json()["data"]["email"] == f"{uid}@claimed.example.com"
+
+
+async def test_sync_cannot_take_an_address_the_token_does_not_claim(
+    client: httpx.AsyncClient, clerk: Clerk, new_user_id: Callable[[], str]
+) -> None:
+    owner, other = new_user_id(), new_user_id()
+    address = f"{owner}@claimed.example.com"
+    # Someone else's token names its own address; their body's claim on the
+    # owner's address is ignored, so the owner's sync still succeeds.
+    other_token = clerk.token(other, email=f"{other}@claimed.example.com")
+    assert (await _sync(client, other_token, email=address)).status_code == 200
+    res = await _sync(client, clerk.token(owner, email=address), email=address)
+
+    assert res.status_code == 200
+    assert res.json()["data"]["email"] == address
 
 
 async def test_sync_validates_body_before_token(client: httpx.AsyncClient) -> None:
@@ -449,7 +475,7 @@ async def test_no_credential_is_401_without_an_audit_row(
 async def test_unconfigured_issuer_rejects_every_token(
     client: httpx.AsyncClient, clerk: Clerk, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """As deejaytools-api: no issuer configured means every request is 401."""
+    """No issuer configured means every request is 401."""
     from api_deejaytools.config import get_settings
 
     monkeypatch.setattr(get_settings(), "DEEJAYTOOLS_CLERK_ISSUER", None)

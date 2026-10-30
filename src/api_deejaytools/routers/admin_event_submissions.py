@@ -1,5 +1,4 @@
-"""``/v1/admin/event-song-submissions`` (docs/API.md;
-deejaytools-api src/routes/admin-event-submissions.ts).
+"""``/v1/admin/event-song-submissions`` (docs/API.md).
 
 Every submission to one event, for the Manager's Event Songs tab, behind
 ``deejaytools.entries.read`` (ADR-0008). The query and its answer are
@@ -11,17 +10,20 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+import sentry_sdk
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from ..auth import Caller, require_scope
 from ..database import get_db_session
 from ..errors import ErrorCode, ErrorResponse, ListMeta, error_body, success_list
+from ..event_connections import email_for_caller
 from ..labels import build_structured_song_label, partnership_label
 from ..models import Event, EventSongSubmission, ManagedPartnership, Partner, Song, User
 from ..validation import ZodModel
@@ -59,7 +61,13 @@ class AdminSubmissionData(BaseModel):
     )
     song_label: str = Field(..., description="Structured song label.")
     partnership_label: str = Field(..., description="Who the song belongs to.")
-    submitter_email: str = Field(..., description="Email of the user who submitted.")
+    submitter_email: str = Field(
+        ...,
+        description=(
+            "Email of the user who submitted; masked on the event-scoped route "
+            "unless the caller is an admin."
+        ),
+    )
     created_at: int = Field(..., description="Submitted, epoch ms.")
 
 
@@ -94,7 +102,9 @@ async def list_event_submissions(
     return await event_submissions_response(session, query.event_id)
 
 
-async def event_submissions_response(session: AsyncSession, event_id: str) -> Any:
+async def event_submissions_response(
+    session: AsyncSession, event_id: str, *, whole_emails: bool = True
+) -> Any:
     """Every submission to ``event_id``, newest first, as the list answers it.
 
     A ``successList`` of ``AdminSubmissionData``, or the 500 envelope when
@@ -177,12 +187,16 @@ async def event_submissions_response(session: AsyncSession, event_id: str) -> An
                         song_id=r.song_id,
                     ),
                     "partnership_label": label,
-                    "submitter_email": r.submitter_email or "",
+                    "submitter_email": email_for_caller(
+                        r.submitter_email, whole=whole_emails
+                    )
+                    or "",
                     "created_at": r.created_at,
                 }
             )
         return success_list(data)
-    except Exception as exc:  # noqa: BLE001 - answered as deejaytools-api does
+    except SQLAlchemyError as exc:
+        sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(
                 LOG_FAILURE,

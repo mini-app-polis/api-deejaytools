@@ -1,10 +1,8 @@
-"""Golden cases for song tagging, ported from deejaytools-api tagger.test.ts (ADR-0010).
+"""Golden cases for song tagging (ADR-0010).
 
-Every case in tagger.test.ts appears here with the same inputs and expected
-fields; the test names follow the TypeScript ``it`` titles. Fixtures are built
-byte-for-byte the way the TypeScript builds them, and tags are read back with
-mutagen (or by walking bytes, where the TypeScript walks bytes). Cases after
-the ports cover the fix the spec asks a reimplementation to make.
+Each case pins its inputs and expected fields. Fixtures are built
+byte-for-byte, and tags are read back with mutagen (or by walking bytes).
+The cases after the golden ones cover the fix the spec asks for.
 """
 
 from __future__ import annotations
@@ -1100,7 +1098,7 @@ def test_uses_declared_mime_when_sniff_is_unsupported_but_mime_is_known() -> Non
 
 
 def test_mp3_year_replaces_a_v24_tdrc_rather_than_sitting_beside_it() -> None:
-    """Spec fix: node-id3 kept a v2.4 file's TDRC next to the new TYER."""
+    """Spec fix: a v2.4 file's TDRC is replaced, not kept next to the new TYER."""
     data = id3_tag(title="Old", date="2019-05-04T10:30", version=4)
     assert read_id3(data).version[1] == 4
     result = tag_song_bytes(

@@ -1,5 +1,5 @@
 """Edge cases where Python's defaults differ from JavaScript's, answered as
-deejaytools-api answers them (ADR-0010): body parsing and middleware order,
+the contract has them (ADR-0010): body parsing and middleware order,
 regex anchors and digits, non-finite numbers, trim(), Intl time zones and
 localeCompare."""
 
@@ -18,7 +18,7 @@ EVENT = {"name": "Swing Fling", "start_date": "2026-05-01", "end_date": "2026-05
 JSON = {"Content-Type": "application/json"}
 
 
-# --- body parsing (hono's zValidator("json")) -------------------------------------
+# --- body parsing (zod_body) -------------------------------------------------------
 
 
 async def test_malformed_json_without_a_token_is_401(client: httpx.AsyncClient) -> None:
@@ -96,7 +96,7 @@ def test_request_bodies_are_documented() -> None:
         for op in path.values()
         if "requestBody" in op
     ]
-    assert len(bodies) == 27  # every zValidator("json") route in deejaytools-api
+    assert len(bodies) == 27  # every route with a JSON body
     patch = schema["paths"]["/v1/partners/{id}"]["patch"]["requestBody"]
     assert patch["required"] is False  # all optional: an empty body is fine
 
@@ -217,7 +217,7 @@ def test_locale_key_matches_node_localecompare() -> None:
 async def test_every_scoped_route_answers_401_before_validating(
     client: httpx.AsyncClient,
 ) -> None:
-    """Hono runs requireAuth before zValidator: no token is a 401 even when
+    """Auth runs before validation: no token is a 401 even when
     the body or query is invalid. The contract suite checks this per route."""
     import inspect
 

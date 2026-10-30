@@ -1,4 +1,4 @@
-"""``/v1/feedback`` (docs/API.md; deejaytools-api src/routes/feedback.ts).
+"""``/v1/feedback`` (docs/API.md).
 
 Public (API-008; listed in ``auth``): anyone can send site feedback. With a
 Brevo key and both feedback addresses configured (``FEEDBACK_FROM_EMAIL``,
@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, ClassVar, Literal
 
 import httpx
+import sentry_sdk
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, LOG_WARNING, get_logger, with_log_prefix
@@ -27,6 +28,9 @@ from ..zod_types import documents_zod_body, parse_zod_body
 logger = get_logger()
 
 router = APIRouter(prefix="/v1/feedback", tags=["feedback"])
+
+#: How long the Brevo call may take before feedback answers 502.
+BREVO_TIMEOUT_SECONDS = 10.0
 
 BREVO_URL = "https://api.brevo.com/v3/smtp/email"
 SENDER_NAME = "DeejayTools Feedback"
@@ -146,7 +150,7 @@ def _email_body(body: FeedbackBody, submitted_at: str) -> str:
 )
 @documents_zod_body(FeedbackBody)
 async def send_feedback(request: Request) -> Any:
-    """Send site feedback. Intentionally public, as in deejaytools-api."""
+    """Send site feedback. Intentionally public."""
     body = await parse_zod_body(request, FeedbackBody)
     screenshot = body.screenshot or None
     screenshot_base64 = (
@@ -175,20 +179,29 @@ async def send_feedback(request: Request) -> Any:
                 }
             ]
 
-        # No client timeout, as fetch has none: the request deadline bounds it.
-        async with httpx.AsyncClient(timeout=None) as client:
-            res = await client.post(
-                BREVO_URL,
-                headers={"api-key": brevo_key, "Content-Type": "application/json"},
-                json=payload,
-            )
-        if not res.is_success:
-            logger.error(
-                with_log_prefix(
-                    LOG_FAILURE,
-                    f"feedback brevo_error status={res.status_code} body={res.text!r}",
+        # A bounded call: the deadline middleware answers the client but does
+        # not cancel the handler, so an unbounded call could hold it forever.
+        failure: str | None = None
+        try:
+            async with httpx.AsyncClient(timeout=BREVO_TIMEOUT_SECONDS) as client:
+                res = await client.post(
+                    BREVO_URL,
+                    headers={"api-key": brevo_key, "Content-Type": "application/json"},
+                    json=payload,
                 )
-            )
+        except httpx.HTTPError as exc:
+            failure = f"feedback brevo_unreachable: {exc!r}"
+            sentry_sdk.capture_exception(exc)
+        else:
+            if not res.is_success:
+                failure = (
+                    f"feedback brevo_error status={res.status_code} body={res.text!r}"
+                )
+                sentry_sdk.capture_message(
+                    f"Brevo refused feedback email: {res.status_code}", level="error"
+                )
+        if failure is not None:
+            logger.error(with_log_prefix(LOG_FAILURE, failure))
             return JSONResponse(
                 status_code=502,
                 content=error_body(

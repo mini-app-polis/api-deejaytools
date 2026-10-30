@@ -1,4 +1,4 @@
-"""The response envelope and error helpers, on deejaytools-api's wire contract.
+"""The response envelope and error helpers, on the web app's wire contract.
 
 Shapes (docs/API.md, ADR-0010):
 
@@ -6,14 +6,14 @@ Shapes (docs/API.md, ADR-0010):
     success list  {"data": [...],    "meta": {"version": "v1", "count": n}}
     error         {"error": {"code": "...", "message": "..."}}
 
-These are deejaytools-api's shapes rather than common-python-utils'
+These are the web app's shapes rather than common-python-utils'
 ``Envelope`` / ``ErrorEnvelope`` (XSTACK-005): the shared ``Meta`` requires
 ``count`` and ``total`` on every response and ``ErrorDetail`` carries a
 ``details`` key, and the web app must see exactly what it sees today.
 ``meta.version`` is the literal ``"v1"`` that common-typescript-utils
 writes, not the package version.
 
-Error codes are deejaytools-api's, not the Python house style: upper case
+Error codes are the web app's, not the Python house style: upper case
 for most, and the mixed-case ones docs/API.md lists. Normalizing them is a later
 change made together with the web app.
 """
@@ -27,6 +27,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from mini_app_polis import activity
+from mini_app_polis.api.contract.envelope import ErrorEnvelope
 from mini_app_polis.environment import is_production
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
@@ -39,7 +40,7 @@ API_VERSION = "v1"
 
 
 class ErrorCode:
-    """The error codes deejaytools-api answers with, spelled as it spells them."""
+    """The error codes the web app expects, spelled as it spells them."""
 
     UNAUTHORIZED = "UNAUTHORIZED"
     USER_NOT_SYNCED = "USER_NOT_SYNCED"
@@ -63,17 +64,9 @@ class ListMeta(Meta):
     count: int = Field(..., ge=0, description="Number of items in data.")
 
 
-class ErrorBody(BaseModel):
-    """The error object inside the error envelope."""
-
-    code: str = Field(..., description="Machine-readable error code.")
-    message: str = Field(..., description="Human-readable explanation.")
-
-
-class ErrorResponse(BaseModel):
-    """The error envelope every failure answers with."""
-
-    error: ErrorBody = Field(..., description="What went wrong.")
+#: The error envelope every failure answers with: the fleet's shared model
+#: (XSTACK-002). This service never sends its optional ``details``.
+ErrorResponse = ErrorEnvelope
 
 
 def success(data: Any) -> dict[str, Any]:
@@ -106,8 +99,23 @@ def api_error(status_code: int, code: str, message: str) -> ApiError:
     return ApiError(status_code, code, message)
 
 
+def bad_request(message: str) -> ApiError:
+    """400 ``BAD_REQUEST`` with ``message``."""
+    return api_error(400, ErrorCode.BAD_REQUEST, message)
+
+
+def not_found(what: str) -> ApiError:
+    """404 ``NOT_FOUND``: ``<what> not found``."""
+    return api_error(404, ErrorCode.NOT_FOUND, f"{what} not found")
+
+
+def conflict(message: str) -> ApiError:
+    """409 ``conflict`` with ``message``."""
+    return api_error(409, "conflict", message)
+
+
 def unauthorized() -> ApiError:
-    """401 for a missing or invalid credential, worded as deejaytools-api words it."""
+    """401 for a missing or invalid credential, in the contract's wording."""
     return api_error(401, ErrorCode.UNAUTHORIZED, "Authentication required")
 
 
@@ -117,12 +125,12 @@ def user_not_synced() -> ApiError:
 
 
 def forbidden() -> ApiError:
-    """403 for a missing scope. The message is deejaytools-api's, for every scope."""
+    """403 for a missing scope. The message is the same for every scope."""
     return api_error(403, ErrorCode.FORBIDDEN, "Admin access required")
 
 
 def _validation_message(exc: RequestValidationError) -> str:
-    """Summarize field errors as ``path: message; ...``, as the zod helper did.
+    """Summarize field errors as ``path: message; ...``.
 
     The text differs from zod's (ADR-0010 allows it); the code, status and
     envelope are the contract.
@@ -145,7 +153,7 @@ _STATUS_CODES = {
 
 
 def install_error_handlers(app: FastAPI) -> None:
-    """Render every failure in the error envelope with deejaytools-api's codes."""
+    """Render every failure in the error envelope with the contract's codes."""
 
     @app.exception_handler(ApiError)
     async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
@@ -159,7 +167,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError) -> JSONResponse:
-        # 400, not FastAPI's 422: deejaytools-api answers 400 VALIDATION_ERROR.
+        # 400, not FastAPI's 422: the contract is 400 VALIDATION_ERROR.
         return JSONResponse(
             status_code=400,
             content=error_body(ErrorCode.VALIDATION_ERROR, _validation_message(exc)),
@@ -167,7 +175,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(_: Request, exc: StarletteHTTPException) -> JSONResponse:
-        # Hono answers an unknown path and a known path with the wrong method
+        # An unknown path and a known path with the wrong method are answered
         # alike: 404 NOT_FOUND "Not found". FastAPI would say 405 for the
         # second, so it is folded into the first.
         if exc.status_code in (404, 405):
@@ -182,15 +190,14 @@ def install_error_handlers(app: FastAPI) -> None:
     # Not an exception handler: Starlette serves the catch-all handler from
     # its outermost layer, outside CORS, so a 500 would go out without CORS
     # headers and reach the browser as a network error. This middleware is
-    # added first, so it sits inside every other one (CORS included), as
-    # Hono's onError answer passes back through its cors middleware.
+    # added first, so it sits inside every other one (CORS included).
     app.add_middleware(UnhandledErrorMiddleware)
 
 
 class UnhandledErrorMiddleware:
     """Answer an unhandled exception with 500 INTERNAL in the error envelope.
 
-    Reported to Sentry and logged. As deejaytools-api: a generic message in
+    Reported to Sentry and logged. A generic message in
     production, the exception's own message elsewhere. If the response had
     already started there is nothing to answer with, and it re-raises.
 
