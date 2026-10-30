@@ -58,6 +58,7 @@ from ..queue import (
 )
 from ..queue.audit import record_queue_event
 from ..queue.labels import managed_label, pair_label
+from ..song_records import shared_with
 from ..validation import NonEmptyStr, ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import trimmed, zod_body
@@ -210,6 +211,33 @@ async def _managed_entity(
     return EntityRef(managed_partnership_id=managed_partnership_id)
 
 
+async def _song_pair(db: AsyncSession, owner_id: str, partner_id: str, now: int) -> str:
+    """The pair of a song's owner and its partner, created if missing.
+
+    Node writes the pair outside the check-in transaction: it stays even when
+    the check-in is refused afterwards.
+    """
+    pair_id = (
+        await db.execute(
+            select(Pair.id)
+            .where(Pair.user_a_id == owner_id, Pair.partner_b_id == partner_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if pair_id is None:
+        pair_id = str(uuid.uuid4())
+        await db.execute(
+            insert(Pair).values(
+                id=pair_id,
+                user_a_id=owner_id,
+                partner_b_id=partner_id,
+                created_at=now,
+            )
+        )
+        await db.commit()
+    return pair_id
+
+
 AUTH: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse, "description": "Missing or invalid token."},
     403: {"model": ErrorResponse, "description": "Lacks the scope."},
@@ -224,10 +252,14 @@ AUTH: dict[int | str, dict[str, Any]] = {
     description=(
         "Requires deejaytools.checkins.write. Checks an entity into the session's "
         "priority or standard queue (admission rules, ADR-0006) and auto-fills "
-        "the active queue. The song must belong to the user and, for an event "
-        "session, be submitted to the event. With on_behalf_of_user_id the "
-        "caller also needs deejaytools.delegation.act on the session's event, "
-        "and the entity comes from the song."
+        "the active queue. The song must belong to the user, or be a live "
+        "song shared with them as its linked partner, and, for an event "
+        "session, be submitted to the event. For a shared song the entity is "
+        "the owner's pair with that partner, whichever partner checks in, so "
+        "the two cannot both hold an entry; its entityPairId must name that "
+        "pair or one the caller leads. With on_behalf_of_user_id the caller "
+        "also needs deejaytools.delegation.act on the session's event, and "
+        "the entity comes from the song."
     ),
     responses={
         **AUTH,
@@ -282,14 +314,23 @@ async def create_checkin(
     if now > session.floor_trial_ends_at:
         raise _bad_request("Check-in is closed for this session")
 
+    # The caller's own live song or, checking in for themselves, a live song
+    # shared with them as its linked partner. A managed partnership's song
+    # stays its owner's to check in.
+    whose = Song.user_id == effective_user_id
+    if not on_behalf:
+        whose = or_(
+            whose,
+            and_(
+                shared_with(effective_user_id),
+                Song.managed_partnership_id.is_(None),
+            ),
+        )
     song = (
         await db.execute(
-            select(Song.id, Song.managed_partnership_id, Song.partner_id)
-            .where(
-                Song.id == body.songId,
-                Song.user_id == effective_user_id,
-                Song.deleted_at.is_(None),
-            )
+            select(Song.id, Song.user_id, Song.managed_partnership_id, Song.partner_id)
+            .outerjoin(Partner, Partner.id == Song.partner_id)
+            .where(Song.id == body.songId, Song.deleted_at.is_(None), whose)
             .limit(1)
         )
     ).first()
@@ -303,32 +344,33 @@ async def create_checkin(
                 db, song.managed_partnership_id, effective_user_id
             )
         elif song.partner_id:
-            pair_id = (
-                await db.execute(
-                    select(Pair.id)
-                    .where(
-                        Pair.user_a_id == effective_user_id,
-                        Pair.partner_b_id == song.partner_id,
-                    )
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if pair_id is None:
-                pair_id = str(uuid.uuid4())
-                await db.execute(
-                    insert(Pair).values(
-                        id=pair_id,
-                        user_a_id=effective_user_id,
-                        partner_b_id=song.partner_id,
-                        created_at=now,
-                    )
-                )
-                # Node writes the pair outside the check-in transaction: it
-                # stays even when the check-in is refused below.
-                await db.commit()
-            entity = EntityRef(pair_id=pair_id)
+            entity = EntityRef(
+                pair_id=await _song_pair(db, effective_user_id, song.partner_id, now)
+            )
         else:
             raise _bad_request(NO_ATTACHABLE_ENTITY_MSG)
+    elif song.user_id != effective_user_id:
+        # A shared song: the entity is the owner's pair with this partner,
+        # not one of the caller's own, so both partners check in as one.
+        assert song.partner_id is not None  # shared means a linked partner
+        if body.entityManagedPartnershipId:
+            raise _bad_request("This song is not associated with a managed partnership")
+        named = (
+            await db.execute(
+                select(Pair.user_a_id, Pair.partner_b_id).where(
+                    Pair.id == body.entityPairId
+                )
+            )
+        ).first()
+        if named is None:
+            raise _bad_request("Pair not found")
+        if named.user_a_id != effective_user_id and (
+            named.user_a_id != song.user_id or named.partner_b_id != song.partner_id
+        ):
+            raise _bad_request("You are not a member of this pair")
+        entity = EntityRef(
+            pair_id=await _song_pair(db, song.user_id, song.partner_id, now)
+        )
     elif song.managed_partnership_id:
         entity = await _managed_entity(
             db, song.managed_partnership_id, effective_user_id

@@ -880,6 +880,8 @@ export const SessionStatusSchema = z.enum([
 
 **Purpose:** Check in an entity for a session; creates `checkins`, `queue_entries`, and `queue_events` rows.
 
+A song shared with the caller as its linked partner may be checked in too, unless it belongs to a managed partnership. Its entity is the owner's pair with that partner (created if missing), whichever partner checks in, so the two cannot both hold an entry; `entityPairId` must name that pair or one the caller leads.
+
 **Path params / Query params:** none
 
 **Request body:** (`src/schemas`)
@@ -932,7 +934,7 @@ export const createCheckinBodySchema = z
 | 404 | `NOT_FOUND` | Session not found | |
 | 400 | `BAD_REQUEST` | Check-in has not opened yet | Before `checkin_opens_at` |
 | 400 | `BAD_REQUEST` | Check-in is closed for this session | After `floor_trial_ends_at` |
-| 404 | `NOT_FOUND` | Song not found | Not owned / soft-deleted |
+| 404 | `NOT_FOUND` | Song not found | Neither owned nor shared with the caller / soft-deleted |
 | 400 | `BAD_REQUEST` | Managed partnership not found | Invalid managed song |
 | 400 | `BAD_REQUEST` | Pair not found / You are not a member… | Invalid pair |
 | 400 | `BAD_REQUEST` | This song is not associated with a managed partnership | `entityManagedPartnershipId` sent incorrectly |
@@ -1833,7 +1835,7 @@ const listQuery = z.object({
 
 **Auth:** requireAuth
 
-**Purpose:** Link an owned song to an event. On success a `copy` Drive job is enqueued to put the file in the event folder; an enqueue failure is reported to Sentry but does not fail the request ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
+**Purpose:** Link an owned song, or a non-deleted song shared with the caller as its linked partner, to an event. Both partners fill the same entity slot; the caller who submits is the one who lists and withdraws the submission. On success a `copy` Drive job is enqueued to put the file in the event folder; an enqueue failure is reported to Sentry but does not fail the request ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)).
 
 **Path params / Query params:** none
 
@@ -1845,7 +1847,7 @@ const listQuery = z.object({
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
-| 404 | `NOT_FOUND` | Song not found | Not owned |
+| 404 | `NOT_FOUND` | Song not found | Neither owned nor shared with the caller |
 | 404 | `NOT_FOUND` | Event not found | |
 | 409 | `conflict` | That song is already submitted to this event. | Unique violation |
 | 500 | `INTERNAL` | … | Insert failed |
@@ -1926,19 +1928,27 @@ Song object in responses:
   "updated_at": 1710000000000,
   "partner_first_name": "Bob",
   "partner_last_name": "Jones",
-  "partner_kind": "partner"
+  "partner_kind": "partner",
+  "shared_with_me": false
 }
 ```
+
+`shared_with_me` is true when the caller is not the song's owner but its
+partner: the song's `partner_id` names a row in the owner's address book whose
+`linked_user_id` is the caller's account. Such a partner may read the song,
+submit it to events and check it in; only the owner may change or delete it.
+It is false on every song the caller owns, and on routes that do not compute
+it.
 
 ### GET /v1/songs
 
 **Auth:** requireAuth
 
-**Purpose:** List caller's non-deleted songs.
+**Purpose:** List caller's non-deleted songs, and non-deleted songs shared with the caller as the song's linked partner (`shared_with_me: true`).
 
 **Path params:** none
 
-**Query params:** `listQuery` — optional `partner_id`
+**Query params:** `listQuery` — optional `partner_id`: one of the caller's own partners; with it, only the caller's own songs with that partner
 
 **Request body:** none
 
@@ -1976,7 +1986,7 @@ Song object in responses:
 
 **Auth:** requireAuth
 
-**Purpose:** Fetch one owned song.
+**Purpose:** Fetch one owned song, or one shared with the caller as its linked partner (`shared_with_me: true`).
 
 **Path params:** `id`
 
@@ -1990,7 +2000,7 @@ Song object in responses:
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
-| 404 | `NOT_FOUND` | Song not found | Not owned or soft-deleted |
+| 404 | `NOT_FOUND` | Song not found | Neither owned nor shared with the caller, or soft-deleted |
 
 ---
 
@@ -1998,7 +2008,7 @@ Song object in responses:
 
 **Auth:** requireAuth
 
-**Purpose:** Update song metadata.
+**Purpose:** Update song metadata. Owner only: a linked partner gets 404.
 
 **Path params:** `id`
 
@@ -2021,7 +2031,7 @@ Song object in responses:
 
 **Auth:** requireAuth
 
-**Purpose:** Soft-delete song and remove event submissions. The song's own Drive file is moved to `_deprecated` inline (best-effort; failure is logged and ignored), and after commit a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#song-deletion)).
+**Purpose:** Soft-delete song and remove event submissions. Owner only: a linked partner gets 404. The song's own Drive file is moved to `_deprecated` inline (best-effort; failure is logged and ignored), and after commit a `trash` Drive job is enqueued for each submission's event copy ([DRIVE.md](./DRIVE.md#song-deletion)).
 
 **Path params:** `id`
 

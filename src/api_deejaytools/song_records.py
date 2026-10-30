@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .labels import partnership_label
@@ -87,13 +87,16 @@ def map_song(
     managed_follower_first_name: str | None = None,
     managed_follower_last_name: str | None = None,
     partnership_label: str | None = None,
+    shared_with_me: bool = False,
 ) -> dict[str, Any]:
     """A songs row on the wire, with whichever joined names the caller loaded.
 
     Names not loaded are null, as deejaytools-api returns them: the single
     song routes join the partner only, so their managed_* names are null even
     when managed_partnership_id is set. ``partnership_label`` is null unless
-    the caller built one (:func:`song_partnership_label`).
+    the caller built one (:func:`song_partnership_label`). ``shared_with_me``
+    is true only when the caller reads the song as its linked partner
+    (:func:`shared_with`).
     """
     return {
         "id": song.id,
@@ -120,15 +123,48 @@ def map_song(
         "managed_follower_first_name": managed_follower_first_name,
         "managed_follower_last_name": managed_follower_last_name,
         "partnership_label": partnership_label,
+        "shared_with_me": shared_with_me,
     }
 
 
+def shared_with(user_id: str) -> ColumnElement[bool]:
+    """A song shared with ``user_id``: its partner is a person with that
+    account, in the owner's own address book.
+
+    The caller joins ``Partner`` on ``Partner.id == Song.partner_id``. A
+    partner row is the owner's (``partners.user_id``), so a user linked on
+    some other owner's partner row does not see this owner's songs. The
+    owner is never their own linked partner, so an owned song never matches.
+    The linked user's row exists: they are the caller.
+    """
+    return and_(
+        Partner.linked_user_id == user_id,
+        Partner.user_id == Song.user_id,
+        Song.user_id != user_id,
+    )
+
+
+def owned_or_shared(user_id: str) -> ColumnElement[bool]:
+    """A live song ``user_id`` owns, or one shared with them
+    (:func:`shared_with`; join ``Partner`` the same way)."""
+    return and_(
+        Song.deleted_at.is_(None),
+        or_(Song.user_id == user_id, shared_with(user_id)),
+    )
+
+
 async def load_song_with_partner(
-    session: AsyncSession, song_id: str, *, user_id: str | None = None
+    session: AsyncSession,
+    song_id: str,
+    *,
+    user_id: str | None = None,
+    viewer_id: str | None = None,
 ) -> dict[str, Any] | None:
     """One song joined to its partner's names, mapped; None if absent.
 
-    With ``user_id``, only that user's live (not soft-deleted) song.
+    With ``user_id``, only that user's live (not soft-deleted) song. With
+    ``viewer_id``, a live song that user owns or that is shared with them as
+    its linked partner, marked ``shared_with_me`` in the second case.
     """
     stmt = (
         select(
@@ -154,6 +190,8 @@ async def load_song_with_partner(
     )
     if user_id is not None:
         stmt = stmt.where(Song.user_id == user_id, Song.deleted_at.is_(None))
+    if viewer_id is not None:
+        stmt = stmt.where(owned_or_shared(viewer_id))
     row = (await session.execute(stmt.limit(1))).first()
     if row is None:
         return None
@@ -177,6 +215,7 @@ async def load_song_with_partner(
             managed_follower_first_name=row[9],
             managed_follower_last_name=row[10],
         ),
+        shared_with_me=viewer_id is not None and row[0].user_id != viewer_id,
     )
 
 
@@ -254,5 +293,13 @@ class SongData(BaseModel):
             "for ProAm FollowerAm), a placeholder's own name, or a managed "
             "partnership's leader & follower. Null with no partner and no "
             "managed partnership, and on routes that load no names."
+        ),
+    )
+    shared_with_me: bool = Field(
+        False,
+        description=(
+            "True when the caller is not the owner but the song's partner, "
+            "linked to their account: they may read it, submit it to events "
+            "and check it in, but only the owner may change or delete it."
         ),
     )
