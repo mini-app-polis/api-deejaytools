@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
@@ -35,8 +35,9 @@ from ..errors import (
     success,
     success_list,
 )
-from ..models import Event, EventSongSubmission, Song
+from ..models import Event, EventSongSubmission, Partner, Song
 from ..services.drive_jobs import enqueue_copy_job, enqueue_trash_jobs
+from ..song_records import shared_with
 from ..submissions import (
     DEFAULT_ROUND,
     ROUND_SPLIT_DIVISION,
@@ -66,7 +67,9 @@ class CreateSubmissionBody(ZodModel):
     """Body of ``POST /v1/event-song-submissions``."""
 
     event_id: NonEmptyStr = Field(..., description="Event to enter.")
-    song_id: NonEmptyStr = Field(..., description="One of the caller's songs.")
+    song_id: NonEmptyStr = Field(
+        ..., description="One of the caller's songs, or one shared with them."
+    )
     division: Division | None = Field(
         None, description="This event only: overrides the song's division."
     )
@@ -162,10 +165,13 @@ async def list_submissions(
     response_model=SubmissionResponse,
     summary="Submit a song to an event",
     description=(
-        "Enters one of the caller's songs in an event, then queues its Drive "
+        "Enters one of the caller's songs, or a live song shared with the "
+        "caller as its linked partner, in an event, then queues its Drive "
         "copy (a failure to queue is reported, never answered). An entity may "
         "have one song per division per event; at The Open, Classic may split "
-        "into prelims_only and finals_only. Requires "
+        "into prelims_only and finals_only; both partners of a shared song "
+        "fill the same slot. The caller who submits it is the one who sees "
+        "and withdraws the submission. Requires "
         "deejaytools.submissions.write."
     ),
     responses={
@@ -186,7 +192,8 @@ async def create_submission(
 ) -> Any:
     """Submit a song to an event."""
     user_id = caller.user_id
-    # Soft-deleted songs are not excluded, as in deejaytools-api.
+    # The owner's soft-deleted songs are not excluded, as in deejaytools-api.
+    # A linked partner sees only a live song shared with them.
     song = (
         await session.execute(
             select(
@@ -196,7 +203,14 @@ async def create_submission(
                 Song.managed_partnership_id,
                 Song.division,
             )
-            .where(Song.id == body.song_id, Song.user_id == user_id)
+            .outerjoin(Partner, Partner.id == Song.partner_id)
+            .where(
+                Song.id == body.song_id,
+                or_(
+                    Song.user_id == user_id,
+                    (Song.deleted_at.is_(None)) & shared_with(user_id),
+                ),
+            )
             .limit(1)
         )
     ).first()

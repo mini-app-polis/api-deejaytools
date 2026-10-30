@@ -46,6 +46,7 @@ SONG_KEYS = {
     "managed_follower_first_name",
     "managed_follower_last_name",
     "partnership_label",
+    "shared_with_me",
 }
 
 
@@ -102,6 +103,7 @@ async def test_create_shape(client: httpx.AsyncClient, person: Callable) -> None
         "managed_partnership_id": None,
         "managed_leader_first_name": None,
         "partnership_label": None,
+        "shared_with_me": False,
     }
 
     one = await client.get(f"/v1/songs/{created['id']}", headers=alice.headers)

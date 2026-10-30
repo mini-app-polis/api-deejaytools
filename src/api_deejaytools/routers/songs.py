@@ -1,9 +1,10 @@
 """``/v1/songs`` (docs/API.md; deejaytools-api src/routes/songs.ts).
 
 A user's song library. Reads are behind ``deejaytools.songs.read``, changes
-behind ``deejaytools.songs.write``; every route sees only the caller's own,
-live (not soft-deleted) songs. The chunked upload, ``POST
-/v1/songs/upload/chunk``, is not here.
+behind ``deejaytools.songs.write``; every route sees only live (not
+soft-deleted) songs. The reads also see a song shared with the caller as its
+linked partner (``shared_with_me``); changes stay the owner's alone. The
+chunked upload, ``POST /v1/songs/upload/chunk``, is not here.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ from ..song_records import (
     assert_partner_owned,
     load_song_with_partner,
     map_song,
+    owned_or_shared,
     song_partnership_label,
 )
 from ..validation import NonEmptyStr, ZodModel
@@ -115,7 +117,7 @@ class SongResponse(BaseModel):
 
 
 class SongListResponse(BaseModel):
-    """The caller's live songs, newest first."""
+    """The caller's live songs and those shared with them, newest first."""
 
     data: list[SongData] = Field(..., description="The songs.")
     meta: ListMeta = Field(..., description="Response metadata.")
@@ -165,9 +167,10 @@ BAD_PARTNER: dict[int | str, dict[str, Any]] = {
     response_model=SongListResponse,
     summary="List songs",
     description=(
-        "The caller's live songs, newest first, with partner and managed "
-        "partnership names; optionally one partner's (query partner_id). "
-        "Requires deejaytools.songs.read."
+        "The caller's live songs, and live songs shared with the caller as "
+        "the song's linked partner (shared_with_me true), newest first, with "
+        "partner and managed partnership names. With partner_id, only the "
+        "caller's own songs with that partner. Requires deejaytools.songs.read."
     ),
     responses=AUTH,
 )
@@ -176,10 +179,19 @@ async def list_songs(
     query: ListQuery = Depends(zod_query(ListQuery)),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
-    """List the caller's songs."""
-    conditions = [Song.user_id == caller.user_id, Song.deleted_at.is_(None)]
-    if query.partner_id:
-        conditions.append(Song.partner_id == query.partner_id)
+    """List the caller's songs, and those shared with them."""
+    user_id = caller.user_id
+    # partner_id names one of the caller's own partners, so a filtered list
+    # is the caller's own songs only, as before.
+    conditions = (
+        [
+            Song.user_id == user_id,
+            Song.deleted_at.is_(None),
+            Song.partner_id == query.partner_id,
+        ]
+        if query.partner_id
+        else [owned_or_shared(user_id)]
+    )
     rows = (
         await session.execute(
             select(
@@ -229,6 +241,7 @@ async def list_songs(
                     managed_follower_first_name=r[6],
                     managed_follower_last_name=r[7],
                 ),
+                shared_with_me=r[0].user_id != user_id,
             )
             for r in rows
         ]
@@ -295,8 +308,10 @@ async def create_song(
     response_model=SongResponse,
     summary="Get a song",
     description=(
-        "One of the caller's live songs, with its partner's names (managed "
-        "partnership names are null here). Requires deejaytools.songs.read."
+        "One of the caller's live songs, or one shared with the caller as its "
+        "linked partner (shared_with_me true), with its partner's names "
+        "(managed partnership names are null here). Requires "
+        "deejaytools.songs.read."
     ),
     responses={**AUTH, **NOT_FOUND},
 )
@@ -306,7 +321,7 @@ async def get_song(
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Get one song."""
-    data = await load_song_with_partner(session, id, user_id=caller.user_id)
+    data = await load_song_with_partner(session, id, viewer_id=caller.user_id)
     if data is None:
         raise api_error(404, ErrorCode.NOT_FOUND, "Song not found")
     return success(data)
@@ -317,7 +332,7 @@ async def get_song(
     response_model=SongResponse,
     summary="Update a song",
     description=(
-        "Only the fields sent change. partner_id null or '' clears it; a blank "
+        "The owner's only: a linked partner gets 404. Only the fields sent change. partner_id null or '' clears it; a blank "
         "display_name is stored as null; other fields are stored as sent. "
         "Setting a new partner on a song that has its Drive file queues "
         "sharing the file with the partner's email. "
@@ -375,7 +390,7 @@ async def patch_song(
     response_class=Response,
     summary="Delete a song",
     description=(
-        "Refused while the song has a live queue entry in a session that is "
+        "The owner's only: a linked partner gets 404. Refused while the song has a live queue entry in a session that is "
         "not completed or cancelled. Soft-deletes the song and deletes its "
         "event submissions; after commit, queues the song's own Drive file "
         "and its submissions' event copies for trashing. Requires "
