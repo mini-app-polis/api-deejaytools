@@ -25,7 +25,7 @@
           "CHANGELOG.md",
           "src/api_deejaytools/_version.py"
         ],
-        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+        "message": "chore(release): ${nextRelease.version} [skip actions]\n\n${nextRelease.notes}"
       }
     ],
     "@semantic-release/github"

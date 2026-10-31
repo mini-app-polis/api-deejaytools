@@ -1,10 +1,10 @@
 # ADR-0003: Validation 400 responses use the canonical error envelope
 
-Date: 2026-04-24
+**Date:** 2026-04-24
+**Status:** Accepted
+**Repo:** api-deejaytools
 
-## Status
-
-Accepted
+---
 
 ## Context
 

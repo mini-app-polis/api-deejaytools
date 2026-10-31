@@ -100,9 +100,52 @@ async def test_rate_limit_per_forwarded_address() -> None:
         "code": "too_many_requests",
         "message": "Rate limit exceeded. Please slow down.",
     }
-    assert other.status_code == 200  # keyed on the first hop
+    assert other.status_code == 200  # keyed on the last hop, Railway's
     assert all(r.status_code == 200 for r in health)  # outside /v1
     assert after.status_code == 200  # new window
+
+
+async def test_rate_limit_ignores_headers_the_client_writes() -> None:
+    """Rotating cf-connecting-ip or the X-Forwarded-For hops before Railway's
+    gets no fresh window: off Cloudflare the key is the peer Railway saw,
+    and through Cloudflare it is cf-connecting-ip, which Cloudflare sets."""
+    clock = Clock()
+    app = _echo_app()
+    app.add_middleware(RateLimitMiddleware, limit=2, window_seconds=60, clock=clock)
+    direct = "203.0.113.7"  # straight to Railway, not through Cloudflare
+    edge = "172.64.1.1"  # a Cloudflare edge
+    async with _client(app) as c:
+        spoofed = [
+            await c.get(
+                "/v1/ping",
+                headers={
+                    "cf-connecting-ip": f"198.51.100.{i}",
+                    "x-forwarded-for": f"192.0.2.{i}, {direct}",
+                },
+            )
+            for i in range(3)
+        ]
+        via_cloudflare = [
+            await c.get(
+                "/v1/ping",
+                headers={
+                    "cf-connecting-ip": "198.51.100.50",
+                    "x-forwarded-for": f"192.0.2.{i}, 198.51.100.50, {edge}",
+                },
+            )
+            for i in range(3)
+        ]
+        another_client = await c.get(
+            "/v1/ping",
+            headers={
+                "cf-connecting-ip": "198.51.100.51",
+                "x-forwarded-for": f"198.51.100.51, {edge}",
+            },
+        )
+
+    assert [r.status_code for r in spoofed] == [200, 200, 429]
+    assert [r.status_code for r in via_cloudflare] == [200, 200, 429]
+    assert another_client.status_code == 200  # same edge, its own window
 
 
 async def test_deadline_answers_503_and_lets_the_handler_finish() -> None:

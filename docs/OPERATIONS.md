@@ -33,6 +33,37 @@ the unprefixed `CORS_ORIGINS` is not read. Without `DEEJAYTOOLS_CORS_ORIGINS`
 the service allows only `http://localhost:5173`, so the web app's requests
 fail in the browser.
 
+## Client address
+
+The rate limit (300 requests a minute on `/v1/*`) keys on the client's
+address, and `POST /v1/feedback` is public, so the key must be one the
+client cannot choose. Both deployed environments take the same path:
+`api.deejaytools.com` and `api-dev.deejaytools.com` are proxied by
+Cloudflare (`proxied = true` on their DNS records in the infra repo's
+`cloudflare_dns.tf`), which forwards to Railway's edge, which forwards to
+the app. Railway's edge is also reachable directly, without Cloudflare.
+
+`client_address()` in `src/api_deejaytools/middleware.py` reads it this way:
+
+1. The peer is the **last** `X-Forwarded-For` hop: Railway's edge appends
+   the address that connected to it. Earlier hops are whatever the client
+   sent, and are never used.
+2. If the peer is a Cloudflare edge (in `CLOUDFLARE_NETWORKS`, Cloudflare's
+   published ranges), the key is `cf-connecting-ip`, which Cloudflare sets
+   itself.
+3. Otherwise the key is the peer. A request sent straight to Railway with
+   its own `cf-connecting-ip` is keyed on its real address.
+4. Without `X-Forwarded-For` (a local run with no proxy in front), every
+   request shares the key `unknown`.
+
+Requests a Cloudflare Worker sends to the origin come from a Cloudflare
+edge with a `cf-connecting-ip` Cloudflare sets for Workers, so they share
+one window. If Cloudflare adds ranges, update `CLOUDFLARE_NETWORKS`:
+until then, clients reaching an edge in a new range share that edge's
+window rather than getting one each. If the API ever stops being proxied
+by Cloudflare, nothing needs changing: no peer is a Cloudflare edge, and
+the key is the address Railway saw.
+
 ## Discord notifications
 
 The service posts to the fleet's shared Discord channels through

@@ -1,10 +1,12 @@
 # ADR-0004: Clerk verification: session JWTs only, no M2M
 
-Date: 2026-04-24
+**Date:** 2026-04-24
+**Status:** Accepted
+**Repo:** api-deejaytools
 
-## Status
+---
 
-Accepted. Revised Sep 2026: machine callers are **out of scope**, not
+Revised Sep 2026: machine callers are **out of scope**, not
 deferred. The API serves the deejaytools.com web app only and there are no
 plans for machines to call it. ecosystem-standards split the receiver side
 of CD-019 into CD-029 (verifying Clerk sessions) and CD-030 (verifying

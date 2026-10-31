@@ -1,10 +1,11 @@
 # ADR-0005: Floor-trial queue model
 
-Date: 2026-04-25
+**Date:** 2026-04-25
+**Status:** Superseded
+**Repo:** api-deejaytools
+**Superseded by:** ADR-0006
 
-## Status
-
-Superseded by [ADR-0006](./ADR-0006-floor-trial-queue-model-as-built.md)
+---
 
 This record is kept as the decision made on 2026-04-25. The system that
 shipped diverges from it substantially — auto-promotion replaced manual

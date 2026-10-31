@@ -1,10 +1,10 @@
 # ADR-0007: Replacement API: a FastAPI service on the existing database
 
-Date: 2026-10-01
+**Date:** 2026-10-01
+**Status:** Accepted
+**Repo:** api-deejaytools
 
-## Status
-
-Accepted
+---
 
 ## Context
 

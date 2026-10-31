@@ -1,10 +1,10 @@
 # ADR-0010: Replacement API: wire contract, reuse, and how it is tested
 
-Date: 2026-10-01
+**Date:** 2026-10-01
+**Status:** Accepted
+**Repo:** api-deejaytools
 
-## Status
-
-Accepted
+---
 
 ## Context
 

@@ -1,10 +1,11 @@
 # ADR-0009: Replacement API: numbered raw-SQL migrations from a baseline
 
-Date: 2026-10-01
+**Date:** 2026-10-01
+**Status:** Accepted
+**Repo:** api-deejaytools
+**Supersedes:** ADR-0002
 
-## Status
-
-Accepted. Supersedes [ADR-0002](./ADR-0002-drizzle-migrations-at-deploy.md).
+---
 
 ## Context
 

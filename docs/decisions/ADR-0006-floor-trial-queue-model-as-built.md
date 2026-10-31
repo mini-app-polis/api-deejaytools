@@ -1,10 +1,11 @@
 # ADR-0006: Floor-trial queue model, as built
 
-Date: 2026-08-26
+**Date:** 2026-08-26
+**Status:** Accepted
+**Repo:** api-deejaytools
+**Supersedes:** ADR-0005
 
-## Status
-
-Accepted. Supersedes [ADR-0005](./ADR-0005-floor-trial-queue-model.md).
+---
 
 ## Context
 

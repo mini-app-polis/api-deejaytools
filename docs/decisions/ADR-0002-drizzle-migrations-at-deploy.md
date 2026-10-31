@@ -1,12 +1,11 @@
 # ADR-0002: Run Drizzle migrations at Railway deploy time
 
-Date: 2026-04-20
+**Date:** 2026-04-20
+**Status:** Superseded
+**Repo:** api-deejaytools
+**Superseded by:** ADR-0009 — migrations are numbered raw-SQL files under `migrations/`, applied by `scripts/apply_migrations.py` before the app starts.
 
-## Status
-
-Superseded by [ADR-0009](./ADR-0009-replacement-api-raw-sql-migrations.md):
-migrations are numbered raw-SQL files under `migrations/`, applied by
-`scripts/apply_migrations.py` before the app starts.
+---
 
 ## Context
 

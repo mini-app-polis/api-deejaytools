@@ -82,7 +82,7 @@ Applied in [`src/api_deejaytools/middleware.py`](../src/api_deejaytools/middlewa
 | Middleware | Scope | Limit |
 |------------|-------|-------|
 | Body limit | `*` | 11 MiB max body; **413** `payload_too_large` |
-| Rate limit | `/v1/*` only | 300 requests / minute per client address (the first `X-Forwarded-For` hop); **429** `too_many_requests` |
+| Rate limit | `/v1/*` only | 300 requests / minute per client address (`cf-connecting-ip` through Cloudflare, else the last `X-Forwarded-For` hop; see [OPERATIONS.md](./OPERATIONS.md#client-address)); **429** `too_many_requests` |
 | Deadline | `/v1/*` only | **30 s** default; **300 s** for paths starting with `/v1/songs/upload/`; **503** `request_timeout` |
 
 **Exempt from rate limiting and the deadline:** `/health`, `/version`, `/internal/tick` (unversioned).

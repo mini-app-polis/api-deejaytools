@@ -79,7 +79,7 @@ can stay up across runs.
 | **No background scheduler** (`DISABLE_SCHEDULER=1`, or `ENVIRONMENT=test` as CI sets it) | Tests advance the queue with `GET /internal/tick` and assert on what one pass did. A background tick racing them makes queue assertions flaky. |
 | **`TICK_SECRET` set**, and `INTEGRATION_TICK_SECRET` equal to it | `GET /internal/tick` refuses every call while `TICK_SECRET` is unset. The operator test checks it answers 403 without the header and 200 with it. |
 | **No Google Drive credentials** | Without them every Drive call fails at once: the upload test relies on a failed build removing the song, and Drive jobs fail and retry harmlessly. With real credentials, tests would upload to that Drive. |
-| **Client address from `X-Forwarded-For`** | The suite gives each request its own address, so the 300 requests/minute per-address limit is never hit. |
+| **Client address from `X-Forwarded-For`** | The suite gives each request its own address as a single hop, which the service reads as the last hop, Railway's ([OPERATIONS.md](./OPERATIONS.md#client-address)), so the 300 requests/minute per-address limit is never hit. |
 | **No Brevo key** | `POST /v1/feedback` would otherwise send real email. |
 
 ## What is and isn't covered
