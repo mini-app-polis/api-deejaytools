@@ -238,6 +238,7 @@ The API logs plain-text lines through the shared `mini_app_polis.logger`: an eve
 | Event | Meaning |
 |-------|---------|
 | `api-deejaytools starting (env=…, sentry=on\|off)` | Process start; confirms the environment and whether Sentry is configured. |
+| `NAME=value (set\|default)` / `NAME (set\|unset)` | One line per `Settings` field, once per process start, right after the line above. A value is shown only for names on `SETTINGS_ALLOWLIST`; every other name shows only whether it is set. |
 | `scheduler_started interval_ms=<n>` | In-process scheduler running. **Should appear once per process start** if enabled. |
 | `scheduler_disabled disable_scheduler=… env=…` | Scheduler off (`DISABLE_SCHEDULER=1` or `ENVIRONMENT=test`). |
 | `scheduler_stopped` | Scheduler stopped at shutdown. |

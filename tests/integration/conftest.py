@@ -68,9 +68,9 @@ for _name in (
 ):
     os.environ[_name] = ""
 
-from api_deejaytools.main import app  # noqa: E402
+from mini_app_polis.testing import RouteLedger  # noqa: E402
 
-from . import route_ledger  # noqa: E402
+from api_deejaytools.main import app  # noqa: E402
 
 # Seed rows migration 002 writes; spared by the per-test reset, as the
 # conformance harness spares them (ADR-0010).
@@ -304,35 +304,8 @@ async def _no_discord_network(
 
 # --- the route ledger (TEST-018) --------------------------------------------------
 
-route_ledger.install()
-_ledger = {"partial": False}
 
-
-def pytest_deselected(items: list[pytest.Item]) -> None:
-    if items:
-        _ledger["partial"] = True
-
-
-def pytest_collection_finish(session: pytest.Session) -> None:
-    """The ledger is checked only when the whole integration suite runs: no
-    single tests, and no path inside the integration directory."""
-    here = Path(__file__).resolve().parent
-    whole = {here, here.parent, here.parent.parent}
-    for arg in session.config.args:
-        path, _, node = arg.partition("::")
-        target = Path(path).resolve()
-        if node or (target not in whole and target.is_relative_to(here)):
-            _ledger["partial"] = True
-
-
-def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    if _ledger["partial"] or exitstatus != 0:
-        return
-    problems = route_ledger.problems(app)
-    if problems:
-        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
-        if reporter is not None:
-            reporter.write_sep("=", "route ledger (TEST-018)", red=True)
-            for line in problems:
-                reporter.write_line(line)
-        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+def pytest_configure(config: pytest.Config) -> None:
+    """Every route the app registers is called by some test here; a run of
+    the whole integration suite fails otherwise (mini_app_polis.testing)."""
+    RouteLedger(app, suite_dir=Path(__file__).parent).register(config)

@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mini_app_polis import activity
+from mini_app_polis.environment import log_settings
 from mini_app_polis.logger import LOG_START, LOG_WARNING, get_logger, with_log_prefix
 from mini_app_polis.request_metrics import RequestMetricsMiddleware
 from mini_app_polis.sentry import init_sentry
@@ -94,6 +95,8 @@ async def lifespan(_app: FastAPI):
             f"sentry={'on' if sentry_on else 'off'})",
         )
     )
+    # One line per setting; a value only for names on SETTINGS_ALLOWLIST.
+    log_settings(settings)
     # Off under DISABLE_SCHEDULER=1 and ENVIRONMENT=test (services/scheduler.py).
     scheduler = start_scheduler(settings)
     yield
