@@ -173,7 +173,7 @@ channel shows their songs, labelled `[DEVELOPMENT]`.
 
 - Writes made with `session.execute(text(...))` or outside an ORM session.
   The request routes write through the ORM, so they are all seen; the raw
-  SQL in `services/drive_jobs.py` runs in the background, which the change
+  SQL in `services/drive_jobs/processor.py` runs in the background, which the change
   feed does not cover anyway.
 - Anything background work changes (scheduler, song builds, Drive jobs):
   there is no request to tally it. What matters there is announced (song

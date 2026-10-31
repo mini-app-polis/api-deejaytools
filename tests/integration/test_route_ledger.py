@@ -47,13 +47,13 @@ def test_an_exemption_covers_an_uncalled_route_until_it_is_called(
     assert route_ledger.problems(stand_in) == []
     route_ledger.CALLED.add(("POST", "/v1/things"))
     assert route_ledger.problems(stand_in) == [
-        "exempt but called now; remove its exemption: POST /v1/things"
+        "exempt but called by a test; remove its exemption: POST /v1/things"
     ]
 
 
-def test_an_exemption_for_a_route_that_is_gone_is_refused(stand_in: FastAPI) -> None:
+def test_an_exemption_for_an_unregistered_route_is_refused(stand_in: FastAPI) -> None:
     route_ledger.CALLED |= route_ledger.registered(stand_in)
     route_ledger.EXEMPT[("DELETE", "/v1/things/{id}")] = "a reason"
     assert route_ledger.problems(stand_in) == [
-        "exempt but no longer a route; remove its exemption: DELETE /v1/things/{id}"
+        "exempt but not a registered route; remove its exemption: DELETE /v1/things/{id}"
     ]

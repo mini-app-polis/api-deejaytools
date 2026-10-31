@@ -7,7 +7,7 @@ fields with the same values. It does **not** need to be byte-identical. Frame
 order, padding and text encoding are free as long as the fields read back the same.
 
 Source: [`src/api_deejaytools/services/tagging.py`](../src/api_deejaytools/services/tagging.py) (`tag_song_bytes`), called once
-per build from [`services/song_builds.py`](../src/api_deejaytools/services/song_builds.py).
+per build from [`services/song_builds/pipeline.py`](../src/api_deejaytools/services/song_builds/pipeline.py).
 Tests: [`tests/unit/test_tagging.py`](../tests/unit/test_tagging.py).
 Where the tagged file goes: [DRIVE.md](./DRIVE.md#background-build).
 

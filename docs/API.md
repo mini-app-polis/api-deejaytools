@@ -903,7 +903,7 @@ export const SessionStatusSchema = z.enum([
 
 ---
 
-## `routers/checkins.py` — `/v1/checkins`
+## `routers/checkins/` — `/v1/checkins`
 
 ### POST /v1/checkins
 
@@ -1054,7 +1054,7 @@ export const createCheckinBodySchema = z
 
 ---
 
-## `routers/queue.py` — `/v1/queue`
+## `routers/queue/` — `/v1/queue`
 
 Schemas:
 

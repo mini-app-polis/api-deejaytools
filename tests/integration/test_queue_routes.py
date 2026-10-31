@@ -690,14 +690,14 @@ async def test_withdraw_follows_an_entry_promoted_before_the_lock(
 ) -> None:
     """A promotion lands between withdraw's read and its lock: the entry now
     sits in another queue under a new id. Withdraw removes it from there."""
-    from api_deejaytools.routers import queue as queue_routes
+    from api_deejaytools.routers.queue import placement
 
     admin = await person("admin", admin=True)
     session_id = await insert_floor_session(
         db, priority_max=1, non_priority_max=1, **_closed_window()
     )
     p = await _fill(db, session_id, "priority", 2)
-    real_lock = queue_routes.lock_session_for_fill
+    real_lock = placement.lock_session_for_fill
     promoted = False
 
     async def promote_first(session: Any, sid: str) -> Any:
@@ -712,7 +712,7 @@ async def test_withdraw_follows_an_entry_promoted_before_the_lock(
             assert res.status_code == 200, res.text
         return await real_lock(session, sid)
 
-    monkeypatch.setattr(queue_routes, "lock_session_for_fill", promote_first)
+    monkeypatch.setattr(placement, "lock_session_for_fill", promote_first)
     res = await client.post(
         "/v1/queue/withdraw",
         json={"queueEntryId": p[0]["entry_id"]},
@@ -740,18 +740,18 @@ async def test_withdraw_of_an_entry_gone_before_the_lock_is_404(
     db: asyncpg.Connection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from api_deejaytools.routers import queue as queue_routes
+    from api_deejaytools.routers.queue import placement
 
     admin = await person("admin", admin=True)
     session_id = await insert_floor_session(db, **_closed_window())
     [e] = await _fill(db, session_id, "non_priority", 1)
-    real_lock = queue_routes.lock_session_for_fill
+    real_lock = placement.lock_session_for_fill
 
     async def remove_first(session: Any, sid: str) -> Any:
         await db.execute("DELETE FROM queue_entries WHERE id = $1", e["entry_id"])
         return await real_lock(session, sid)
 
-    monkeypatch.setattr(queue_routes, "lock_session_for_fill", remove_first)
+    monkeypatch.setattr(placement, "lock_session_for_fill", remove_first)
     res = await client.post(
         "/v1/queue/withdraw",
         json={"queueEntryId": e["entry_id"]},
@@ -865,7 +865,10 @@ async def test_a_failure_mid_action_is_a_409_that_leaves_the_queue_as_it_was(
             "audit write failed", {}, Exception("audit write failed")
         )
 
-    monkeypatch.setattr("api_deejaytools.routers.queue.record_queue_event", fail)
+    module = "outcomes" if path in ("complete", "incomplete") else "placement"
+    monkeypatch.setattr(
+        f"api_deejaytools.routers.queue.{module}.record_queue_event", fail
+    )
     res = await client.post(
         f"/v1/queue/{path}", json={"queueEntryId": entry_id}, headers=admin.headers
     )
@@ -899,7 +902,9 @@ async def test_a_bug_mid_action_is_a_500_not_a_retry(
     async def bug(*_args: Any, **_kwargs: Any) -> None:
         raise KeyError("a programming error")
 
-    monkeypatch.setattr("api_deejaytools.routers.queue.record_queue_event", bug)
+    monkeypatch.setattr(
+        "api_deejaytools.routers.queue.placement.record_queue_event", bug
+    )
     res = await client.post(
         "/v1/queue/withdraw",
         json={"queueEntryId": entry["entry_id"]},

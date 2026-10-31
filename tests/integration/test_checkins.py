@@ -622,7 +622,7 @@ async def test_self_withdraw_reads_its_entry_under_the_lock(
 ) -> None:
     """The entry moved before withdraw took the lock (a promotion re-inserts
     it under a new id, in another queue): withdraw removes it from there."""
-    from api_deejaytools.routers import checkins as checkin_routes
+    from api_deejaytools.routers.checkins import withdraw as withdraw_routes
 
     me = await person()
     session_id = await _waiting_session(db)
@@ -646,7 +646,7 @@ async def test_self_withdraw_reads_its_entry_under_the_lock(
         submitted_by=me.id,
         pair_id=d["pair_id"],
     )
-    real_lock = checkin_routes.lock_session_for_fill
+    real_lock = withdraw_routes.lock_session_for_fill
 
     async def move_first(session: Any, sid: str) -> Any:
         # As a promotion does: out of non_priority, into active, new id.
@@ -662,7 +662,7 @@ async def test_self_withdraw_reads_its_entry_under_the_lock(
         )
         return await real_lock(session, sid)
 
-    monkeypatch.setattr(checkin_routes, "lock_session_for_fill", move_first)
+    monkeypatch.setattr(withdraw_routes, "lock_session_for_fill", move_first)
     res = await client.delete(f"/v1/checkins/{mine['checkin_id']}", headers=me.headers)
     assert res.status_code == 200, res.text
     assert (

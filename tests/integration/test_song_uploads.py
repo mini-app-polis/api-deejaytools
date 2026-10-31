@@ -13,8 +13,9 @@ import httpx
 import pytest
 from mini_app_polis.google.drive import ShareResult
 
-from api_deejaytools.services import song_builds
+from api_deejaytools.services import drive, song_builds
 from api_deejaytools.services.drive import DriveNotConfiguredError
+from api_deejaytools.services.song_builds import claims, completion, scheduling
 
 AUDIO = b"audio-frames-" + b"x" * 3000 + b"-end"
 MP3 = bytes([0x49, 0x44, 0x33, 0x04, 0, 0, 0, 0, 0, 0]) + AUDIO
@@ -62,7 +63,7 @@ def fake_drive(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeDrive]:
         "share_song_file",
         "soft_delete",
     ):
-        monkeypatch.setattr(song_builds.drive, name, getattr(fake, name))
+        monkeypatch.setattr(drive, name, getattr(fake, name))
     yield fake
 
 
@@ -478,10 +479,10 @@ async def test_interrupted_build_resumes_without_uploading_twice(
     fake_drive.gate = asyncio.Event()
     song = await _upload(client, alice)
     # The process "dies": the in-flight build is abandoned, its lease runs out.
-    for task in list(song_builds._in_flight):
+    for task in list(scheduling._in_flight):
         task.cancel()
-    await asyncio.gather(*list(song_builds._in_flight), return_exceptions=True)
-    stale = int(time.time() * 1000) - song_builds.LEASE_MS - 1
+    await asyncio.gather(*list(scheduling._in_flight), return_exceptions=True)
+    stale = int(time.time() * 1000) - claims.LEASE_MS - 1
     await db.execute(
         "UPDATE song_uploads SET status = 'running', updated_at = $1", stale
     )
@@ -651,7 +652,7 @@ async def test_running_build_renews_its_lease(
     fake_drive: FakeDrive,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(song_builds, "HEARTBEAT_S", 0.02)
+    monkeypatch.setattr(claims, "HEARTBEAT_S", 0.02)
     alice = await person("alice")
     fake_drive.gate = asyncio.Event()
     await _upload(client, alice)
@@ -677,11 +678,11 @@ async def test_tick_starts_builds_without_waiting_and_caps_them(
     fake_drive.gate = asyncio.Event()
     await _upload(client, alice)
     await _upload(client, alice, routine_name="Second")
-    for task in list(song_builds._in_flight):
+    for task in list(scheduling._in_flight):
         task.cancel()
-    await asyncio.gather(*list(song_builds._in_flight), return_exceptions=True)
+    await asyncio.gather(*list(scheduling._in_flight), return_exceptions=True)
     await db.execute("UPDATE song_uploads SET status = 'pending', next_attempt_at = 0")
-    monkeypatch.setattr(song_builds, "MAX_IN_FLIGHT", 1)
+    monkeypatch.setattr(scheduling, "MAX_IN_FLIGHT", 1)
 
     async with get_sessionmaker()() as session:
         # Returns while the build is still blocked on Drive.
@@ -700,12 +701,12 @@ async def test_a_failed_drive_share_is_reported_and_the_build_still_lands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: list[BaseException] = []
-    monkeypatch.setattr(song_builds.sentry_sdk, "capture_exception", captured.append)
+    monkeypatch.setattr(completion.sentry_sdk, "capture_exception", captured.append)
 
     async def refuse(file_id: str, emails: Any) -> Any:
         raise RuntimeError("drive said no")
 
-    monkeypatch.setattr(song_builds.drive, "share_song_file", refuse)
+    monkeypatch.setattr(drive, "share_song_file", refuse)
     alice = await person("alice")
     song = await _upload(client, alice)
     await song_builds.wait_for_builds()

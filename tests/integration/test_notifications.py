@@ -32,6 +32,7 @@ from api_deejaytools.services import (
     session_tick,
     song_builds,
 )
+from api_deejaytools.services.song_builds import completion, failure
 
 from .conftest import Clerk, bearer
 from .queue_helpers import dancer_pair, insert_floor_session
@@ -295,7 +296,8 @@ async def test_removed_song_fault_carries_its_sentry_id(
 ) -> None:
     """The failure a person notices is a Sentry event, and Discord links it."""
     sentry = _SentryWithIds()
-    monkeypatch.setattr(song_builds, "sentry_sdk", sentry)
+    for module in (completion, failure):
+        monkeypatch.setattr(module, "sentry_sdk", sentry)
     fake_drive.fail_upload = RuntimeError("bucket secret-name refused")
     jane = await person("jane")
     song = await _upload(client, jane, routine_name="Ballad")
@@ -341,7 +343,7 @@ async def test_a_broken_announcement_does_not_fail_the_build(
     def boom(*_: Any, **__: Any) -> Any:
         raise RuntimeError("announcement bug")
 
-    target = song_builds if broken == "song_added_text" else notifications
+    target = completion if broken == "song_added_text" else notifications
     monkeypatch.setattr(target, broken, boom)
     jane = await person("jane")
     song = await _upload(client, jane, routine_name="Ballad")
@@ -880,7 +882,7 @@ async def test_song_build_that_gives_up_posts_once(
     await song_builds.wait_for_builds()
     await db.execute(
         "UPDATE song_uploads SET next_attempt_at = 0, attempts = $1",
-        song_builds.MAX_ATTEMPTS - 1,
+        failure.MAX_ATTEMPTS - 1,
     )
     async with get_sessionmaker()() as s:
         assert await song_builds.process_song_uploads(s) == 1
@@ -895,14 +897,14 @@ async def test_song_build_that_gives_up_posts_once(
 def _lose_claim_after_first_read(monkeypatch: pytest.MonkeyPatch) -> None:
     """``_mine`` matches for the first read, then as if another build had
     taken the claim: the guarded write that follows matches no row."""
-    real = song_builds._mine
+    real = failure._mine
     calls = {"n": 0}
 
     def mine(song_id: str, claim: str) -> list[Any]:
         calls["n"] += 1
         return real(song_id, claim if calls["n"] == 1 else "taken-over")
 
-    monkeypatch.setattr(song_builds, "_mine", mine)
+    monkeypatch.setattr(failure, "_mine", mine)
 
 
 async def _held_build(
@@ -929,9 +931,7 @@ async def test_failure_cleanup_that_lost_its_claim_reports_nothing(
     song_id, claim = await _held_build(client, jane, db, fake_drive)
     with monkeypatch.context() as m:
         _lose_claim_after_first_read(m)
-        await song_builds._on_failure(
-            get_sessionmaker(), song_id, claim, RuntimeError("x")
-        )
+        await failure._on_failure(get_sessionmaker(), song_id, claim, RuntimeError("x"))
     assert await db.fetchval("SELECT count(*) FROM songs WHERE id = $1", song_id) == 1
     row = await db.fetchrow("SELECT status, attempts FROM song_uploads")
     assert dict(row) == {"status": "running", "attempts": 0}
@@ -953,15 +953,14 @@ async def test_retry_that_lost_its_claim_does_not_give_up(
     """At the last attempt, a guarded update that hit no row is not "gave
     up": the run that took the claim over owns that report (and Sentry's)."""
     sentry = Sentry()
-    monkeypatch.setattr(song_builds, "sentry_sdk", sentry)
+    for module in (completion, failure):
+        monkeypatch.setattr(module, "sentry_sdk", sentry)
     jane = await person("jane")
     song_id, claim = await _held_build(client, jane, db, fake_drive)
-    await db.execute(
-        "UPDATE song_uploads SET attempts = $1", song_builds.MAX_ATTEMPTS - 1
-    )
+    await db.execute("UPDATE song_uploads SET attempts = $1", failure.MAX_ATTEMPTS - 1)
     with monkeypatch.context() as m:
         _lose_claim_after_first_read(m)
-        await song_builds._schedule_retry(
+        await failure._schedule_retry(
             get_sessionmaker(), song_id, claim, RuntimeError("x")
         )
     assert sentry.captured == []
@@ -982,7 +981,8 @@ async def test_superseded_drive_job_failure_reports_nothing(
     guarded update matches no row, so it must not post "gave up" or reach
     Sentry — the run that now owns the job does."""
     sentry = Sentry()
-    monkeypatch.setattr(drive_jobs, "sentry_sdk", sentry)
+    for module in (drive_jobs.enqueue, drive_jobs.processor):
+        monkeypatch.setattr(module, "sentry_sdk", sentry)
     from api_deejaytools.services import drive
 
     async def reclaimed_then_failed(*_: Any, **__: Any) -> Any:

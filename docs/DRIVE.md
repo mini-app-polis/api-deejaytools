@@ -12,8 +12,8 @@ The scheduler also trashes the folders of deleted events once they are empty;
 see [Event folder sweep](#event-folder-sweep).
 
 Source: [`services/drive.py`](../src/api_deejaytools/services/drive.py),
-[`services/drive_jobs.py`](../src/api_deejaytools/services/drive_jobs.py),
-[`services/song_builds.py`](../src/api_deejaytools/services/song_builds.py) (the background build),
+[`services/drive_jobs/`](../src/api_deejaytools/services/drive_jobs/),
+[`services/song_builds/`](../src/api_deejaytools/services/song_builds/) (the background build),
 [`routers/song_uploads.py`](../src/api_deejaytools/routers/song_uploads.py) (the chunk handler),
 [`submissions.py`](../src/api_deejaytools/submissions.py) (`resolve_submission_filename`),
 [`domain.py`](../src/api_deejaytools/domain.py) (`season_year_for`).
@@ -155,7 +155,7 @@ except the `500 CHUNK_ERROR` return when the directory can't be listed.
 
 ### Background build
 
-[`services/song_builds.py`](../src/api_deejaytools/services/song_builds.py).
+[`services/song_builds/`](../src/api_deejaytools/services/song_builds/).
 A build claims its `song_uploads` row with a fresh `claim_id`, renews a
 10-minute lease every minute while it runs, and is taken over by the
 scheduler if it stops renewing; a build that lost its claim stops without

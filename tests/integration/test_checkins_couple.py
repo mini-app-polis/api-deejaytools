@@ -299,7 +299,7 @@ async def test_the_couple_rule_holds_when_both_partners_check_in_at_once(
 ) -> None:
     """Bob's check-in lands after Alice's request has passed its first check
     but before it takes the session lock: Alice's is refused under the lock."""
-    from api_deejaytools.routers import checkins as checkin_routes
+    from api_deejaytools.routers.checkins import create as create_routes
 
     alice, bob = await person("alice"), await person("bob")
     c = await _couple(
@@ -310,7 +310,7 @@ async def test_the_couple_rule_holds_when_both_partners_check_in_at_once(
         bobs_row={"linked_user_id": alice.id},
     )
     session_id = await _session(db)
-    real_lock = checkin_routes.lock_session_for_fill
+    real_lock = create_routes.lock_session_for_fill
     raced = False
 
     async def bob_first(session: Any, sid: str) -> Any:
@@ -321,7 +321,7 @@ async def test_the_couple_rule_holds_when_both_partners_check_in_at_once(
             assert res.status_code == 201, res.text
         return await real_lock(session, sid)
 
-    monkeypatch.setattr(checkin_routes, "lock_session_for_fill", bob_first)
+    monkeypatch.setattr(create_routes, "lock_session_for_fill", bob_first)
     res = await _check_in(client, alice, session_id, c["a_pair"], c["a_song"])
     assert res.status_code == 409
     assert res.json()["error"]["message"] == LIVE_ENTRY
