@@ -3,8 +3,9 @@ some integration test, or is listed here with the reason it cannot be.
 
 Every request the suite makes is recorded by its route template, whichever
 client made it. When a run that covers the whole integration suite ends,
-the run fails on a route nothing called, and on an exemption whose route is
-now called or no longer exists, so an exemption cannot outlive its reason.
+the run fails on a route nothing called, on an exemption for a route a test
+calls, and on an exemption for a route the app does not register, so an
+exemption cannot outlive its reason.
 A run of part of the suite (a file, ``-k``, a deselection) checks nothing.
 """
 
@@ -52,11 +53,11 @@ def problems(app: Any) -> list[str]:
         for method, path in sorted(routes - CALLED - EXEMPT.keys())
     ]
     out += [
-        f"exempt but called now; remove its exemption: {method} {path}"
+        f"exempt but called by a test; remove its exemption: {method} {path}"
         for method, path in sorted(EXEMPT.keys() & CALLED)
     ]
     out += [
-        f"exempt but no longer a route; remove its exemption: {method} {path}"
+        f"exempt but not a registered route; remove its exemption: {method} {path}"
         for method, path in sorted(EXEMPT.keys() - routes)
     ]
     return out
