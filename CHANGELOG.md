@@ -1,3 +1,10 @@
+## [1.19.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.19.0...v1.19.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **deps:** bump the minor-and-patch group with 4 updates ([8608e9f](https://github.com/mini-app-polis/api-deejaytools/commit/8608e9f8234fcf5155a4a585dd3f24cf0d4fa058))
+
 # [1.19.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.18.1...v1.19.0) (2026-10-31)
 
 
