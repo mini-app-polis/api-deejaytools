@@ -1848,7 +1848,7 @@ export const createEventSongSubmissionBodySchema = z.object({
 
 **Auth:** `deejaytools.submissions.read`
 
-**Purpose:** List caller's event song submissions.
+**Purpose:** List the caller's event song submissions, plus those of live songs the caller owns or shares as linked partner, whoever submitted them. Newest first. `can_withdraw` is `true` only for the submitter, the only caller `DELETE` accepts.
 
 **Path params:** none
 
@@ -1901,7 +1901,7 @@ const listQuery = z.object({
 
 **Request body:** `createEventSongSubmissionBodySchema`
 
-**Response:** **201** — submission row in `data` (same shape as GET item).
+**Response:** **201** — submission row in `data` (same shape as GET item, without `can_withdraw`).
 
 **Errors:**
 
