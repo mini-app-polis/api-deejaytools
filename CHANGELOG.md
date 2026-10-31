@@ -1,3 +1,10 @@
+## [1.20.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.20.0...v1.20.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **middleware:** key the rate limit on an address the client cannot forge ([9a6a80d](https://github.com/mini-app-polis/api-deejaytools/commit/9a6a80d083cc12c7935aa1650984a7e24e70e856))
+
 # [1.20.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.19.1...v1.20.0) (2026-10-31)
 
 
