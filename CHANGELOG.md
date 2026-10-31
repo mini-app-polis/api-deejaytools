@@ -1,3 +1,15 @@
+# [1.19.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.18.1...v1.19.0) (2026-10-31)
+
+
+### Bug Fixes
+
+* **deps:** bump pyasn1 to 0.6.5 for GHSA-mm57-4v3p-rchx, GHSA-fm9c-5rcf-2q5p, GHSA-9m75-vc3g-4x39 and GHSA-2qm8-x737-gmw5 ([f34233a](https://github.com/mini-app-polis/api-deejaytools/commit/f34233a6aa3ecfec746f45be081e7c11e7beb7de))
+
+
+### Features
+
+* **staff:** tighten event staff access and fix queue races from the platform review ([a63b1d1](https://github.com/mini-app-polis/api-deejaytools/commit/a63b1d10a37eea688b19d53d121e217745304073))
+
 ## [1.18.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.18.0...v1.18.1) (2026-10-30)
 
 
