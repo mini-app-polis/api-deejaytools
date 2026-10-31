@@ -1,3 +1,15 @@
+# [1.21.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.20.1...v1.21.0) (2026-10-31)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 7.8.0 ([438e43a](https://github.com/mini-app-polis/api-deejaytools/commit/438e43afd7254c37b2e4b855c1de44976f1cbfa4))
+
+
+### Features
+
+* **startup:** log effective settings once at startup with values only for allowlisted names ([d598948](https://github.com/mini-app-polis/api-deejaytools/commit/d598948551f76b036d01b4e1e0af4468224cd6ce))
+
 ## [1.20.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.20.0...v1.20.1) (2026-10-31)
 
 
