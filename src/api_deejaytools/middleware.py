@@ -20,6 +20,7 @@ import json
 import math
 import time
 from collections.abc import Callable
+from ipaddress import IPv4Address, IPv6Address, ip_address, ip_network
 from typing import Any
 
 from mini_app_polis import activity
@@ -36,6 +37,37 @@ RATE_WINDOW_SECONDS = 60.0
 DEADLINE_SECONDS = 30.0
 UPLOAD_DEADLINE_SECONDS = 300.0
 UPLOAD_PREFIX = "/v1/songs/upload/"
+
+# Cloudflare's published edge ranges (https://www.cloudflare.com/ips/). Only
+# a request whose peer is in one of them came through Cloudflare; from any
+# other peer, cf-connecting-ip is the client's own claim.
+CLOUDFLARE_NETWORKS = tuple(
+    ip_network(cidr)
+    for cidr in (
+        "173.245.48.0/20",
+        "103.21.244.0/22",
+        "103.22.200.0/22",
+        "103.31.4.0/22",
+        "141.101.64.0/18",
+        "108.162.192.0/18",
+        "190.93.240.0/20",
+        "188.114.96.0/20",
+        "197.234.240.0/22",
+        "198.41.128.0/17",
+        "162.158.0.0/15",
+        "104.16.0.0/13",
+        "104.24.0.0/14",
+        "172.64.0.0/13",
+        "131.0.72.0/22",
+        "2400:cb00::/32",
+        "2606:4700::/32",
+        "2803:f800::/32",
+        "2405:b500::/32",
+        "2405:8100::/32",
+        "2a06:98c0::/29",
+        "2c0f:f248::/32",
+    )
+)
 
 
 async def _send_json(
@@ -132,16 +164,39 @@ class BodyLimitMiddleware:
         )
 
 
+def _ip(value: str) -> IPv4Address | IPv6Address | None:
+    try:
+        return ip_address(value.strip())
+    except ValueError:
+        return None
+
+
 def client_address(scope: Scope) -> str:
-    """The client's address the rate limit keys on: Cloudflare's header,
-    then the first X-Forwarded-For hop (Railway's proxy), then "unknown"."""
-    cf = _header(scope, b"cf-connecting-ip")
-    if cf is not None:
-        return cf
-    forwarded = _header(scope, b"x-forwarded-for")
-    if forwarded is not None:
-        return forwarded.split(",")[0].strip()
-    return "unknown"
+    """The client's address the rate limit keys on (docs/OPERATIONS.md,
+    "Client address").
+
+    The peer is the last X-Forwarded-For hop, the one Railway's edge appends
+    for whoever connected to it; every earlier hop is the client's to write.
+    When the peer is a Cloudflare edge, Cloudflare's cf-connecting-ip names
+    the client; from any other peer that header is ignored. Without
+    X-Forwarded-For, "unknown".
+    """
+    hops = [
+        hop.strip()
+        for key, value in scope.get("headers", [])
+        if key == b"x-forwarded-for"
+        for hop in value.decode("latin-1").split(",")
+        if hop.strip()
+    ]
+    if not hops:
+        return "unknown"
+    peer = hops[-1]
+    peer_ip = _ip(peer)
+    if peer_ip is not None and any(peer_ip in net for net in CLOUDFLARE_NETWORKS):
+        cf = _ip(_header(scope, b"cf-connecting-ip") or "")
+        if cf is not None:
+            return str(cf)
+    return peer
 
 
 class RateLimitMiddleware:
