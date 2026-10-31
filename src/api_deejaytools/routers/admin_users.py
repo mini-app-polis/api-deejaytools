@@ -51,7 +51,7 @@ from ..submissions import fetch_user_submission_rows, map_submission_row
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import QueryStr, zod_body, zod_query
-from .event_song_submissions import SubmissionListResponse
+from .event_song_submissions import SubmissionData
 from .partners import PartnerListResponse, map_partner
 
 logger = get_logger()
@@ -111,6 +111,13 @@ class AdminUserListResponse(BaseModel):
     """Every user, oldest first."""
 
     data: list[AdminUserData] = Field(..., description="The users.")
+    meta: ListMeta = Field(..., description="Response metadata.")
+
+
+class UserSubmissionListResponse(BaseModel):
+    """The target user's submissions to an event, newest first."""
+
+    data: list[SubmissionData] = Field(..., description="The submissions.")
     meta: ListMeta = Field(..., description="Response metadata.")
 
 
@@ -339,7 +346,7 @@ async def list_user_partners(
 
 @router.get(
     "/{id}/event-song-submissions",
-    response_model=SubmissionListResponse,
+    response_model=UserSubmissionListResponse,
     summary="A user's submissions to an event",
     description=(
         "Submissions the target user made to one event (query event_id), "
