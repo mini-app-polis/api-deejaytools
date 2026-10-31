@@ -1,3 +1,16 @@
+# [1.20.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.19.1...v1.20.0) (2026-10-31)
+
+
+### Bug Fixes
+
+* **admin-users:** keep the per-user submissions list on SubmissionData, without can_withdraw ([1c94e56](https://github.com/mini-app-polis/api-deejaytools/commit/1c94e56e3e5e3c4ad2b3d6c0455740a7ddf9174a))
+* **deps:** bump miniapppolis-common-utils to 7.7.0 ([6bd2a64](https://github.com/mini-app-polis/api-deejaytools/commit/6bd2a64b93a73a94b6d789b39435473db3bbd1cd))
+
+
+### Features
+
+* **event-song-submissions:** list partner-shared songs' submissions with can_withdraw ([281c671](https://github.com/mini-app-polis/api-deejaytools/commit/281c6716c182a6ec0ddbb11b7835d5f2e3f5fe7a))
+
 ## [1.19.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.19.0...v1.19.1) (2026-10-31)
 
 
