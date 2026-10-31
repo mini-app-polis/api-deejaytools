@@ -266,6 +266,47 @@ async def test_list_own_newest_first_with_filter(
     assert everything.json()["meta"]["count"] == 2
 
 
+async def test_list_includes_shared_songs_with_can_withdraw(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    alice = await person("alice")
+    bob = await person("bob")
+    carol = await person("carol")
+    pid = await _partner(db, alice.id)
+    await db.execute(
+        "UPDATE partners SET linked_user_id = $1 WHERE id = $2", bob.id, pid
+    )
+    event = await insert_event(db)
+    shared = await insert_song(db, alice.id, partner_id=pid, division="Classic")
+    solo = await insert_song(db, alice.id, division="Classic")
+    other = await insert_song(db, carol.id, division="Classic")
+    await db.execute(
+        "INSERT INTO event_song_submissions (id, event_id, song_id,"
+        " submitted_by_user_id, created_at) VALUES"
+        " ('by-bob', $1, $2, $5, 10), ('by-alice', $1, $3, $4, 20),"
+        " ('carols', $1, $6, $7, 30)",
+        event,
+        shared,
+        solo,
+        alice.id,
+        bob.id,
+        other,
+        carol.id,
+    )
+    mine = await client.get(URL, headers=alice.headers)
+    assert [(s["id"], s["can_withdraw"]) for s in mine.json()["data"]] == [
+        ("by-alice", True),
+        ("by-bob", False),
+    ]
+    theirs = await client.get(URL, headers=bob.headers)
+    assert [(s["id"], s["can_withdraw"]) for s in theirs.json()["data"]] == [
+        ("by-bob", True)
+    ]
+    await db.execute("UPDATE songs SET deleted_at = 1 WHERE id = $1", shared)
+    after = await client.get(URL, headers=alice.headers)
+    assert [s["id"] for s in after.json()["data"]] == ["by-alice"]
+
+
 async def test_delete(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:

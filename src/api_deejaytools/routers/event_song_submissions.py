@@ -2,8 +2,8 @@
 
 A user's songs entered in events. The list is behind
 ``deejaytools.submissions.read``, create and delete behind
-``deejaytools.submissions.write``; every route sees only submissions the
-caller made. Each entity has one song per division per event (per round, for
+``deejaytools.submissions.write``; the list also shows submissions of songs
+the caller shares, the other routes only those the caller made. Each entity has one song per division per event (per round, for
 Classic at The Open). Drive copies run from the ``drive_jobs`` queue.
 """
 
@@ -97,6 +97,14 @@ class SubmissionData(BaseModel):
     created_at: int = Field(..., description="Submitted, epoch ms.")
 
 
+class ListedSubmissionData(SubmissionData):
+    """A listed submission, and whether the caller may withdraw it."""
+
+    can_withdraw: bool = Field(
+        ..., description="True only for the caller who submitted it."
+    )
+
+
 class SubmissionResponse(BaseModel):
     """One submission."""
 
@@ -105,9 +113,9 @@ class SubmissionResponse(BaseModel):
 
 
 class SubmissionListResponse(BaseModel):
-    """The caller's submissions, newest first."""
+    """The caller's and their shared songs' submissions, newest first."""
 
-    data: list[SubmissionData] = Field(..., description="The submissions.")
+    data: list[ListedSubmissionData] = Field(..., description="The submissions.")
     meta: ListMeta = Field(..., description="Response metadata.")
 
 
@@ -130,8 +138,10 @@ AUTH: dict[int | str, dict[str, Any]] = {
     response_model=SubmissionListResponse,
     summary="List the caller's submissions",
     description=(
-        "Submissions the caller made, newest first, optionally for one event "
-        "(query event_id). Requires deejaytools.submissions.read."
+        "Submissions the caller made, and those of songs the caller owns or "
+        "shares as linked partner, whoever submitted them, newest first, "
+        "optionally for one event (query event_id). can_withdraw is true only "
+        "for the submitter. Requires deejaytools.submissions.read."
     ),
     responses={
         **AUTH,
@@ -146,9 +156,20 @@ async def list_submissions(
     """List the caller's submissions."""
     try:
         rows = await fetch_user_submission_rows(
-            session, caller.user_id, event_id=query.event_id or None
+            session,
+            caller.user_id,
+            event_id=query.event_id or None,
+            include_shared=True,
         )
-        return success_list([map_submission_row(r) for r in rows])
+        return success_list(
+            [
+                {
+                    **map_submission_row(r),
+                    "can_withdraw": r.submitted_by_user_id == caller.user_id,
+                }
+                for r in rows
+            ]
+        )
     except SQLAlchemyError as exc:
         sentry_sdk.capture_exception(exc)
         logger.error(
