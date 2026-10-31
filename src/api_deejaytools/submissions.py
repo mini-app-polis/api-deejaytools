@@ -11,7 +11,7 @@ import re
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -22,6 +22,7 @@ from .domain import (
 from .labels import build_structured_song_label, partnership_label
 from .models import Event, EventSongSubmission, ManagedPartnership, Partner, Song, User
 from .routers.events import compute_status
+from .song_records import shared_with
 from .zod_coerce import js_trim
 
 SubmissionRound = Literal["prelims_and_finals", "prelims_only", "finals_only"]
@@ -147,12 +148,27 @@ async def fetch_user_submission_rows(
     *,
     event_id: str | None = None,
     submission_id: str | None = None,
+    include_shared: bool = False,
 ) -> Sequence[Any]:
     """A user's submissions joined to event, song, owner, partner and managed
-    partnership, newest first. Map each with ``map_submission_row``."""
+    partnership, newest first. Map each with ``map_submission_row``.
+
+    ``include_shared`` adds, whoever submitted them, the submissions of live
+    songs the user owns or shares as linked partner."""
     owner = aliased(User, name="song_owner")
     managed = aliased(ManagedPartnership, name="managed_partnership")
-    conditions = [EventSongSubmission.submitted_by_user_id == user_id]
+    own = EventSongSubmission.submitted_by_user_id == user_id
+    conditions = [own]
+    if include_shared:
+        conditions = [
+            or_(
+                own,
+                and_(
+                    Song.deleted_at.is_(None),
+                    or_(Song.user_id == user_id, shared_with(user_id)),
+                ),
+            )
+        ]
     if event_id:
         conditions.append(EventSongSubmission.event_id == event_id)
     if submission_id:
@@ -163,6 +179,7 @@ async def fetch_user_submission_rows(
             EventSongSubmission.event_id,
             EventSongSubmission.song_id,
             EventSongSubmission.created_at,
+            EventSongSubmission.submitted_by_user_id,
             Event.name.label("event_name"),
             Event.start_date.label("event_start_date"),
             Event.end_date.label("event_end_date"),
