@@ -23,6 +23,13 @@ from api_deejaytools.config import get_settings
 from api_deejaytools.database import _get_sessionmaker
 from api_deejaytools.services import drive, drive_jobs
 from api_deejaytools.services.drive import EventCopyResult
+from api_deejaytools.services.drive_jobs import (
+    copy_jobs,
+    enqueue,
+    processor,
+    share_jobs,
+    sweep,
+)
 
 from ..drive_fakes import FakeDriveService, fake_facade
 from .conftest import TEST_DATABASE_URL
@@ -123,14 +130,16 @@ class FakeDrive:
 @pytest.fixture
 def logs(monkeypatch: pytest.MonkeyPatch) -> Logs:
     rec = Logs()
-    monkeypatch.setattr(drive_jobs, "logger", rec)
+    for module in (enqueue, copy_jobs, share_jobs, processor, sweep):
+        monkeypatch.setattr(module, "logger", rec)
     return rec
 
 
 @pytest.fixture
 def sentry(monkeypatch: pytest.MonkeyPatch) -> Sentry:
     rec = Sentry()
-    monkeypatch.setattr(drive_jobs, "sentry_sdk", rec)
+    for module in (enqueue, processor):
+        monkeypatch.setattr(module, "sentry_sdk", rec)
     return rec
 
 
@@ -304,7 +313,7 @@ async def test_claim_failure_returns_zero_and_reports(
     from sqlalchemy import text
 
     await add_job(db)
-    monkeypatch.setattr(drive_jobs, "_CLAIM_SQL", text("SELECT * FROM no_such_table"))
+    monkeypatch.setattr(processor, "_CLAIM_SQL", text("SELECT * FROM no_such_table"))
     result = await drive_jobs.process_drive_jobs(session)
     assert result == {"claimed": 0, "succeeded": 0, "failed": 0}
     assert fake_drive.copies == []
@@ -625,7 +634,7 @@ async def test_claims_even_when_reclaim_fails(
     async def broken(*_: Any) -> int:
         raise RuntimeError("reclaim failed")
 
-    monkeypatch.setattr(drive_jobs, "_reclaim_stuck_jobs", broken)
+    monkeypatch.setattr(processor, "_reclaim_stuck_jobs", broken)
     await seed_submission(db)
     await add_job(db)
     assert (await drive_jobs.process_drive_jobs(session))["succeeded"] == 1
@@ -775,17 +784,17 @@ async def test_fixed_copy_then_db_failure_reuses_the_copy_on_retry(
     source = real_drive.add_file("2026_Classic.mp3", ["x"])
     await seed_submission(db, drive_file_id=source)
     await add_job(db)
-    real_record = drive_jobs._record_copy
+    real_record = copy_jobs._record_copy
 
     async def db_down(*_: Any, **__: Any) -> None:
         raise RuntimeError("connection reset")
 
-    monkeypatch.setattr(drive_jobs, "_record_copy", db_down)
+    monkeypatch.setattr(copy_jobs, "_record_copy", db_down)
     await drive_jobs.process_drive_jobs(session)
     assert (await job(db))["status"] == "pending"
     assert len(tagged_copies(real_drive, "sub_1")) == 1
 
-    monkeypatch.setattr(drive_jobs, "_record_copy", real_record)
+    monkeypatch.setattr(copy_jobs, "_record_copy", real_record)
     await db.execute("UPDATE drive_jobs SET next_attempt_at = 0 WHERE id = 'job_1'")
     assert (await drive_jobs.process_drive_jobs(session))["succeeded"] == 1
 
@@ -805,7 +814,7 @@ async def test_fixed_overlapping_runs_make_one_copy(
     source = real_drive.add_file("2026_Classic.mp3", ["x"])
     await seed_submission(db, drive_file_id=source)
     await add_job(db)
-    real_record = drive_jobs._record_copy
+    real_record = copy_jobs._record_copy
     overlapped: list[dict[str, int]] = []
     started_b: list[bool] = []
 
@@ -824,7 +833,7 @@ async def test_fixed_overlapping_runs_make_one_copy(
                 overlapped.append(await drive_jobs.process_drive_jobs(other))
         await real_record(db_, sub, fid, reused=reused)
 
-    monkeypatch.setattr(drive_jobs, "_record_copy", slow_record)
+    monkeypatch.setattr(copy_jobs, "_record_copy", slow_record)
     result = await drive_jobs.process_drive_jobs(session)
 
     assert overlapped == [{"claimed": 1, "succeeded": 1, "failed": 0}]

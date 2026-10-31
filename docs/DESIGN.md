@@ -61,7 +61,7 @@ and shapes of [API.md](API.md) (`errors.py`).
   without a JSON content type is `{}`, and malformed JSON answers
   `500 INTERNAL`.
   `document_zod_bodies` puts those bodies back into the OpenAPI schema.
-- **Durable song builds** (`services/song_builds.py`, migration 003). The
+- **Durable song builds** (`services/song_builds/`, migration 003). The
   uploaded bytes wait in `song_uploads` until the Drive build finishes, so a
   restart or a failure resumes the build instead of losing it. A build holds
   a lease it renews every minute and identifies itself with a `claim_id`; a

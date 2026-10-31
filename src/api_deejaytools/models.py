@@ -340,7 +340,7 @@ class SongUpload(Base):
     """An uploaded song's bytes and build progress, until its build finishes.
 
     This service's own table (migration 003): it makes the background build
-    durable. See services/song_builds.py.
+    durable. See services/song_builds/.
     """
 
     __tablename__ = "song_uploads"

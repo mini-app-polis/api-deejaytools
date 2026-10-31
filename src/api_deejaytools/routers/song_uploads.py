@@ -3,7 +3,7 @@
 Chunks are staged on local disk; the final chunk is checked, assembled and
 turned into a song row, which is returned at once with its Drive fields
 null. The build (tag, Drive upload, record) then runs in the background from
-durable staging (``services/song_builds.py``).
+durable staging (``services/song_builds/``).
 
 The body is ``multipart/form-data`` with no zod schema: fields are read and
 checked by hand, in the order and with the messages docs/API.md lists.
