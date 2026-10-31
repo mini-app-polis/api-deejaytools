@@ -1,10 +1,10 @@
 # ADR-0008: Replacement API: authorization through the identity library
 
-Date: 2026-10-01
+**Date:** 2026-10-01
+**Status:** Accepted
+**Repo:** api-deejaytools
 
-## Status
-
-Accepted
+---
 
 ## Context
 

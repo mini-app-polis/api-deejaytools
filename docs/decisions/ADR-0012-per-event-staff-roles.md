@@ -1,10 +1,10 @@
 # ADR-0012: Per-event staff roles: coordinator, DJ and event manager
 
-Date: 2026-10-28
+**Date:** 2026-10-28
+**Status:** Accepted
+**Repo:** api-deejaytools
 
-## Status
-
-Accepted
+---
 
 ## Context
 

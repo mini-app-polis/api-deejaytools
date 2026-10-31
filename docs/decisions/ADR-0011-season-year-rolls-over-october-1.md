@@ -1,10 +1,10 @@
 # ADR-0011: The season year rolls over on October 1
 
-Date: 2026-10-25
+**Date:** 2026-10-25
+**Status:** Accepted
+**Repo:** api-deejaytools
 
-## Status
-
-Accepted
+---
 
 Records a rule in force since deejaytools-api (2026-08-24); written down
 here because the year it produces surprises people.

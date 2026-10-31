@@ -1,10 +1,10 @@
 # ADR-0001: Make song builds durable
 
-Date: 2026-10-02
+**Date:** 2026-10-02
+**Status:** Accepted
+**Repo:** api-deejaytools
 
-## Status
-
-Accepted
+---
 
 Amended 2026-10-16: the rollback constraint below (additive schema changes
 only, and draining `song_uploads` before switching traffic back because
