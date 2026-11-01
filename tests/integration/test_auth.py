@@ -134,7 +134,7 @@ async def test_sync_creates_user_and_principal(
 
     assert res.status_code == 200
     body = res.json()
-    assert body["meta"] == {"version": "v1"}
+    assert body["meta"] == {"version": "v1", "count": 1, "total": 1}
     data = body["data"]
     assert set(data) == {
         "id",

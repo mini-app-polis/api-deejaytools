@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, EventRef, is_admin, require_event_scope
 from ..database import get_db_session
-from ..errors import ErrorCode, ErrorResponse, ListMeta, api_error, success_list
+from ..errors import Envelope, ErrorCode, ErrorResponse, api_error, success_list
 from ..event_connections import connected_user_ids, mask_email
 from ..models import (
     Event,
@@ -78,11 +78,10 @@ class EventPersonData(BaseModel):
     )
 
 
-class EventPeopleResponse(BaseModel):
+class EventPeopleResponse(Envelope[list[EventPersonData]]):
     """The people found, by name."""
 
     data: list[EventPersonData] = Field(..., description="The people.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 @router.get(

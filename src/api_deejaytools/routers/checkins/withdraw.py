@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,9 +21,9 @@ from ...cache import invalidate_queue_cache, invalidate_session_cache
 from ...clock import now_ms
 from ...database import get_db_session
 from ...errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    Meta,
     api_error,
     conflict,
     forbidden,
@@ -43,11 +43,10 @@ class _CheckinLeftQueue(Exception):
     """The check-in had no queue entry once the session was locked."""
 
 
-class WithdrawnResponse(BaseModel):
+class WithdrawnResponse(Envelope[dict[str, bool]]):
     """Withdraw confirmation."""
 
     data: dict[str, bool] = Field(..., description="{'withdrawn': true}.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 @router.delete(

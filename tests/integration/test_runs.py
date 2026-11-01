@@ -36,7 +36,7 @@ async def test_empty_list(
 ) -> None:
     admin = await person("admin", admin=True)
     res = await client.get("/v1/runs", headers=admin.headers)
-    assert res.json() == {"data": [], "meta": {"version": "v1", "count": 0}}
+    assert res.json() == {"data": [], "meta": {"version": "v1", "count": 0, "total": 0}}
 
 
 async def test_limit_is_coerced_like_zod(
@@ -143,7 +143,7 @@ async def test_labels_filters_order_and_limit(
 
     res = await client.get("/v1/runs", headers=admin.headers)
     body = res.json()
-    assert body["meta"] == {"version": "v1", "count": 5}
+    assert body["meta"] == {"version": "v1", "count": 5, "total": 5}
     rows = body["data"]
     assert rows[0] == {
         "id": r_pair,

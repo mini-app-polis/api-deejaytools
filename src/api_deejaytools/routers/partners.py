@@ -19,10 +19,9 @@ from ..auth import Caller, require_scope
 from ..clock import now_ms
 from ..database import get_db_session
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     success,
     success_list,
@@ -73,18 +72,16 @@ class PartnerData(BaseModel):
     display_name: str = Field(..., description="First and last name.")
 
 
-class PartnerResponse(BaseModel):
+class PartnerResponse(Envelope[PartnerData]):
     """One partner."""
 
     data: PartnerData = Field(..., description="The partner.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
-class PartnerListResponse(BaseModel):
+class PartnerListResponse(Envelope[list[PartnerData]]):
     """The caller's partners, by last then first name."""
 
     data: list[PartnerData] = Field(..., description="The partners.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 class LeadingPairData(BaseModel):
@@ -95,11 +92,10 @@ class LeadingPairData(BaseModel):
     display_name: str = Field(..., description="Partner's name, or 'Open slot'.")
 
 
-class LeadingPairsResponse(BaseModel):
+class LeadingPairsResponse(Envelope[list[LeadingPairData]]):
     """Pairs where the caller is user A."""
 
     data: list[LeadingPairData] = Field(..., description="The pairs.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 class AssociationsData(BaseModel):
@@ -114,11 +110,10 @@ class AssociationsData(BaseModel):
     )
 
 
-class AssociationsResponse(BaseModel):
+class AssociationsResponse(Envelope[AssociationsData]):
     """A partner's associations."""
 
     data: AssociationsData = Field(..., description="The associations.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 def partner_display_name(first_name: str, last_name: str) -> str:

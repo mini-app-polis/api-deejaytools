@@ -17,10 +17,10 @@ import sentry_sdk
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, LOG_WARNING, get_logger, with_log_prefix
-from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, model_validator
+from pydantic import AfterValidator, BeforeValidator, Field, model_validator
 
 from ..config import get_settings
-from ..errors import ErrorResponse, Meta, error_body, success
+from ..errors import Envelope, ErrorResponse, error_body, success
 from ..services import notifications
 from ..validation import Email, ZodModel
 from ..zod_types import documents_zod_body, parse_zod_body
@@ -103,11 +103,10 @@ class FeedbackBody(ZodModel):
         return self
 
 
-class FeedbackResponse(BaseModel):
+class FeedbackResponse(Envelope[None]):
     """Accepted. ``data`` is always null."""
 
     data: None = Field(None, description="Always null.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 def _iso_now() -> str:

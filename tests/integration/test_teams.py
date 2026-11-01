@@ -60,7 +60,7 @@ async def test_list_newest_first_and_own_only(
     second = await _create(client, alice, "Two")
     await _create(client, bob, "Bobs")
     res = await client.get("/v1/teams", headers=alice.headers)
-    assert res.json()["meta"] == {"version": "v1", "count": 2}
+    assert res.json()["meta"] == {"version": "v1", "count": 2, "total": 2}
     ids = [t["id"] for t in res.json()["data"]]
     if first["created_at"] != second["created_at"]:
         assert ids == [second["id"], first["id"]]

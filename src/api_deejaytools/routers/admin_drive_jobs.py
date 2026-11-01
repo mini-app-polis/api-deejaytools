@@ -25,10 +25,9 @@ from ..auth import Caller, require_scope
 from ..clock import now_ms
 from ..database import get_db_session
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     error_body,
     success,
@@ -109,11 +108,10 @@ class SummaryData(BaseModel):
     )
 
 
-class SummaryResponse(BaseModel):
+class SummaryResponse(Envelope[SummaryData]):
     """Queue health."""
 
     data: SummaryData = Field(..., description="The summary.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 class DriveJobData(BaseModel):
@@ -153,11 +151,10 @@ class DriveJobData(BaseModel):
     )
 
 
-class DriveJobListResponse(BaseModel):
+class DriveJobListResponse(Envelope[list[DriveJobData]]):
     """Recent jobs, most recently updated first."""
 
     data: list[DriveJobData] = Field(..., description="The jobs.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 class BackfillData(BaseModel):
@@ -166,11 +163,10 @@ class BackfillData(BaseModel):
     enqueued: int = Field(..., description="Rename jobs inserted.")
 
 
-class BackfillResponse(BaseModel):
+class BackfillResponse(Envelope[BackfillData]):
     """What the backfill queued."""
 
     data: BackfillData = Field(..., description="The count.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 class RetryData(BaseModel):
@@ -180,11 +176,10 @@ class RetryData(BaseModel):
     status: str = Field(..., description="Always 'pending'.")
 
 
-class RetryResponse(BaseModel):
+class RetryResponse(Envelope[RetryData]):
     """The job as updated."""
 
     data: RetryData = Field(..., description="The job.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 AUTH: dict[int | str, dict[str, Any]] = {

@@ -63,7 +63,7 @@ async def test_submit_shape_and_copy_job(
         "round": "prelims_and_finals",
         "created_at": data["created_at"],
     }
-    assert res.json()["meta"] == {"version": "v1"}
+    assert res.json()["meta"] == {"version": "v1", "count": 1, "total": 1}
     stored = await db.fetchrow(
         "SELECT division, round, submitted_by_user_id FROM event_song_submissions"
     )
@@ -257,7 +257,7 @@ async def test_list_own_newest_first_with_filter(
         bob.id,
     )
     res = await client.get(URL, headers=alice.headers)
-    assert res.json()["meta"] == {"version": "v1", "count": 2}
+    assert res.json()["meta"] == {"version": "v1", "count": 2, "total": 2}
     assert [s["id"] for s in res.json()["data"]] == ["a2", "a1"]
     assert res.json()["data"][0]["round"] == "finals_only"
     filtered = await client.get(URL, params={"event_id": e1}, headers=alice.headers)

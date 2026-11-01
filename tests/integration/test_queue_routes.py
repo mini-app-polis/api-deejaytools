@@ -89,7 +89,10 @@ async def test_reads_public_and_admin(
     admin = await person("admin", admin=True)
     for view in ("active", "waiting"):
         res = await client.get(f"/v1/queue/s1/{view}")
-        assert res.json() == {"data": [], "meta": {"version": "v1"}}
+        assert res.json() == {
+            "data": [],
+            "meta": {"version": "v1", "count": 0, "total": 0},
+        }
         # A bad token is ignored, not refused.
         res = await client.get(
             f"/v1/queue/s1/{view}", headers={"Authorization": "Bearer junk"}
@@ -100,7 +103,10 @@ async def test_reads_public_and_admin(
         res = await client.get(f"/v1/queue/s1/{view}", headers=dancer.headers)
         assert _error(res) == (403, "FORBIDDEN", "Admin access required")
         res = await client.get(f"/v1/queue/s1/{view}", headers=admin.headers)
-        assert res.json() == {"data": [], "meta": {"version": "v1"}}
+        assert res.json() == {
+            "data": [],
+            "meta": {"version": "v1", "count": 0, "total": 0},
+        }
 
 
 async def test_body_validation(
@@ -210,7 +216,8 @@ async def test_queue_entry_shape_and_labels(
     )
 
     waiting = (await client.get(f"/v1/queue/{session_id}/waiting")).json()
-    assert "count" not in waiting["meta"]
+    n = len(waiting["data"])
+    assert waiting["meta"] == {"version": "v1", "count": n, "total": n}
     rows = waiting["data"]
     assert rows[0] == {
         "queueEntryId": a["entry_id"],
@@ -439,7 +446,10 @@ async def test_promote_moves_to_bottom_of_active_with_audit(
         json={"queueEntryId": p[1]["entry_id"]},
         headers=admin.headers,
     )
-    assert res.json() == {"data": {"promoted": True}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"promoted": True},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     active = await db.fetch(
         "SELECT checkin_id, position FROM queue_entries WHERE session_id = $1"
         " AND queue_type = 'active' ORDER BY position",
@@ -548,7 +558,10 @@ async def test_complete_records_run_compacts_and_refills(
         json={"queueEntryId": first["entry_id"], "reason": "clean"},
         headers=admin.headers,
     )
-    assert res.json() == {"data": {"completed": True}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"completed": True},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     run = await db.fetchrow(
         "SELECT * FROM runs WHERE checkin_id = $1", first["checkin_id"]
     )
@@ -600,7 +613,10 @@ async def test_incomplete_rotates_to_bottom(
         json={"queueEntryId": a[0]["entry_id"], "reason": "music stopped"},
         headers=admin.headers,
     )
-    assert res.json() == {"data": {"rotated": True}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"rotated": True},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     assert await positions(db, session_id, "active") == [
         (a[1]["entry_id"], 1),
         (a[2]["entry_id"], 2),
@@ -653,7 +669,10 @@ async def test_move_down_swaps_with_one_audit_row(
         "Entry is already at the bottom of its queue",
     )
     res = await move(w[0]["entry_id"])
-    assert res.json() == {"data": {"moved": True}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"moved": True},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     assert await positions(db, session_id, "non_priority") == [
         (w[1]["entry_id"], 1),
         (w[0]["entry_id"], 2),
@@ -784,7 +803,10 @@ async def test_withdraw_any_queue_compacts_and_refills(
         json={"queueEntryId": s[1]["entry_id"], "reason": "no show"},
         headers=admin.headers,
     )
-    assert res.json() == {"data": {"withdrawn": True}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"withdrawn": True},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     assert await positions(db, session_id, "non_priority") == [
         (s[0]["entry_id"], 1),
         (s[2]["entry_id"], 2),

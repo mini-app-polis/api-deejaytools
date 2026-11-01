@@ -90,7 +90,7 @@ async def test_list_patch_and_ownership(
     assert res.json()["data"]["created_at"] == mp["created_at"]
 
     listed = await client.get("/v1/managed-partnerships", headers=alice.headers)
-    assert listed.json()["meta"] == {"version": "v1", "count": 1}
+    assert listed.json()["meta"] == {"version": "v1", "count": 1, "total": 1}
     assert listed.json()["data"][0]["follower_last_name"] == "Follows"
 
     res = await client.patch(

@@ -41,10 +41,9 @@ from ..domain import (
     today_in_zone,
 )
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     error_body,
     success,
@@ -143,18 +142,16 @@ class EventData(BaseModel):
     updated_at: int = Field(..., description="Last updated, epoch ms.")
 
 
-class EventResponse(BaseModel):
+class EventResponse(Envelope[EventData]):
     """One event."""
 
     data: EventData = Field(..., description="The event.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
-class EventListResponse(BaseModel):
+class EventListResponse(Envelope[list[EventData]]):
     """Every event, newest start date first."""
 
     data: list[EventData] = Field(..., description="The events.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 class EntityItem(BaseModel):
@@ -172,11 +169,10 @@ class DivisionEntities(BaseModel):
     entities: list[EntityItem] = Field(..., description="Entities, by label.")
 
 
-class EntitiesResponse(BaseModel):
+class EntitiesResponse(Envelope[list[DivisionEntities]]):
     """Entities with at least one song submitted, grouped by division."""
 
     data: list[DivisionEntities] = Field(..., description="Divisions, in order.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 class DeletedData(BaseModel):
@@ -185,11 +181,10 @@ class DeletedData(BaseModel):
     deleted: bool = Field(..., description="Always true.")
 
 
-class DeletedResponse(BaseModel):
+class DeletedResponse(Envelope[DeletedData]):
     """Delete confirmation envelope."""
 
     data: DeletedData = Field(..., description="Confirmation.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 def compute_status(start_date: str, end_date: str, timezone: str) -> str:

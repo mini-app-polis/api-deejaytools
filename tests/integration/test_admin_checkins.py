@@ -188,10 +188,13 @@ async def test_list_and_delete(
         await client.get("/v1/admin/checkins/test", headers=admin.headers)
     ).json() == {
         "data": [],
-        "meta": {"version": "v1", "count": 0},
+        "meta": {"version": "v1", "count": 0, "total": 0},
     }
     res = await client.delete("/v1/admin/checkins/test", headers=admin.headers)
-    assert res.json() == {"data": {"deleted": 0}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"deleted": 0},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
 
     session_id = await insert_floor_session(db, priority_max=1, non_priority_max=1)
     ids = []
@@ -256,7 +259,10 @@ async def test_list_and_delete(
     )
 
     res = await client.delete("/v1/admin/checkins/test", headers=admin.headers)
-    assert res.json() == {"data": {"deleted": 2}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"deleted": 2},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     for table in ("checkins", "queue_entries", "runs", "queue_events"):
         assert await db.fetchval(f"SELECT count(*) FROM {table}") == 0, table
     assert (

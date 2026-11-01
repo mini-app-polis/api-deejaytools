@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
 from ..database import get_db_session
-from ..errors import ErrorCode, ErrorResponse, Meta, api_error, success
+from ..errors import Envelope, ErrorCode, ErrorResponse, api_error, success
 from ..models import Pair, Partner
 from ..validation import NonEmptyStr, ZodModel
 from ..zod_types import zod_body
@@ -44,11 +44,10 @@ class PairIdData(BaseModel):
     id: str = Field(..., description="Pair id.")
 
 
-class PairIdResponse(BaseModel):
+class PairIdResponse(Envelope[PairIdData]):
     """The pair found or created."""
 
     data: PairIdData = Field(..., description="The pair.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 @router.post(

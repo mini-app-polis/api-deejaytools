@@ -92,7 +92,7 @@ async def test_shape_labels_and_order(
     res = await client.get(URL, params={"event_id": event}, headers=admin.headers)
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["meta"] == {"version": "v1", "count": 2}
+    assert body["meta"] == {"version": "v1", "count": 2, "total": 2}
     assert body["data"] == [
         {
             "id": "s_new",
@@ -152,7 +152,7 @@ async def test_unknown_event_is_an_empty_list(
     admin = await person("admin", admin=True)
     res = await client.get(URL, params={"event_id": "evt_none"}, headers=admin.headers)
     assert res.status_code == 200
-    assert res.json() == {"data": [], "meta": {"version": "v1", "count": 0}}
+    assert res.json() == {"data": [], "meta": {"version": "v1", "count": 0, "total": 0}}
 
 
 async def test_requires_event_id(client: httpx.AsyncClient, person: Callable) -> None:

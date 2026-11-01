@@ -35,7 +35,7 @@ from starlette.datastructures import UploadFile
 from ..auth import Caller, authorize_delegation, require_scope
 from ..database import get_db_session
 from ..domain import song_entity_key
-from ..errors import ErrorCode, ErrorResponse, Meta, api_error, success
+from ..errors import Envelope, ErrorCode, ErrorResponse, api_error, success
 from ..models import Event, EventSongSubmission, Partner, Song, SongUpload, Team, User
 from ..services import song_builds
 from ..services.audio_format import detect_audio_format
@@ -86,11 +86,10 @@ class ChunkReceived(BaseModel):
     )
 
 
-class ChunkResponse(BaseModel):
+class ChunkResponse(Envelope[ChunkReceived]):
     """Chunk acknowledgement envelope."""
 
     data: ChunkReceived = Field(..., description="Acknowledgement.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 def _sweep_stale_dirs() -> None:

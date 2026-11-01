@@ -100,7 +100,7 @@ async def test_list_shape_counts_order_and_derived_role(
     res = await client.get(URL, headers=admin.headers)
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["meta"] == {"version": "v1", "count": 2}
+    assert body["meta"] == {"version": "v1", "count": 2, "total": 2}
     alice_row, admin_row = body["data"]
     assert alice_row == {
         "id": alice.id,
@@ -186,7 +186,7 @@ async def test_grant_writes_the_store_only(
             "song_count": 1,
             "partner_count": 1,
         },
-        "meta": {"version": "v1"},
+        "meta": {"version": "v1", "count": 1, "total": 1},
     }
     assert await _admin_roles(db, alice.id) == [
         "deejaytools-admin",
@@ -382,7 +382,7 @@ async def test_partners_shape_and_order(
     assert res.status_code == 200, res.text
     body = res.json()
     assert [p["id"] for p in body["data"]] == ["p_a1", "p_a2", "p_b"]
-    assert body["meta"] == {"version": "v1", "count": 3}
+    assert body["meta"] == {"version": "v1", "count": 3, "total": 3}
     assert body["data"][1] == {
         "id": "p_a2",
         "user_id": alice.id,
@@ -442,7 +442,7 @@ async def test_submissions_for_a_user_and_event(
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["meta"] == {"version": "v1", "count": 1}
+    assert body["meta"] == {"version": "v1", "count": 1, "total": 1}
     row = body["data"][0]
     assert row["id"] == "s1"
     assert row["event_id"] == event

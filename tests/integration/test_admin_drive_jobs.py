@@ -103,7 +103,7 @@ async def test_summary_empty(client: httpx.AsyncClient, person: Callable) -> Non
     assert res.status_code == 200, res.text
     assert res.json() == {
         "data": {"by_status": {}, "submissions_without_copy": 0},
-        "meta": {"version": "v1"},
+        "meta": {"version": "v1", "count": 1, "total": 1},
     }
 
 
@@ -162,7 +162,7 @@ async def test_list_shape_order_and_filter(
     res = await client.get(URL, headers=admin.headers)
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["meta"] == {"version": "v1", "count": 3}
+    assert body["meta"] == {"version": "v1", "count": 3, "total": 3}
     assert [j["id"] for j in body["data"]] == ["j_orphan", "j_copy", "j_trash"]
     assert body["data"][1] == {
         "id": "j_copy",
@@ -186,7 +186,10 @@ async def test_list_shape_order_and_filter(
     failed = await client.get(URL, params={"status": "failed"}, headers=admin.headers)
     assert [j["id"] for j in failed.json()["data"]] == ["j_copy"]
     running = await client.get(URL, params={"status": "running"}, headers=admin.headers)
-    assert running.json() == {"data": [], "meta": {"version": "v1", "count": 0}}
+    assert running.json() == {
+        "data": [],
+        "meta": {"version": "v1", "count": 0, "total": 0},
+    }
 
 
 async def test_list_limit(
@@ -262,7 +265,10 @@ async def test_backfill_enqueues_a_rename_per_copied_submission(
 
     res = await client.post(f"{URL}/backfill-renames", headers=admin.headers)
     assert res.status_code == 200, res.text
-    assert res.json() == {"data": {"enqueued": 2}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"enqueued": 2},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     assert await drive_jobs(db) == [
         ("rename", "s1", None, "pending"),
         ("rename", "s2", None, "pending"),
@@ -328,7 +334,7 @@ async def test_retry_a_failed_job(
     assert res.status_code == 200, res.text
     assert res.json() == {
         "data": {"id": "j1", "status": "pending"},
-        "meta": {"version": "v1"},
+        "meta": {"version": "v1", "count": 1, "total": 1},
     }
     row = await db.fetchrow("SELECT * FROM drive_jobs WHERE id = 'j1'")
     assert row["status"] == "pending"

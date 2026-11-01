@@ -16,7 +16,7 @@ from sqlalchemy.orm import aliased
 
 from ...auth import Caller, require_scope
 from ...database import get_db_session
-from ...errors import Meta, success
+from ...errors import Envelope, success_list
 from ...models import (
     Checkin,
     Event,
@@ -73,12 +73,11 @@ class MyCheckinData(BaseModel):
     )
 
 
-class MyCheckinsResponse(BaseModel):
+class MyCheckinsResponse(Envelope[list[MyCheckinData]]):
     """The caller's live check-ins, and their linked partners' pairs' check-ins,
-    newest first. No meta.count."""
+    newest first."""
 
     data: list[MyCheckinData] = Field(..., description="The check-ins.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 @router.get(
@@ -297,4 +296,4 @@ async def my_checkins(
                 "canWithdraw": key in withdrawable,
             }
         )
-    return success(data)
+    return success_list(data)

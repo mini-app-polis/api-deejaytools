@@ -21,7 +21,7 @@ from ...auth import Caller, EventRef, require_event_scope
 from ...cache import QUEUE_TTL_SECONDS, response_cache
 from ...database import get_db_session
 from ...domain import full_name
-from ...errors import ErrorResponse, Meta, success
+from ...errors import Envelope, ErrorResponse, success_list
 from ...models import Checkin, ManagedPartnership, Pair, Partner, QueueEntry, Song, User
 from ...queue.labels import managed_label, pair_label
 
@@ -64,18 +64,16 @@ class WaitingEntryData(QueueEntryData):
     )
 
 
-class QueueListResponse(BaseModel):
-    """A queue, front first. No meta.count."""
+class QueueListResponse(Envelope[list[QueueEntryData]]):
+    """A queue, front first."""
 
     data: list[QueueEntryData] = Field(..., description="The entries.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
-class WaitingListResponse(BaseModel):
-    """Priority then standard waiting entries. No meta.count."""
+class WaitingListResponse(Envelope[list[WaitingEntryData]]):
+    """Priority then standard waiting entries."""
 
     data: list[WaitingEntryData] = Field(..., description="The entries.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 async def list_queue(
@@ -182,7 +180,7 @@ async def _cached(key: str, build: Any) -> dict[str, Any]:
     cached = response_cache.get(key)
     if cached is not None:
         return cached  # type: ignore[no-any-return]
-    result = success(await build())
+    result = success_list(await build())
     response_cache.set(key, result, QUEUE_TTL_SECONDS)
     return result
 

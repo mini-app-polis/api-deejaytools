@@ -34,7 +34,10 @@ async def test_matching_secret_runs_the_pass(
 ) -> None:
     res = await client.get("/internal/tick", headers={"x-tick-secret": secret})
     assert res.status_code == 200
-    assert res.json() == {"data": {"ticked": True}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"ticked": True},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     assert ticks == [1]
 
 

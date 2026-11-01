@@ -16,15 +16,18 @@ from api_deejaytools.errors import (
 
 
 def test_success_shape() -> None:
-    assert success({"id": "x"}) == {"data": {"id": "x"}, "meta": {"version": "v1"}}
+    assert success({"id": "x"}) == {
+        "data": {"id": "x"},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
 
 
 def test_success_list_shape() -> None:
     assert success_list([1, 2, 3]) == {
         "data": [1, 2, 3],
-        "meta": {"version": "v1", "count": 3},
+        "meta": {"version": "v1", "count": 3, "total": 3},
     }
-    assert success_list([])["meta"] == {"version": "v1", "count": 0}
+    assert success_list([])["meta"] == {"version": "v1", "count": 0, "total": 0}
 
 
 class _Body(BaseModel):

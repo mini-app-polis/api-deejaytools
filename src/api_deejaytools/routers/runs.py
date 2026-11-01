@@ -24,7 +24,7 @@ from sqlalchemy.orm import aliased
 from ..auth import Caller, EventRef, require_event_scope
 from ..database import get_db_session
 from ..domain import full_name
-from ..errors import ErrorResponse, ListMeta, success_list
+from ..errors import Envelope, ErrorResponse, success_list
 from ..labels import build_structured_song_label, partnership_label
 from ..models import Event, ManagedPartnership, Pair, Partner, Run, Session, Song, User
 from ..queue.labels import managed_label, pair_label
@@ -84,11 +84,10 @@ class RunData(BaseModel):
     completed_by_label: str = Field(..., description="Admin who completed it.")
 
 
-class RunListResponse(BaseModel):
+class RunListResponse(Envelope[list[RunData]]):
     """Runs, most recent first."""
 
     data: list[RunData] = Field(..., description="The runs.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 def _entity_key(r: Any) -> str:

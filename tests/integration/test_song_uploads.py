@@ -130,7 +130,7 @@ async def test_chunks_assemble_out_of_order_and_build(
     first = await _send(client, alice, upload_id, 1, 3, parts[1], partner_id=partner)
     assert first.json() == {
         "data": {"received": True, "complete": False},
-        "meta": {"version": "v1"},
+        "meta": {"version": "v1", "count": 1, "total": 1},
     }
     await _send(client, alice, upload_id, 0, 3, parts[0], partner_id=partner)
     last = await _send(

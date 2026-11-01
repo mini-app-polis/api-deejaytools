@@ -214,7 +214,7 @@ async def test_post_creates_checkin_entry_and_audit(
     )
     assert res.status_code == 201
     body = res.json()
-    assert body["meta"] == {"version": "v1"}
+    assert body["meta"] == {"version": "v1", "count": 1, "total": 1}
     data = body["data"]
     assert data == {
         "id": data["id"],
@@ -446,7 +446,7 @@ async def test_mine_lists_live_checkins_with_positions(
     assert _error(await client.get("/v1/checkins/mine"))[:2] == (401, "UNAUTHORIZED")
     assert (await client.get("/v1/checkins/mine", headers=me.headers)).json() == {
         "data": [],
-        "meta": {"version": "v1"},
+        "meta": {"version": "v1", "count": 0, "total": 0},
     }
 
     await db.execute(
@@ -509,7 +509,8 @@ async def test_mine_lists_live_checkins_with_positions(
     res = await client.get("/v1/checkins/mine", headers=me.headers)
     assert res.status_code == 200
     body = res.json()
-    assert body["meta"] == {"version": "v1"}
+    n = len(body["data"])
+    assert body["meta"] == {"version": "v1", "count": n, "total": n}
     rows = body["data"]
     assert [r["id"] for r in rows] == [managed["checkin_id"], mine["checkin_id"]]
     assert rows[1] == {
@@ -593,7 +594,10 @@ async def test_delete_withdraws_own_entry(
     assert _error(res) == (403, "FORBIDDEN", "Admin access required")
 
     res = await client.delete(f"/v1/checkins/{mine['checkin_id']}", headers=me.headers)
-    assert res.json() == {"data": {"withdrawn": True}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"withdrawn": True},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     assert await positions(db, session_id, "non_priority") == [
         (first["entry_id"], 1),
         (last["entry_id"], 2),

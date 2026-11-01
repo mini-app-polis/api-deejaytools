@@ -22,7 +22,7 @@ from sqlalchemy.orm import aliased
 
 from ..auth import Caller, require_scope
 from ..database import get_db_session
-from ..errors import ErrorCode, ErrorResponse, ListMeta, error_body, success_list
+from ..errors import Envelope, ErrorCode, ErrorResponse, error_body, success_list
 from ..event_connections import email_for_caller
 from ..labels import build_structured_song_label, partnership_label
 from ..models import Event, EventSongSubmission, ManagedPartnership, Partner, Song, User
@@ -71,11 +71,10 @@ class AdminSubmissionData(BaseModel):
     created_at: int = Field(..., description="Submitted, epoch ms.")
 
 
-class AdminSubmissionListResponse(BaseModel):
+class AdminSubmissionListResponse(Envelope[list[AdminSubmissionData]]):
     """An event's submissions, newest first."""
 
     data: list[AdminSubmissionData] = Field(..., description="The submissions.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 @router.get(

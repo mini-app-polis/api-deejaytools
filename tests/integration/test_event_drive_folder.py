@@ -87,7 +87,7 @@ async def test_a_dj_gets_the_newest_completed_share(
             "folder_id": "folder_new",
             "url": "https://drive.google.com/drive/folders/folder_new",
         },
-        "meta": {"version": "v1"},
+        "meta": {"version": "v1", "count": 1, "total": 1},
     }
 
 
