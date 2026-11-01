@@ -1,7 +1,7 @@
 """Routes outside the API proper: the root redirect to the docs, liveness,
-the deployed version, and the catch-all OPTIONS answer.
+the deployed version, and the catch-all OPTIONS answer under /v1/.
 
-All intentionally public and unversioned. They are on a module-level router
+All intentionally public; all but the OPTIONS answer are unversioned. They are on a module-level router
 rather than registered inside ``main._build_app`` so a static audit of route
 guards (AUTH-003) can see that they carry none.
 """
@@ -96,16 +96,16 @@ async def version() -> dict[str, str | None]:
 
 
 @router.options(
-    "/{path:path}",
+    "/v1/{path:path}",
     include_in_schema=False,
-    summary="Any OPTIONS request",
+    summary="Any OPTIONS request under /v1/",
     description=(
-        "204 with no body for any path. Intentionally public: a CORS "
-        "preflight carries no credentials."
+        "204 with no body for any path under /v1/. Intentionally public: a "
+        "CORS preflight carries no credentials."
     ),
     response_class=Response,
 )
 async def options(path: str) -> Response:
-    """Any OPTIONS request, preflight or not, answers 204 with no body.
-    Real preflights are answered by CORSMiddleware first."""
+    """Any OPTIONS request under /v1/, preflight or not, answers 204 with no
+    body. Real preflights are answered by CORSMiddleware first."""
     return Response(status_code=204)
