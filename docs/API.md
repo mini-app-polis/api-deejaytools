@@ -2,6 +2,8 @@
 
 Mounting and global middleware: [`src/api_deejaytools/main.py`](../src/api_deejaytools/main.py) and [`middleware.py`](../src/api_deejaytools/middleware.py). Route handlers: [`src/api_deejaytools/routers/`](../src/api_deejaytools/routers/). The live OpenAPI schema is served at `/openapi.json` (Swagger UI at `/docs`).
 
+The same document is committed as [`openapi.json`](openapi.json), the contract snapshot. deejaytools.com keeps a copy and checks its endpoint catalog against it, and this repository's CI runs that check against a change's document before it merges. A change to any route or response model changes the snapshot: regenerate it with `uv run python scripts/export_openapi.py` (no database needed) and commit it with the change; the unit tests fail while it is stale.
+
 Request bodies below are written as Zod schemas: that notation is the validation contract, and `src/api_deejaytools/validation.py`, `zod_types.py` and `zod_coerce.py` implement its semantics (trimming, coercion, messages).
 
 Base URL in production is deployment-specific (Railway). All versioned routes live under `/v1`.
@@ -17,12 +19,14 @@ Success responses (`success()` / `success_list()` in `src/api_deejaytools/errors
 ```json
 {
   "data": { },
-  "meta": { "version": "…", "count": 42 }
+  "meta": { "version": "v1", "count": 1, "total": 1 }
 }
 ```
 
-- `success(payload)` — single object in `data`; `meta` includes `version`.
-- `success_list(array)` — array in `data`; `meta` includes `version` and `count`.
+Every success response model is common-python-utils' `Envelope`, with its shared `Meta`: `version`, `count` and `total` on every response.
+
+- `success(payload)` — single object in `data`; `count` and `total` are 1.
+- `success_list(array)` — array in `data`; `count` and `total` are its length. No route pages, so `total` is the number returned.
 
 Failure responses:
 
@@ -178,7 +182,7 @@ Always **200**; there are no error responses.
 ```json
 {
   "data": { "ticked": true },
-  "meta": { "version": "…" }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -227,7 +231,7 @@ const syncBody = z.object({
     "created_at": 1710000000000,
     "updated_at": 1710000000000
   },
-  "meta": { "version": "…" }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -347,7 +351,7 @@ const ianaTimezone = z
       "updated_at": 1710000000000
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -417,7 +421,7 @@ otherwise from the song; submissions with neither fall into `"Unspecified"`.
       "entities": [{ "entity_key": "pt:…", "label": "team2026", "song_count": 1 }]
     }
   ],
-  "meta": { "version": "…", "count": 2 }
+  "meta": { "version": "…", "count": 2, "total": 2 }
 }
 ```
 
@@ -521,7 +525,7 @@ const patchEvent = z.object({
 **Response:**
 
 ```json
-{ "data": { "deleted": true }, "meta": { "version": "…" } }
+{ "data": { "deleted": true }, "meta": { "version": "…", "count": 1, "total": 1 } }
 ```
 
 **Errors:**
@@ -598,7 +602,7 @@ A staff grant on the wire:
 **Response:**
 
 ```json
-{ "data": { "deleted": true }, "meta": { "version": "…" } }
+{ "data": { "deleted": true }, "meta": { "version": "…", "count": 1, "total": 1 } }
 ```
 
 **Errors:** as `PUT`.
@@ -625,7 +629,7 @@ The event's shared Drive folder, for the people it is shared with ([ADR-0012](./
     "folder_id": "1AbC…",
     "url": "https://drive.google.com/drive/folders/1AbC…"
   },
-  "meta": { "version": "…" }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -749,7 +753,7 @@ export const SessionStatusSchema = z.enum([
       "has_active_checkin": true
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -954,7 +958,7 @@ export const createCheckinBodySchema = z
     "divisionName": "Classic",
     "initialQueue": "priority"
   },
-  "meta": { "version": "…" }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -991,7 +995,7 @@ export const createCheckinBodySchema = z
 
 **Request body:** none
 
-**Response:** Array in `data` (uses `success()`, not `success_list` — no `meta.count`):
+**Response:** Array in `data`, with `meta.count` and `meta.total`:
 
 ```json
 {
@@ -1018,7 +1022,7 @@ export const createCheckinBodySchema = z
       "canWithdraw": true
     }
   ],
-  "meta": { "version": "…" }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -1041,7 +1045,7 @@ export const createCheckinBodySchema = z
 **Response:**
 
 ```json
-{ "data": { "withdrawn": true }, "meta": { "version": "…" } }
+{ "data": { "withdrawn": true }, "meta": { "version": "…", "count": 1, "total": 1 } }
 ```
 
 **Errors:**
@@ -1344,7 +1348,7 @@ const listQuery = z.object({
       "completed_by_label": "Admin Name"
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -1383,7 +1387,7 @@ const findOrCreateBody = z.object({
 **Response:**
 
 ```json
-{ "data": { "id": "pair_…" }, "meta": { "version": "…" } }
+{ "data": { "id": "pair_…" }, "meta": { "version": "…", "count": 1, "total": 1 } }
 ```
 
 **201** when newly created; **200** when existing.
@@ -1439,7 +1443,7 @@ const patchBody = z.object({
       "display_name": "Bob Jones"
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -1475,7 +1479,7 @@ const patchBody = z.object({
       "display_name": "Bob Jones"
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -1524,7 +1528,7 @@ const patchBody = z.object({
     "has_active_checkin": false,
     "has_checkin_history": true
   },
-  "meta": { "version": "…" }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -1645,7 +1649,7 @@ export const createTeamBodySchema = z.object({
       "updated_at": 1710000000000
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -1758,7 +1762,7 @@ export const createManagedPartnershipBodySchema = z.object({
       "updated_at": 1710000000000
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -1879,7 +1883,7 @@ const listQuery = z.object({
       "created_at": 1710000000000
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -2152,7 +2156,7 @@ it.
 **Response (non-final chunk):**
 
 ```json
-{ "data": { "received": true, "complete": false }, "meta": { "version": "…" } }
+{ "data": { "received": true, "complete": false }, "meta": { "version": "…", "count": 1, "total": 1 } }
 ```
 
 **Response (final chunk):**
@@ -2165,7 +2169,7 @@ it.
     "song": { },
     "submission": { }
   },
-  "meta": { "version": "…" }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -2289,7 +2293,7 @@ If `BREVO_API_KEY` or either feedback address is unset, feedback is logged and *
     "groups": [["Classic", "Showcase", "…"], ["ProAm LeaderAm", "…"]],
     "divisions": ["Classic", "Showcase", "…"]
   },
-  "meta": { "version": "v1" }
+  "meta": { "version": "v1", "count": 1, "total": 1 }
 }
 ```
 
@@ -2336,7 +2340,7 @@ const injectBody = z.object({
       "display_name": "Leader Name & Follower Name"
     }
   },
-  "meta": { "version": "…" }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -2379,7 +2383,7 @@ Bypasses check-in time window.
       "position": 1
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -2402,7 +2406,7 @@ Bypasses check-in time window.
 **Response:**
 
 ```json
-{ "data": { "deleted": 3 }, "meta": { "version": "…" } }
+{ "data": { "deleted": 3 }, "meta": { "version": "…", "count": 1, "total": 1 } }
 ```
 
 (`deleted` = count of synthetic users removed)
@@ -2460,7 +2464,7 @@ const listQuery = z.object({
       }
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -2500,7 +2504,7 @@ submissions still have no event copy.
     "by_status": { "pending": 2, "done": 140, "failed": 1 },
     "submissions_without_copy": 3
   },
-  "meta": { "version": "…" }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -2558,7 +2562,7 @@ const listQuery = z.object({
       "event_name": "Swingtacular 2027"
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -2599,7 +2603,7 @@ makes no Drive write.
 **Response:** **200**
 
 ```json
-{ "data": { "enqueued": 42 }, "meta": { "version": "…" } }
+{ "data": { "enqueued": 42 }, "meta": { "version": "…", "count": 1, "total": 1 } }
 ```
 
 Jobs are inserted one at a time, not in a transaction; a failure part-way returns
@@ -2631,7 +2635,7 @@ next attempt overwrites or clears it.
 **Response:** **200** — the row as updated
 
 ```json
-{ "data": { "id": "6f1c…", "status": "pending" }, "meta": { "version": "…" } }
+{ "data": { "id": "6f1c…", "status": "pending" }, "meta": { "version": "…", "count": 1, "total": 1 } }
 ```
 
 The update repeats the `status = 'failed'` condition, so a concurrent change
@@ -2689,7 +2693,7 @@ const listQuery = z.object({
       "created_at": 1710000000000
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -2769,7 +2773,7 @@ const query = z.object({
       "email_masked": "a•••@example.com"
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
@@ -2844,7 +2848,7 @@ const listQuery = z.object({
       "partner_count": 2
     }
   ],
-  "meta": { "version": "…", "count": 1 }
+  "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
 
