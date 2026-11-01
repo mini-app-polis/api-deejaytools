@@ -17,7 +17,7 @@ async def test_the_division_list_is_public_and_comes_from_domain(
             "groups": [list(group) for group in DIVISION_GROUPS],
             "divisions": list(DIVISIONS),
         },
-        "meta": {"version": "v1"},
+        "meta": {"version": "v1", "count": 1, "total": 1},
     }
 
 

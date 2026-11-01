@@ -176,7 +176,11 @@ async def test_staff_find_the_events_people_and_only_them(
         )
         assert res.status_code == 200, (role, res.text)
         body = res.json()
-        assert body["meta"] == {"version": "v1", "count": len(connected)}
+        assert body["meta"] == {
+            "version": "v1",
+            "count": len(connected),
+            "total": len(connected),
+        }
         # By name: the Zeldas by last name, then Zeldo.
         assert [p["user_id"] for p in body["data"]] == connected, role
         assert w["nobody"] not in res.text

@@ -24,10 +24,9 @@ from ..auth import Caller, require_scope
 from ..clock import now_ms
 from ..database import get_db_session
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     error_body,
     success,
@@ -76,18 +75,16 @@ class PartnershipData(BaseModel):
     updated_at: int = Field(..., description="Last updated, epoch ms.")
 
 
-class PartnershipResponse(BaseModel):
+class PartnershipResponse(Envelope[PartnershipData]):
     """One managed partnership."""
 
     data: PartnershipData = Field(..., description="The partnership.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
-class PartnershipListResponse(BaseModel):
+class PartnershipListResponse(Envelope[list[PartnershipData]]):
     """The caller's live managed partnerships, newest first."""
 
     data: list[PartnershipData] = Field(..., description="The partnerships.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 def map_managed_partnership(row: ManagedPartnership) -> dict[str, Any]:

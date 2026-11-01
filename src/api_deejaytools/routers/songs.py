@@ -16,7 +16,7 @@ import sentry_sdk
 from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,10 +25,9 @@ from ..auth import Caller, require_scope
 from ..clock import now_ms
 from ..database import get_db_session
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     error_body,
     success,
@@ -111,18 +110,16 @@ class PatchSongBody(ZodModel):
     season_year: str | None = Field(None, description="Season year.")
 
 
-class SongResponse(BaseModel):
+class SongResponse(Envelope[SongData]):
     """One song."""
 
     data: SongData = Field(..., description="The song.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
-class SongListResponse(BaseModel):
+class SongListResponse(Envelope[list[SongData]]):
     """The caller's live songs and those shared with them, newest first."""
 
     data: list[SongData] = Field(..., description="The songs.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 def _blank_to_none(value: str | None) -> str | None:

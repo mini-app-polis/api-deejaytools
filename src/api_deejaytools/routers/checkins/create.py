@@ -27,9 +27,9 @@ from ...clock import now_ms
 from ...database import get_db_session
 from ...db_errors import driver_message
 from ...errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    Meta,
     api_error,
     bad_request,
     conflict,
@@ -135,11 +135,10 @@ class CheckinCreatedData(BaseModel):
     )
 
 
-class CheckinCreatedResponse(BaseModel):
+class CheckinCreatedResponse(Envelope[CheckinCreatedData]):
     """Check-in created."""
 
     data: CheckinCreatedData = Field(..., description="The check-in.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 @router.post(

@@ -67,7 +67,10 @@ async def test_admin_grants_and_lists(
 
     listed = await client.get(f"/v1/events/{event_id}/staff", headers=admin.headers)
     assert listed.status_code == 200
-    assert listed.json() == {"data": [grant], "meta": {"version": "v1", "count": 1}}
+    assert listed.json() == {
+        "data": [grant],
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
 
     # One explicit grant per scope of the role, on this event only, never a
     # principal role.
@@ -235,7 +238,10 @@ async def test_revoke_removes_access(
         _url(event_id, manager.id, "event-manager"), headers=admin.headers
     )
     assert res.status_code == 200
-    assert res.json() == {"data": {"deleted": True}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"deleted": True},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     assert await _explicit(db, manager.id) == set()
     assert (
         await _grant(client, manager, event_id, carol.id, "coordinator")

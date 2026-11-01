@@ -17,7 +17,7 @@ from sqlalchemy.orm import aliased
 from ..auth import Caller, require_scope
 from ..database import get_db_session
 from ..domain import full_name
-from ..errors import ErrorResponse, ListMeta, success_list
+from ..errors import Envelope, ErrorResponse, success_list
 from ..labels import build_structured_song_label, partnership_label
 from ..models import ManagedPartnership, Partner, Song, User
 from ..song_records import is_legacy_song
@@ -77,11 +77,10 @@ class AdminSongData(BaseModel):
     partner: AdminSongPartner | None = Field(None, description="The partner, if any.")
 
 
-class AdminSongListResponse(BaseModel):
+class AdminSongListResponse(Envelope[list[AdminSongData]]):
     """Every song, newest first."""
 
     data: list[AdminSongData] = Field(..., description="The songs.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 @router.get(

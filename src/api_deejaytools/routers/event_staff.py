@@ -32,10 +32,9 @@ from ..auth import (
 )
 from ..database import get_db_session
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     success,
     success_list,
@@ -66,18 +65,16 @@ class StaffGrantData(BaseModel):
     granted_at: int = Field(..., description="Granted, epoch ms.")
 
 
-class StaffGrantResponse(BaseModel):
+class StaffGrantResponse(Envelope[StaffGrantData]):
     """One staff grant."""
 
     data: StaffGrantData = Field(..., description="The grant.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
-class StaffListResponse(BaseModel):
+class StaffListResponse(Envelope[list[StaffGrantData]]):
     """An event's staff, by role, then oldest grant first."""
 
     data: list[StaffGrantData] = Field(..., description="The grants.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 class RevokedData(BaseModel):
@@ -86,11 +83,10 @@ class RevokedData(BaseModel):
     deleted: bool = Field(..., description="Always true.")
 
 
-class RevokedResponse(BaseModel):
+class RevokedResponse(Envelope[RevokedData]):
     """Revoke confirmation envelope."""
 
     data: RevokedData = Field(..., description="Confirmation.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 class DriveFolderData(BaseModel):
@@ -104,11 +100,10 @@ class DriveFolderData(BaseModel):
     )
 
 
-class DriveFolderResponse(BaseModel):
+class DriveFolderResponse(Envelope[DriveFolderData]):
     """The event's Drive folder envelope."""
 
     data: DriveFolderData = Field(..., description="The folder.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 DRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/{folder_id}"

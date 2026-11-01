@@ -77,7 +77,7 @@ async def test_a_coordinator_sees_their_event_and_only_theirs(
     res = await client.get(_url(event_a), headers=coordinator.headers)
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["meta"] == {"version": "v1", "count": 2}
+    assert body["meta"] == {"version": "v1", "count": 2, "total": 2}
     assert [r["id"] for r in body["data"]] == ["s_a2", "s_a1"]
     assert {(r["event_id"], r["event_name"], r["division"]) for r in body["data"]} == {
         (event_a, "A", "Classic")

@@ -38,10 +38,9 @@ from ..clock import now_ms
 from ..database import get_db_session
 from ..domain import ms_to_date_in_zone
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     bad_request,
     error_body,
@@ -179,25 +178,22 @@ class SessionData(BaseModel):
     queue_depth: QueueDepth = Field(..., description="Queue sizes.")
 
 
-class SessionResponse(BaseModel):
+class SessionResponse(Envelope[SessionData]):
     """One session. Optional-caller and event fields appear only when present."""
 
     data: SessionData = Field(..., description="The session.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
-class SessionListResponse(BaseModel):
+class SessionListResponse(Envelope[list[SessionData]]):
     """Sessions, newest date first."""
 
     data: list[SessionData] = Field(..., description="The sessions.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
-class DeletedResponse(BaseModel):
+class DeletedResponse(Envelope[dict[str, bool]]):
     """Delete confirmation envelope."""
 
     data: dict[str, bool] = Field(..., description="{'deleted': true}.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 def derive_status(row: Session, now: int) -> str:

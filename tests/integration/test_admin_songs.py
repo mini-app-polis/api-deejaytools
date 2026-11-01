@@ -90,7 +90,7 @@ async def test_shape_order_and_partners(
     res = await client.get(URL, headers=admin.headers)
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["meta"] == {"version": "v1", "count": 3}
+    assert body["meta"] == {"version": "v1", "count": 3, "total": 3}
     assert [s["id"] for s in body["data"]] == [with_partner, legacy, placeholder]
     first, second, third = body["data"]
     assert first == {

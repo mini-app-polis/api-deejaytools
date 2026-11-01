@@ -27,10 +27,9 @@ from ..clock import now_ms
 from ..database import get_db_session
 from ..db_errors import driver_message
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     conflict,
     success,
@@ -104,11 +103,10 @@ class InjectedData(BaseModel):
     pair: InjectedPair = Field(..., description="The synthetic pair.")
 
 
-class InjectedResponse(BaseModel):
+class InjectedResponse(Envelope[InjectedData]):
     """Injection created."""
 
     data: InjectedData = Field(..., description="The injection.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 class TestInjectionData(BaseModel):
@@ -127,18 +125,16 @@ class TestInjectionData(BaseModel):
     position: int | None = Field(None, description="Queue position when queued.")
 
 
-class TestInjectionListResponse(BaseModel):
+class TestInjectionListResponse(Envelope[list[TestInjectionData]]):
     """Synthetic injections, newest pair first."""
 
     data: list[TestInjectionData] = Field(..., description="The injections.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
-class DeletedCountResponse(BaseModel):
+class DeletedCountResponse(Envelope[dict[str, int]]):
     """How many synthetic users were removed."""
 
     data: dict[str, int] = Field(..., description="{'deleted': n}.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 AUTH: dict[int | str, dict[str, Any]] = {

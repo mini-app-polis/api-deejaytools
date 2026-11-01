@@ -14,7 +14,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from ..domain import DIVISION_GROUPS, DIVISIONS
-from ..errors import Meta, success
+from ..errors import Envelope, success
 
 router = APIRouter(prefix="/v1/divisions", tags=["divisions"])
 
@@ -30,11 +30,10 @@ class DivisionsData(BaseModel):
     )
 
 
-class DivisionsResponse(BaseModel):
+class DivisionsResponse(Envelope[DivisionsData]):
     """The division list."""
 
     data: DivisionsData = Field(..., description="The divisions.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 @router.get(

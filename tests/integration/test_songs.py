@@ -165,7 +165,7 @@ async def test_list_joins_names_and_filters(
 
     res = await client.get("/v1/songs", headers=alice.headers)
     data = res.json()["data"]
-    assert res.json()["meta"] == {"version": "v1", "count": 3}
+    assert res.json()["meta"] == {"version": "v1", "count": 3, "total": 3}
     assert [s["id"] for s in data] == [legacy, managed, old]
     assert data[0]["is_legacy"] is True
     assert data[0]["display_name"] == "[Legacy] Old Tune"

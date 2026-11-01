@@ -30,9 +30,9 @@ from ..auth import (
 from ..database import get_db_session
 from ..db_errors import is_unique_violation
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    Meta,
     api_error,
     success,
     user_not_synced,
@@ -95,11 +95,10 @@ class UserData(BaseModel):
     updated_at: int = Field(..., description="Last updated, epoch milliseconds.")
 
 
-class UserResponse(BaseModel):
+class UserResponse(Envelope[UserData]):
     """Success envelope carrying one user."""
 
     data: UserData = Field(..., description="The caller's record.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 class EventRoleData(BaseModel):
@@ -121,11 +120,10 @@ class MeData(UserData):
     )
 
 
-class MeResponse(BaseModel):
+class MeResponse(Envelope[MeData]):
     """Success envelope carrying the caller's record and event roles."""
 
     data: MeData = Field(..., description="The caller's record.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 def _user_data(row: User, role: Literal["user", "admin"]) -> dict[str, Any]:

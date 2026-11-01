@@ -59,7 +59,10 @@ async def test_without_a_key_it_is_accepted_and_nothing_is_sent(
         URL, json={"type": "bug", "subject": "Queue froze", "message": "Stopped."}
     )
     assert res.status_code == 201
-    assert res.json() == {"data": None, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": None,
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     assert brevo.routes["brevo"].call_count == 0
 
 
@@ -78,7 +81,10 @@ async def test_with_a_key_it_emails_the_feedback(
         },
     )
     assert res.status_code == 201, res.text
-    assert res.json() == {"data": None, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": None,
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
 
     request, payload = _sent(brevo)
     assert request.method == "POST"
@@ -119,7 +125,10 @@ async def test_without_both_addresses_it_is_accepted_and_nothing_is_sent(
         URL, json={"type": "bug", "subject": "Queue froze", "message": "Stopped."}
     )
     assert res.status_code == 201, res.text
-    assert res.json() == {"data": None, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": None,
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     assert brevo.routes["brevo"].call_count == 0
 
 

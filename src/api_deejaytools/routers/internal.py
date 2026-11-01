@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 
 from ..config import get_settings
-from ..errors import ErrorResponse, Meta, forbidden, success
+from ..errors import Envelope, ErrorResponse, forbidden, success
 from ..services import scheduler
 
 router = APIRouter(tags=["internal"])
@@ -47,11 +47,10 @@ class Ticked(BaseModel):
     ticked: bool = Field(True, description="Always true once the pass has run.")
 
 
-class TickResponse(BaseModel):
+class TickResponse(Envelope[Ticked]):
     """The success envelope around ``Ticked``."""
 
     data: Ticked = Field(..., description="The pass's result.")
-    meta: Meta = Field(..., description="Envelope metadata.")
 
 
 def _secret_matches(given: str | None) -> bool:

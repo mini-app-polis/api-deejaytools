@@ -6,10 +6,10 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from ...auth import EventRef
-from ...errors import ErrorResponse, Meta
+from ...errors import Envelope, ErrorResponse
 from ...validation import NonEmptyStr, ZodModel
 
 # The event an action is decided on (ADR-0012): the body's queue entry's. The
@@ -35,11 +35,10 @@ class EntryActionBody(ZodModel):
     reason: str | None = Field(None, description="Recorded on the audit row.")
 
 
-class ActionResponse(BaseModel):
+class ActionResponse(Envelope[dict[str, bool]]):
     """Action confirmation: {'promoted'|'completed'|'rotated'|'moved'|'withdrawn': true}."""
 
     data: dict[str, bool] = Field(..., description="Which action succeeded.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
 MANAGE: dict[int | str, dict[str, Any]] = {

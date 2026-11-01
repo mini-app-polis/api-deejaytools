@@ -25,10 +25,9 @@ from ..database import get_db_session
 from ..db_errors import is_unique_violation
 from ..errors import (
     ApiError,
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     error_body,
     success,
@@ -77,18 +76,16 @@ class TeamData(BaseModel):
     updated_at: int = Field(..., description="Last updated, epoch ms.")
 
 
-class TeamResponse(BaseModel):
+class TeamResponse(Envelope[TeamData]):
     """One team."""
 
     data: TeamData = Field(..., description="The team.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
-class TeamListResponse(BaseModel):
+class TeamListResponse(Envelope[list[TeamData]]):
     """The caller's teams, newest first."""
 
     data: list[TeamData] = Field(..., description="The teams.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 def map_team(row: Team) -> dict[str, Any]:

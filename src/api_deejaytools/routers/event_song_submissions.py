@@ -27,10 +27,9 @@ from ..database import get_db_session
 from ..db_errors import is_unique_violation
 from ..domain import song_entity_key
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     error_body,
     success,
@@ -105,18 +104,16 @@ class ListedSubmissionData(SubmissionData):
     )
 
 
-class SubmissionResponse(BaseModel):
+class SubmissionResponse(Envelope[SubmissionData]):
     """One submission."""
 
     data: SubmissionData = Field(..., description="The submission.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
-class SubmissionListResponse(BaseModel):
+class SubmissionListResponse(Envelope[list[ListedSubmissionData]]):
     """The caller's and their shared songs' submissions, newest first."""
 
     data: list[ListedSubmissionData] = Field(..., description="The submissions.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 def _internal() -> JSONResponse:

@@ -2,16 +2,18 @@
 
 Shapes (docs/API.md, ADR-0010):
 
-    success       {"data": <object>, "meta": {"version": "v1"}}
-    success list  {"data": [...],    "meta": {"version": "v1", "count": n}}
+    success       {"data": <object>, "meta": {"version": "v1", "count": 1, "total": 1}}
+    success list  {"data": [...],    "meta": {"version": "v1", "count": n, "total": n}}
     error         {"error": {"code": "...", "message": "..."}}
 
-These are the web app's shapes rather than common-python-utils'
-``Envelope`` / ``ErrorEnvelope`` (XSTACK-005): the shared ``Meta`` requires
-``count`` and ``total`` on every response and ``ErrorDetail`` carries a
-``details`` key, and the web app must see exactly what it sees today.
-``meta.version`` is the literal ``"v1"`` that common-typescript-utils
-writes, not the package version.
+Both are common-python-utils' models (XSTACK-002): every success response
+model is an ``Envelope[...]`` and every failure an ``ErrorEnvelope``. The
+shared ``Meta`` requires ``count`` and ``total`` on every response, so a
+single object reports 1 and 1, and a list its length for both: no route
+pages, so ``total`` is what was returned (a capped list, such as recent
+Drive jobs, reports the items under its cap). ``meta.version`` is the
+literal ``"v1"`` that common-typescript-utils writes, not the package
+version.
 
 Error codes are the web app's, not the Python house style: upper case
 for most, and the mixed-case ones docs/API.md lists. Normalizing them is a later
@@ -27,10 +29,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from mini_app_polis import activity
+from mini_app_polis.api.contract.envelope import Envelope as Envelope
 from mini_app_polis.api.contract.envelope import ErrorEnvelope
 from mini_app_polis.environment import is_production
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
-from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -52,31 +54,23 @@ class ErrorCode:
     EMAIL_BELONGS_TO_ANOTHER_ACCOUNT = "EMAIL_BELONGS_TO_ANOTHER_ACCOUNT"
 
 
-class Meta(BaseModel):
-    """Metadata on a single-object response."""
-
-    version: str = Field(API_VERSION, description="API version, always 'v1'.")
-
-
-class ListMeta(Meta):
-    """Metadata on a list response."""
-
-    count: int = Field(..., ge=0, description="Number of items in data.")
-
-
 #: The error envelope every failure answers with: the fleet's shared model
 #: (XSTACK-002). This service never sends its optional ``details``.
 ErrorResponse = ErrorEnvelope
 
+# ``Envelope`` is imported above as an explicit re-export: every success
+# response model derives from it, as ``Envelope[<data model>]``.
+
 
 def success(data: Any) -> dict[str, Any]:
-    """Wrap one object in the success envelope."""
-    return {"data": data, "meta": {"version": API_VERSION}}
+    """Wrap one object in the success envelope: ``count`` and ``total`` are 1."""
+    return {"data": data, "meta": {"version": API_VERSION, "count": 1, "total": 1}}
 
 
 def success_list(items: list[Any]) -> dict[str, Any]:
-    """Wrap a list in the success envelope, with ``meta.count``."""
-    return {"data": items, "meta": {"version": API_VERSION, "count": len(items)}}
+    """Wrap a list in the success envelope: ``count`` and ``total`` are its length."""
+    n = len(items)
+    return {"data": items, "meta": {"version": API_VERSION, "count": n, "total": n}}
 
 
 def error_body(code: str, message: str) -> dict[str, Any]:

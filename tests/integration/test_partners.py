@@ -51,7 +51,10 @@ async def test_create_and_read(client: httpx.AsyncClient, person: Callable) -> N
     }
     assert isinstance(created["created_at"], int)
     one = await client.get(f"/v1/partners/{created['id']}", headers=alice.headers)
-    assert one.json() == {"data": created, "meta": {"version": "v1"}}
+    assert one.json() == {
+        "data": created,
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
 
 
 async def test_validation(client: httpx.AsyncClient, person: Callable) -> None:
@@ -83,7 +86,7 @@ async def test_list_is_own_partners_by_name_without_placeholders(
         alice.id,
     )
     res = await client.get("/v1/partners", headers=alice.headers)
-    assert res.json()["meta"] == {"version": "v1", "count": 3}
+    assert res.json()["meta"] == {"version": "v1", "count": 3, "total": 3}
     assert [p["display_name"] for p in res.json()["data"]] == [
         "Cal Adams",
         "Amy Brown",
@@ -179,7 +182,7 @@ async def test_find_or_create_pair(
     assert first.status_code == 201
     assert first.json() == {
         "data": {"id": first.json()["data"]["id"]},
-        "meta": {"version": "v1"},
+        "meta": {"version": "v1", "count": 1, "total": 1},
     }
     again = await client.post(
         "/v1/pairs/find-or-create", json={"partner_id": pid}, headers=alice.headers
@@ -237,7 +240,7 @@ async def test_associations(
             "has_active_checkin": False,
             "has_checkin_history": False,
         },
-        "meta": {"version": "v1"},
+        "meta": {"version": "v1", "count": 1, "total": 1},
     }
 
     song = await insert_song(db, alice.id, partner_id=pid)

@@ -38,10 +38,9 @@ from ..auth import ROLE_ADMIN, Caller, ensure_principal, require_scope
 from ..config import get_settings
 from ..database import get_db_session
 from ..errors import (
+    Envelope,
     ErrorCode,
     ErrorResponse,
-    ListMeta,
-    Meta,
     api_error,
     success,
     success_list,
@@ -100,25 +99,22 @@ class AdminUserData(BaseModel):
     partner_count: int = Field(..., description="Partners of kind 'partner'.")
 
 
-class AdminUserResponse(BaseModel):
+class AdminUserResponse(Envelope[AdminUserData]):
     """One user."""
 
     data: AdminUserData = Field(..., description="The user.")
-    meta: Meta = Field(..., description="Response metadata.")
 
 
-class AdminUserListResponse(BaseModel):
+class AdminUserListResponse(Envelope[list[AdminUserData]]):
     """Every user, oldest first."""
 
     data: list[AdminUserData] = Field(..., description="The users.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
-class UserSubmissionListResponse(BaseModel):
+class UserSubmissionListResponse(Envelope[list[SubmissionData]]):
     """The target user's submissions to an event, newest first."""
 
     data: list[SubmissionData] = Field(..., description="The submissions.")
-    meta: ListMeta = Field(..., description="Response metadata.")
 
 
 UserId = Annotated[str, Path(description="Target users.id.")]

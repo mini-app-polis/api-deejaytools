@@ -46,9 +46,12 @@ async def test_create_and_read_back(
 
     one = await client.get(f"/v1/events/{created['id']}")  # public: no token
     assert one.status_code == 200
-    assert one.json() == {"data": created, "meta": {"version": "v1"}}
+    assert one.json() == {
+        "data": created,
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     listed = (await client.get("/v1/events")).json()
-    assert listed["meta"] == {"version": "v1", "count": 1}
+    assert listed["meta"] == {"version": "v1", "count": 1, "total": 1}
 
 
 async def test_season_year_rolls_over_in_october(
@@ -315,7 +318,10 @@ async def test_delete_cascades_and_queues_copies_for_trash(
 
     res = await client.delete(f"/v1/events/{event['id']}", headers=admin.headers)
 
-    assert res.json() == {"data": {"deleted": True}, "meta": {"version": "v1"}}
+    assert res.json() == {
+        "data": {"deleted": True},
+        "meta": {"version": "v1", "count": 1, "total": 1},
+    }
     for table in (
         "events",
         "sessions",
