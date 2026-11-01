@@ -12,8 +12,8 @@ shared ``Meta`` requires ``count`` and ``total`` on every response, so a
 single object reports 1 and 1, and a list its length for both: no route
 pages, so ``total`` is what was returned (a capped list, such as recent
 Drive jobs, reports the items under its cap). ``meta.version`` is the
-literal ``"v1"`` that common-typescript-utils writes, not the package
-version.
+literal ``"v1"`` that the web app's envelope schema requires, not the
+package version.
 
 Error codes are the web app's, not the Python house style: upper case
 for most, and the mixed-case ones docs/API.md lists. Normalizing them is a later

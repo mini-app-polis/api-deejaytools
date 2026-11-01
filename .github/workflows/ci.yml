@@ -106,6 +106,29 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm typecheck
 
+      # The web app's endpoint catalog against this change's OpenAPI
+      # document, docs/openapi.json (the unit tests fail when it is stale).
+      # deejaytools.com owns the check, src/contract/apiSnapshot.test.ts, and
+      # keeps a copy of the document for its own pull requests; this runs the
+      # check from its dev branch with this change's document in place of that
+      # copy, so a change that would break the web app fails here, before it
+      # merges. It reuses the pnpm and Node set up above. No credentials: both
+      # repositories are public.
+      - name: Check out the web app
+        uses: actions/checkout@v7
+        with:
+          repository: mini-app-polis/deejaytools-com
+          ref: dev
+          path: deejaytools-com
+          persist-credentials: false
+
+      - name: Check the web app's schemas against this document
+        working-directory: deejaytools-com
+        run: |
+          pnpm install --frozen-lockfile
+          cp ../docs/openapi.json src/contract/api-deejaytools.openapi.json
+          pnpm exec vitest run src/contract/apiSnapshot.test.ts
+
       - name: Conformance
         env:
           DEEJAYTOOLS_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/conformance_test
@@ -123,46 +146,8 @@ jobs:
           INTEGRATION_TICK_SECRET="$TICK_SECRET" \
             pnpm test
 
-  # The web app's endpoint catalog against this change's OpenAPI document,
-  # docs/openapi.json (the unit tests fail when it is stale). deejaytools.com
-  # owns the check, src/contract/apiSnapshot.test.ts, and keeps a copy of the
-  # document for its own pull requests; this runs the check from its dev
-  # branch with this change's document in place of that copy, so a change
-  # that would break the web app fails here, before it merges. No deploy and
-  # no credentials: both repositories are public.
-  web-app-schemas:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/checkout@v7
-        with:
-          repository: mini-app-polis/deejaytools-com
-          ref: dev
-          path: deejaytools-com
-          persist-credentials: false
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          package_json_file: deejaytools-com/package.json
-
-      - name: Set up Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          cache: pnpm
-          cache-dependency-path: deejaytools-com/pnpm-lock.yaml
-
-      - name: Check the web app's schemas against this document
-        working-directory: deejaytools-com
-        run: |
-          pnpm install --frozen-lockfile
-          cp ../docs/openapi.json src/contract/api-deejaytools.openapi.json
-          pnpm exec vitest run src/contract/apiSnapshot.test.ts
-
   release:
-    needs: [test, security, web-app-schemas]
+    needs: [test, security]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: write
