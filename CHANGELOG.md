@@ -1,3 +1,11 @@
+# [1.22.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.21.0...v1.22.0) (2026-11-01)
+
+
+### Features
+
+* **api:** answer successes in the shared Envelope, with count and total ([8b6ce7e](https://github.com/mini-app-polis/api-deejaytools/commit/8b6ce7e3cd21119f1dbf3de0b04f83763dbf78e2))
+* **api:** commit the OpenAPI document as a contract snapshot ([059ba18](https://github.com/mini-app-polis/api-deejaytools/commit/059ba184143a1281b243b8c65bc49208da4bdaea))
+
 # [1.21.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.20.1...v1.21.0) (2026-10-31)
 
 
