@@ -3,24 +3,17 @@
 
 type: api-service
 
-deferrals:
-  - rule: XSTACK-002
-    reason: "Errors use the shared ErrorEnvelope. Successes keep this service's own meta: {version} on an object, {version, count} on a list. The shared Meta requires count and total on every response, and the web app's schemas check this API's responses strictly, so adopting it is a coordinated change to both repos, not a swap of models."
-    until: null
-
 layout_exceptions:
   - path: conformance
     reason: "The frozen conformance suite (docs/CONFORMANCE.md): the retired service's integration tests, run against this service to show it answers the same wire contract. Only this repo replaced a service on the same contract, so no other repo carries one."
 
 exemptions:
-  - rule: API-011
-    reason: "Database migrations are numbered raw SQL files under migrations/ (001_baseline.sql onward), not Alembic, applied on every deploy by scripts/apply_migrations.py from the image's CMD (Dockerfile) and tracked in a schema_migrations table. The runner is api-kaianolevine-com's (api-kaianolevine-com ADR-0001 and ADR-0005), adopted for this service by ADR-0009. 001_baseline.sql is the schema deejaytools-api's drizzle migrations built, adopted in production without being run; CI checks it against drizzle's result on every run (scripts/check_baseline.sh). The check's 'alembic upgrade head' requirement does not apply to this migration pattern; the runner provides the equivalent guarantee."
-
   - rule: API-006
     reason: "events, sessions, session_divisions, event_division_run_limits, queue_entries, queue_events, runs and drive_jobs are shared operational data: admin-managed floor-trial and Drive-job state, written only under admin scopes (deejaytools.events.write, deejaytools.sessions.write, deejaytools.queue.manage, deejaytools.drivejobs.write), those same scopes held on one event by its staff (ADR-0012), or by the scheduler, and read by every attendee of an event. They fit none of API-006's three ownership patterns; created_by and actor_user_id are recorded for audit, not authorization. song_uploads (migration 003) is this service's internal build staging: one row per song, keyed by song_id and owned through songs.user_id, written by the upload route under the caller's deejaytools.songs.write scope and by the scheduler, and never read or listed over the API. event_staff_grants (migration 007) is likewise shared operational data: an event's staff list, written only under deejaytools.staff.write. Tables a person owns keep pattern 1, user_id holding the Clerk subject, which is the principal's subject. See ADR-0005, ADR-0008 and ADR-0012."
 
   - rule: API-004
-    reason: "GET /internal/tick is intentionally unversioned: operators, monitors and the conformance suite call it at that stable path to force one scheduler pass. It is gated by TICK_SECRET (x-tick-secret header), not Clerk, and fails closed when the secret is unset. GET / is a redirect to /docs (Swagger UI), as in api-kaianolevine-com, and GET /health and GET /version are liveness and deploy probes; all three are intentionally public and unversioned (routers/meta.py). All substantive routes are under /v1/. See ADR-0008 and ADR-0010."
+    routes: [/internal/tick]
+    reason: "GET /internal/tick is intentionally unversioned: operators, monitors and the conformance suite call it at that stable path to force one scheduler pass. It is gated by TICK_SECRET (x-tick-secret header), not Clerk, and fails closed when the secret is unset. All substantive routes are under /v1/. See ADR-0008 and ADR-0010."
 
   - rule: CD-030
     reason: "Not applicable: this API has no machine callers. Its one caller is the deejaytools.com web app, which sends Clerk session JWTs; there is no machine-key set to configure, and the only verifier is Clerk's for the one trusted issuer. CD-029 still applies and is graded. See ADR-0004 and ADR-0008. If a machine caller is ever planned, remove this exemption and add a named-key verifier in src/api_deejaytools/auth.py."
