@@ -1,3 +1,10 @@
+## [1.22.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.22.1...v1.22.2) (2026-11-01)
+
+
+### Bug Fixes
+
+* **meta:** answer the catch-all OPTIONS route under /v1/ only ([382b870](https://github.com/mini-app-polis/api-deejaytools/commit/382b870559cc60fbf94e021438890dab7988dbcf))
+
 ## [1.22.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.22.0...v1.22.1) (2026-11-01)
 
 
