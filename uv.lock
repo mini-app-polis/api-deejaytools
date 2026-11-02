@@ -1310,7 +1310,7 @@ wheels = [
 
 [[package]]
 name = "miniapppolis-common-utils"
-version = "7.8.1"
+version = "7.8.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-python-client" },
@@ -1327,9 +1327,9 @@ dependencies = [
     { name = "spotipy" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/84/3c/aa1460dc26a36e7beca122996ad701b35b45472c7364ae0eb4f9c97f0d37/miniapppolis_common_utils-7.8.1.tar.gz", hash = "sha256:d3e915b2de8ce962811e414052e2855a5db79f33b643420212fffa9a7ee49834", size = 491255, upload-time = "2026-11-01T01:15:08.597Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ae/11/efe7e141b1a7063e4acfa982b14018362f91531b53e81cac1671ccf21b71/miniapppolis_common_utils-7.8.3.tar.gz", hash = "sha256:52c328b64e9d2faa0acdcddaf8abcb3ea344dc1874b18782788dbf902ad50883", size = 488214, upload-time = "2026-11-02T02:45:26.294Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/d2/f486277ae2f8a96637e5988adc612cb57780367931040834296dee6e846f/miniapppolis_common_utils-7.8.1-py3-none-any.whl", hash = "sha256:7b85bcc756f66bf1197f9c40d966b998d5b82d2fd17f4a7fb0f2ac9c4e9c33e7", size = 223898, upload-time = "2026-11-01T01:15:07.136Z" },
+    { url = "https://files.pythonhosted.org/packages/54/ac/67833e284c7977713a21033d5bbb33ded2897c5405d46b7294848cb48792/miniapppolis_common_utils-7.8.3-py3-none-any.whl", hash = "sha256:6771ec0f50a086ebffee3093160bb4d22009f4f2edc286b8efb67f9d1828d059", size = 224476, upload-time = "2026-11-02T02:45:25.05Z" },
 ]
 
 [package.optional-dependencies]
@@ -1816,15 +1816,15 @@ wheels = [
 
 [[package]]
 name = "pytest-asyncio"
-version = "1.4.0"
+version = "1.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/43/7c/d36d04db312ecf4298932ef77e6e4a9e8ad017906e24e34f0b0c361a2473/pytest_asyncio-1.4.0.tar.gz", hash = "sha256:c6c0d2259945122819f171a32ecea2c349ead889ee28176caaf492143424be42", size = 58514, upload-time = "2026-05-26T09:56:04.083Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/9a/887535e477847f5159377ab35303923644840b13c0ca03c0a467f84d4680/pytest_asyncio-1.4.1.tar.gz", hash = "sha256:e8266eb094e5ee9ffdb2068c9836f33e209ea77a970eb846933d416b5602669b", size = 145237, upload-time = "2026-10-25T21:05:37.135Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/03/e2/08a497ef684b88559c9cc5f4ad53a37e7b99e727094a86d6ea32536d5d3c/pytest_asyncio-1.4.0-py3-none-any.whl", hash = "sha256:933ca923a23075a87fb7070c0ec272a6848489824d887c85c812670932835aa1", size = 16930, upload-time = "2026-05-26T09:56:02.576Z" },
+    { url = "https://files.pythonhosted.org/packages/46/d7/cd9e2708afdbf059658adaf08bdb0792ca52489871051d6ce7d498b51277/pytest_asyncio-1.4.1-py3-none-any.whl", hash = "sha256:507afa78ec77c6661164ef1a2368bc7820383fd1a14b2a7f813de8b5a92949cc", size = 17061, upload-time = "2026-10-25T21:05:35.473Z" },
 ]
 
 [[package]]
