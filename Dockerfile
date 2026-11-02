@@ -10,6 +10,11 @@
 # which declares the rest of the service's settings, deliberately does not
 # repeat it (CD-017 accepts either, not both). It is wrapped in /bin/sh -c
 # for the `&&` and $PORT.
+#
+# uvicorn reads its worker count from WEB_CONCURRENCY, which defaults here to
+# the 4 CPUs .railway/railway.ts allows. Change it with that setting, and
+# resize the pool in database.py with it (docs/OPERATIONS.md, "Workers and
+# database connections").
 
 FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 
@@ -20,6 +25,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
     PYTHONUNBUFFERED=1 \
+    WEB_CONCURRENCY=4 \
     PATH="/app/.venv/bin:${PATH}"
 
 # Dependencies first, so a code-only change reuses this layer. The version
