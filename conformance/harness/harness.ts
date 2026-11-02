@@ -65,7 +65,14 @@ let requestCounter = 0;
 export async function request<T = any>(
   method: string,
   path: string,
-  opts: { token?: string | null; body?: Json; form?: FormData; headers?: Record<string, string> } = {}
+  opts: {
+    token?: string | null;
+    body?: Json;
+    /** Sent as is under a JSON content type, for bodies that do not parse. */
+    rawJson?: string;
+    form?: FormData;
+    headers?: Record<string, string>;
+  } = {}
 ): Promise<ApiResponse<T>> {
   requestCounter += 1;
   const headers: Record<string, string> = {
@@ -73,13 +80,16 @@ export async function request<T = any>(
     "x-forwarded-for": `10.${(requestCounter >> 16) & 255}.${(requestCounter >> 8) & 255}.${requestCounter & 255}`,
   };
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
-  if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+  if (opts.body !== undefined || opts.rawJson !== undefined) headers["Content-Type"] = "application/json";
   recordHit(method, path);
   // A multipart form sets its own Content-Type, boundary included.
   const init: RequestInit = {
     method,
     headers,
-    body: opts.form ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body)),
+    body:
+      opts.form ??
+      opts.rawJson ??
+      (opts.body === undefined ? undefined : JSON.stringify(opts.body)),
   };
   const res = await fetch(`${baseUrl}${path}`, init);
   const text = await res.text();

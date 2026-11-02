@@ -2,6 +2,7 @@
 
     body limit   every path   11 MiB      413 payload_too_large
     rate limit   /v1/* only   300 / min   429 too_many_requests   per client IP
+                 /v1/feedback 5 / min     (as well as the 300)
     deadline     /v1/* only   30 s        503 request_timeout
                               300 s on /v1/songs/upload/*
 
@@ -33,6 +34,9 @@ logger = get_logger()
 
 BODY_LIMIT_BYTES = 11 * 1024 * 1024
 RATE_LIMIT = 300
+#: Routes with a lower per-address limit of their own, on top of the global one.
+#: Feedback is public and each valid request sends one email.
+PATH_RATE_LIMITS = {"/v1/feedback": 5}
 RATE_WINDOW_SECONDS = 60.0
 DEADLINE_SECONDS = 30.0
 UPLOAD_DEADLINE_SECONDS = 300.0
@@ -200,7 +204,8 @@ def client_address(scope: Scope) -> str:
 
 
 class RateLimitMiddleware:
-    """Fixed window per client address on /v1/*: 300 requests a minute."""
+    """Fixed window per client address on /v1/*: 300 requests a minute, and
+    for the paths in ``path_limits`` a lower limit of their own."""
 
     def __init__(
         self,
@@ -208,9 +213,11 @@ class RateLimitMiddleware:
         limit: int = RATE_LIMIT,
         window_seconds: float = RATE_WINDOW_SECONDS,
         clock: Callable[[], float] = time.monotonic,
+        path_limits: dict[str, int] | None = None,
     ) -> None:
         self.app = app
         self.limit = limit
+        self.path_limits = PATH_RATE_LIMITS if path_limits is None else path_limits
         self.window = window_seconds
         self.clock = clock
         self.windows: dict[str, list[float]] = {}  # key → [window_start, count]
@@ -222,12 +229,12 @@ class RateLimitMiddleware:
             return
         now = self.clock()
         self._prune(now)
-        key = client_address(scope)
-        entry = self.windows.get(key)
-        if entry is None or now - entry[0] >= self.window:
-            self.windows[key] = [now, 1]
-        elif entry[1] >= self.limit:
-            retry_after = math.ceil(entry[0] + self.window - now)
+        address = client_address(scope)
+        retry_after = self._take(address, self.limit, now)
+        path_limit = self.path_limits.get(scope["path"])
+        if retry_after is None and path_limit is not None:
+            retry_after = self._take(f"{scope['path']} {address}", path_limit, now)
+        if retry_after is not None:
             await _send_json(
                 send,
                 429,
@@ -237,9 +244,19 @@ class RateLimitMiddleware:
                 [(b"retry-after", str(retry_after).encode())],
             )
             return
+        await self.app(scope, receive, send)
+
+    def _take(self, key: str, limit: int, now: float) -> int | None:
+        """Count one request against ``key``; None if allowed, else the
+        seconds until its window ends."""
+        entry = self.windows.get(key)
+        if entry is None or now - entry[0] >= self.window:
+            self.windows[key] = [now, 1]
+        elif entry[1] >= limit:
+            return math.ceil(entry[0] + self.window - now)
         else:
             entry[1] += 1
-        await self.app(scope, receive, send)
+        return None
 
     def _prune(self, now: float) -> None:
         """Drop expired windows, at most once a window, so memory stays bounded."""

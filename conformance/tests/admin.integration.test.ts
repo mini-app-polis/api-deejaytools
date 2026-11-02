@@ -47,4 +47,10 @@ describe("admin tools (integration)", () => {
     });
     expect(bad.status).toBe(400);
   });
+
+  it("malformed JSON is a 400 MALFORMED_JSON (the old API answered 500)", async () => {
+    const res = await request("POST", "/v1/feedback", { rawJson: "{nope" });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("MALFORMED_JSON");
+  });
 });
