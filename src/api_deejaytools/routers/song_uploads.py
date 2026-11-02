@@ -33,9 +33,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import UploadFile
 
 from ..auth import Caller, authorize_delegation, require_scope
+from ..clock import now_ms
 from ..database import get_db_session
 from ..domain import song_entity_key
-from ..errors import Envelope, ErrorCode, ErrorResponse, api_error, success
+from ..errors import (
+    Envelope,
+    ErrorCode,
+    ErrorResponse,
+    api_error,
+    bad_request,
+    success,
+)
 from ..models import Event, EventSongSubmission, Partner, Song, SongUpload, Team, User
 from ..services import song_builds
 from ..services.audio_format import detect_audio_format
@@ -215,23 +223,20 @@ async def upload_chunk(
     chunk = form.get("chunk")
     chunk_file = chunk if isinstance(chunk, UploadFile) else None
 
-    def bad(message: str) -> Exception:
-        return api_error(400, ErrorCode.BAD_REQUEST, message)
-
     if not _UUID.fullmatch(upload_id):
-        raise bad("Invalid upload_id")
+        raise bad_request("Invalid upload_id")
     if not division:
-        raise bad("division is required")
+        raise bad_request("division is required")
     if not _is_int(chunk_index) or chunk_index < 0:
-        raise bad("Invalid chunk_index")
+        raise bad_request("Invalid chunk_index")
     if not _is_int(total_chunks) or not 1 <= total_chunks <= 30:
-        raise bad("Invalid total_chunks (max 30)")
+        raise bad_request("Invalid total_chunks (max 30)")
     if chunk_index >= total_chunks:
-        raise bad("chunk_index out of range")
+        raise bad_request("chunk_index out of range")
     if chunk_file is None:
-        raise bad("Missing chunk field")
+        raise bad_request("Missing chunk field")
     if submit_to_event and not (on_behalf_of and event_id):
-        raise bad("submit_to_event needs on_behalf_of_user_id and event_id")
+        raise bad_request("submit_to_event needs on_behalf_of_user_id and event_id")
     # The event the song is submitted to, or None when it is not submitted.
     submit_event_id = event_id if submit_to_event else None
     if on_behalf_of:
@@ -241,11 +246,17 @@ async def upload_chunk(
 
     chunk_bytes = await chunk_file.read()
     if len(chunk_bytes) > MAX_CHUNK_BYTES:
-        raise bad("Chunk exceeds 10 MB limit")
+        raise bad_request("Chunk exceeds 10 MB limit")
 
     # Keyed by the caller, even when uploading for someone else.
     upload_dir = CHUNK_TMP_BASE / f"{caller.user_id}_{upload_id}"
     index, total = int(chunk_index), int(total_chunks)
+    # Every chunk but the last is the same size, so a non-final chunk says
+    # how big the file will at least be: one that is already over the limit
+    # is refused before anything of it is staged.
+    if index != total - 1 and len(chunk_bytes) * (total - 1) + 1 > MAX_ASSEMBLED_BYTES:
+        _remove(upload_dir)
+        raise bad_request("File exceeds 100 MB limit")
 
     def write_chunk() -> str | None:
         """Stage the chunk, or say why not: the staging area is bounded per
@@ -280,13 +291,13 @@ async def upload_chunk(
             "Finish or wait for one before starting another.",
         )
     if refused == "too_large":
-        raise bad("File exceeds 100 MB limit")
+        raise bad_request("File exceeds 100 MB limit")
     if index != total - 1:
         return success({"received": True, "complete": False})
 
     def refuse(message: str) -> Exception:
         _remove(upload_dir)
-        return bad(message)
+        return bad_request(message)
 
     is_portal = entity_type != ""
     if submit_to_event and is_portal:
@@ -394,7 +405,7 @@ async def upload_chunk(
 
     assembled = await asyncio.to_thread(assemble)
     if len(assembled) > MAX_ASSEMBLED_BYTES:
-        raise bad("File exceeds 100 MB limit")
+        raise bad_request("File exceeds 100 MB limit")
     mime_type = detect_audio_format(assembled)
     if mime_type is None:
         raise api_error(
@@ -404,7 +415,7 @@ async def upload_chunk(
             "Please upload an MP3, WAV, FLAC, or M4A.",
         )
 
-    now = int(time.time() * 1000)
+    now = now_ms()
     resolved_partner_id = partner_id
     if is_portal and placeholder_name:
         existing = (

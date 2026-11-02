@@ -295,13 +295,34 @@ async def test_an_upload_over_the_size_limit_is_refused_as_it_grows(
     monkeypatch.setattr(song_uploads, "MAX_ASSEMBLED_BYTES", 25)
     alice = await person("alice")
     upload_id = str(uuid.uuid4())
-    assert (await _send(client, alice, upload_id, 0, 3, b"x" * 20)).status_code == 200
-    # The second chunk takes it past the limit before the file is complete.
-    res = await _send(client, alice, upload_id, 1, 3, b"x" * 10)
+    for index in (0, 1):
+        sent = await _send(client, alice, upload_id, index, 3, b"x" * 12)
+        assert sent.status_code == 200
+    # The last chunk takes it past the limit before the file is assembled.
+    res = await _send(client, alice, upload_id, 2, 3, b"x" * 10)
     assert res.status_code == 400
     assert res.json()["error"]["message"] == "File exceeds 100 MB limit"
     staged = song_uploads.CHUNK_TMP_BASE / f"{alice.id}_{upload_id}"
     assert not staged.exists()
+
+
+async def test_an_upload_declared_over_the_size_limit_is_refused_on_its_first_chunk(
+    client: httpx.AsyncClient, person: Callable, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from api_deejaytools.routers import song_uploads
+
+    monkeypatch.setattr(song_uploads, "MAX_ASSEMBLED_BYTES", 25)
+    alice = await person("alice")
+    upload_id = str(uuid.uuid4())
+    staged = song_uploads.CHUNK_TMP_BASE / f"{alice.id}_{upload_id}"
+    # 3 chunks of 10 bytes and at least 1: over 25, whatever the last holds.
+    res = await _send(client, alice, upload_id, 0, 4, b"x" * 10)
+    assert res.status_code == 400
+    assert res.json()["error"]["message"] == "File exceeds 100 MB limit"
+    assert not staged.exists()
+    # 2 chunks of 12 bytes and at least 1 fits: taken.
+    fits = await _send(client, alice, str(uuid.uuid4()), 0, 3, b"x" * 12)
+    assert fits.status_code == 200
 
 
 async def test_a_caller_has_a_bounded_number_of_uploads_in_progress(
