@@ -216,6 +216,13 @@ async def test_an_upload_on_behalf_is_submitted_to_the_event(
     )
     await song_builds.wait_for_builds()
     assert uploader == w["dj"].id
+    # The build queued the copy with the commit that recorded the file.
+    jobs = await db.fetch(
+        "SELECT kind, submission_id FROM drive_jobs WHERE kind = 'copy'"
+    )
+    assert [(j["kind"], j["submission_id"]) for j in jobs] == [
+        ("copy", submission["id"])
+    ]
 
 
 async def test_a_taken_slot_is_409_and_nothing_is_saved(

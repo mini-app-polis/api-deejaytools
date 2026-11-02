@@ -45,6 +45,7 @@ from ..submissions import (
     entity_slot_taken,
     fetch_user_submission_rows,
     is_open_event,
+    lock_entity_slot,
     map_submission_row,
     slot_taken_message,
 )
@@ -267,6 +268,7 @@ async def create_submission(
     slot_entity = song_entity_key(
         song.user_id, song.partner_id, song.managed_partnership_id
     )
+    await lock_entity_slot(session, event_id=body.event_id, entity=slot_entity)
     if await entity_slot_taken(
         session,
         event_id=body.event_id,

@@ -11,7 +11,7 @@ import re
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -82,6 +82,23 @@ def resolve_submission_filename(
     filename, else the original, else the song id. The same for every event."""
     return (
         js_trim(processed_filename or "") or js_trim(original_filename or "") or song_id
+    )
+
+
+async def lock_entity_slot(
+    session: AsyncSession, *, event_id: str, entity: str
+) -> None:
+    """Serialise slot checks and inserts for one event and entity.
+
+    Takes a transaction-scoped advisory lock, released at commit or rollback:
+    call it before ``entity_slot_taken`` and keep the insert in the same
+    transaction, so two simultaneous submissions cannot both find the slot free.
+    """
+    # Raw SQL on purpose: a transaction-scoped advisory lock is a
+    # Postgres function call the ORM has no construct for.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:slot))"),
+        {"slot": f"event-slot:{event_id}:{entity}"},
     )
 
 

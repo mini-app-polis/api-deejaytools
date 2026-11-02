@@ -25,6 +25,7 @@ from fastapi.routing import APIRoute
 from pydantic import AfterValidator, BeforeValidator, ValidationError
 
 from .domain import DIVISIONS
+from .errors import ErrorCode, api_error
 from .validation import ZodModel
 from .zod_coerce import js_trim
 
@@ -141,14 +142,6 @@ _JSON_CONTENT_TYPE = re.compile(
 )
 
 
-class MalformedJsonError(Exception):
-    """A JSON body that does not parse.
-
-    Not an ``ApiError``: the contract answers malformed JSON as an unhandled
-    error, 500 INTERNAL (with this message outside production).
-    """
-
-
 def _no_constants(name: str) -> Any:
     # JSON.parse has no NaN or Infinity literals; Python's json does.
     raise ValueError(f"Unexpected token {name}")
@@ -157,7 +150,8 @@ def _no_constants(name: str) -> Any:
 async def parse_zod_body(request: Request, model: type[M]) -> M:
     """Parse and validate the JSON body against ``model``: without a JSON
     content type the body is ``{}`` (so an all-optional PATCH with no body
-    changes nothing), and malformed JSON is a 500 (``MalformedJsonError``)."""
+    changes nothing), and malformed JSON is a 400 ``MALFORMED_JSON``: the input's fault, so neither
+    Sentry nor the fault report hears of it."""
     value: Any = {}
     content_type = request.headers.get("content-type")
     if content_type and _JSON_CONTENT_TYPE.fullmatch(content_type):
@@ -167,7 +161,9 @@ async def parse_zod_body(request: Request, model: type[M]) -> M:
                 text.removeprefix("\ufeff"), parse_constant=_no_constants
             )
         except ValueError as exc:
-            raise MalformedJsonError("Malformed JSON in request body") from exc
+            raise api_error(
+                400, ErrorCode.MALFORMED_JSON, "Malformed JSON in request body"
+            ) from exc
     try:
         return model.model_validate(value)
     except ValidationError as exc:

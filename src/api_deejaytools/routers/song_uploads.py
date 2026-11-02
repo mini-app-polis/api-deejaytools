@@ -39,7 +39,6 @@ from ..errors import Envelope, ErrorCode, ErrorResponse, api_error, success
 from ..models import Event, EventSongSubmission, Partner, Song, SongUpload, Team, User
 from ..services import song_builds
 from ..services.audio_format import detect_audio_format
-from ..services.drive_jobs import enqueue_copy_job
 from ..song_records import (
     assert_managed_partnership_owned,
     assert_partner_owned,
@@ -49,6 +48,7 @@ from ..submissions import (
     DEFAULT_ROUND,
     entity_slot_taken,
     fetch_user_submission_rows,
+    lock_entity_slot,
     map_submission_row,
     slot_taken_message,
 )
@@ -350,14 +350,17 @@ async def upload_chunk(
         if await db.get(Event, submit_event_id) is None:
             _remove(upload_dir)
             raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
+        slot_entity = song_entity_key(
+            effective_user_id,
+            None if managed_partnership_id else partner_id,
+            managed_partnership_id,
+        )
+        # Held until the commit that inserts the submission.
+        await lock_entity_slot(db, event_id=submit_event_id, entity=slot_entity)
         if await entity_slot_taken(
             db,
             event_id=submit_event_id,
-            entity=song_entity_key(
-                effective_user_id,
-                None if managed_partnership_id else partner_id,
-                managed_partnership_id,
-            ),
+            entity=slot_entity,
             division=division,
             round_=DEFAULT_ROUND,
         ):
@@ -498,12 +501,7 @@ async def upload_chunk(
         "song": map_song(song),
     }
     if submission_id is not None:
-        # Finds no file until the build has one; the build re-queues it then.
-        await enqueue_copy_job(
-            db,
-            submission_id,
-            context={"submission_id": submission_id, "user_id": effective_user_id},
-        )
+        # The build queues the copy when it records the file.
         rows = await fetch_user_submission_rows(
             db, effective_user_id, submission_id=submission_id
         )

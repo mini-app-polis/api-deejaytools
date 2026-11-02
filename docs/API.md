@@ -87,6 +87,7 @@ Applied in [`src/api_deejaytools/middleware.py`](../src/api_deejaytools/middlewa
 |------------|-------|-------|
 | Body limit | `*` | 11 MiB max body; **413** `payload_too_large` |
 | Rate limit | `/v1/*` only | 300 requests / minute per client address (`cf-connecting-ip` through Cloudflare, else the last `X-Forwarded-For` hop; see [OPERATIONS.md](./OPERATIONS.md#client-address)); **429** `too_many_requests` |
+| Rate limit, feedback | `POST /v1/feedback` | **5 requests / minute** per client address, counted as well as the 300 above; **429** `too_many_requests` |
 | Deadline | `/v1/*` only | **30 s** default; **300 s** for paths starting with `/v1/songs/upload/`; **503** `request_timeout` |
 
 **Exempt from rate limiting and the deadline:** `/health`, `/version`, `/internal/tick` (unversioned).
@@ -116,6 +117,7 @@ In this table, the third column is the **trigger** (when the error fires), not a
 | 401 | `USER_NOT_SYNCED` | Valid token, no principal (not yet synced) |
 | 403 | `FORBIDDEN` | The caller lacks the route's scope (on the event, where event-scoped) |
 | 400 | `VALIDATION_ERROR` | Body or query validation failed |
+| 400 | `MALFORMED_JSON` | A JSON body that does not parse. The old API answered 500 `INTERNAL`; this is deliberate, and it is not sent to Sentry or the Discord fault report |
 | 429 | `too_many_requests` | Rate limit exceeded. Please slow down. |
 | 503 | `request_timeout` | Handler exceeded deadline |
 
@@ -241,6 +243,7 @@ const syncBody = z.object({
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
+| 400 | `MALFORMED_JSON` | Malformed JSON in request body | The body does not parse (checked before the token) |
 | 400 | `VALIDATION_ERROR` | … | Invalid JSON body (checked before the token) |
 | 401 | `UNAUTHORIZED` | Authentication required | Missing or invalid JWT |
 | 409 | `EMAIL_BELONGS_TO_ANOTHER_ACCOUNT` | This email address is already linked to a different sign-in. Contact an organizer to have your account moved to this sign-in. | The email is held by another `users` row |
@@ -1611,7 +1614,7 @@ const patchBody = z.object({
 
 ## `routers/teams.py` — `/v1/teams`
 
-Schema (`src/schemas`):
+Schema:
 
 ```typescript
 export const teamIdentifierSchema = z
@@ -1725,7 +1728,7 @@ export const createTeamBodySchema = z.object({
 
 ## `routers/managed_partnerships.py` — `/v1/managed-partnerships`
 
-Schema (`src/schemas`):
+Schema:
 
 ```typescript
 export const createManagedPartnershipBodySchema = z.object({
@@ -1839,7 +1842,7 @@ export const createManagedPartnershipBodySchema = z.object({
 
 ## `routers/event_song_submissions.py` — `/v1/event-song-submissions`
 
-Schema (`src/schemas`):
+Schema:
 
 ```typescript
 export const createEventSongSubmissionBodySchema = z.object({

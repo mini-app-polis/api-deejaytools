@@ -31,6 +31,12 @@ def _get_engine(database_url: str) -> AsyncEngine:
     return create_async_engine(
         async_url(database_url),
         pool_pre_ping=True,
+        # Each uvicorn worker has its own engine, so the database sees
+        # workers x (pool_size + max_overflow) connections. Sized for 4
+        # workers: 4 x 12 = 48 (docs/OPERATIONS.md, "Workers and database
+        # connections").
+        pool_size=8,
+        max_overflow=4,
         # No prepared-statement caches, in asyncpg or in SQLAlchemy's adapter.
         # A cached statement pins the type ids it was planned with, so a
         # schema rebuilt under a running service (what the conformance suite

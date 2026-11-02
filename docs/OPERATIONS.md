@@ -33,7 +33,26 @@ the unprefixed `CORS_ORIGINS` is not read. Without `DEEJAYTOOLS_CORS_ORIGINS`
 the service allows only `http://localhost:5173`, so the web app's requests
 fail in the browser.
 
+## Workers and database connections
+
+The container runs `WEB_CONCURRENCY` uvicorn workers, 4 by default: one per
+CPU of the 4 Railway allows (`.railway/railway.ts`). Set `WEB_CONCURRENCY` on
+the service to change it. Each worker is its own process with its own
+database engine, response cache and rate-limit windows, and its own
+scheduler (safe to run more than once).
+
+Each engine holds at most `pool_size` 8 + `max_overflow` 4 = 12
+connections (`src/api_deejaytools/database.py`), so 4 workers use at most
+48. Railway Postgres allows 100 connections by default, which leaves about
+50 for the crons, migrations (one connection at deploy) and operator
+sessions. Keep workers x 12 at or below 60 against a 100-connection limit:
+if you raise `WEB_CONCURRENCY`, lower the pool in `database.py` to match, and
+if the database's limit changes, recompute the same sum.
+
 ## Client address
+
+The capacity target this has to fit, a whole event behind one venue
+address, is in [ADR-0013](decisions/ADR-0013-event-capacity-target.md).
 
 The rate limit (300 requests a minute on `/v1/*`) keys on the client's
 address, and `POST /v1/feedback` is public, so the key must be one the
@@ -173,7 +192,8 @@ logged, and the first drop of an episode is reported to Sentry.
     is `failed` for good (retry it with
     `POST /v1/admin/drive-jobs/{id}/retry`). Retries are not posted.
   - `scheduler · sessions`, `scheduler · song builds`,
-    `scheduler · drive jobs`, `drive jobs · claim failed`: a scheduler step
+    `scheduler · drive jobs`, `scheduler · event folder sweep`,
+    `drive jobs · claim failed`: a scheduler step
     failed. Posted once per run of failures: the next is posted only after
     the step has succeeded again.
 
@@ -197,8 +217,9 @@ logged, and the first drop of an episode is reported to Sentry.
 
 The legacy `POST /v1/songs` (a song record with no file and no build) gets
 no "song added": it appears in the change feed as an ordinary change. The
-conformance and e2e suites upload real songs to dev, so dev's `activity`
-channel shows their songs, labelled `[DEVELOPMENT]`.
+web app's e2e suite uploads real songs to dev. This repo's conformance
+suite runs against a local target with no Drive and uploads none; dev posts
+faults only, so those songs are not announced.
 
 ### What it cannot see
 

@@ -9,6 +9,8 @@ from collections.abc import Callable
 
 import httpx
 import pytest
+import sentry_sdk
+from mini_app_polis import activity
 
 from api_deejaytools.domain import canonical_timezone, locale_key
 from api_deejaytools.zod_coerce import js_trim, js_words
@@ -27,18 +29,40 @@ async def test_malformed_json_without_a_token_is_401(client: httpx.AsyncClient) 
     assert res.json()["error"]["code"] == "UNAUTHORIZED"
 
 
-async def test_malformed_json_with_a_token_is_500(
+async def test_malformed_json_with_a_token_is_400(
     client: httpx.AsyncClient, person: Callable
 ) -> None:
+    # The old API answered 500 here; 400 is the owner's deliberate change.
     alice = await person("alice")
     for raw in (b"{nope", b"", b'{"first_name": NaN}'):
         res = await client.post(
             "/v1/partners", content=raw, headers={**alice.headers, **JSON}
         )
-        assert res.status_code == 500, raw
+        assert res.status_code == 400, raw
         assert res.json() == {
-            "error": {"code": "INTERNAL", "message": "Malformed JSON in request body"}
+            "error": {
+                "code": "MALFORMED_JSON",
+                "message": "Malformed JSON in request body",
+            }
         }
+
+
+async def test_malformed_json_is_not_reported(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[BaseException] = []
+    faults: list[object] = []
+    monkeypatch.setattr(
+        sentry_sdk, "capture_exception", lambda exc, *a, **k: captured.append(exc)
+    )
+    monkeypatch.setattr(
+        activity, "record_fault_detail", lambda *a, **k: faults.append(a)
+    )
+    res = await client.post("/v1/feedback", content=b"{nope", headers=JSON)
+    assert res.status_code == 400
+    assert res.json()["error"]["code"] == "MALFORMED_JSON"
+    assert captured == []
+    assert faults == []
 
 
 async def test_sync_validates_its_body_before_the_token(
@@ -46,7 +70,8 @@ async def test_sync_validates_its_body_before_the_token(
 ) -> None:
     # /sync checks the token in its handler, after the validator.
     res = await client.post("/v1/auth/sync", content=b"{nope", headers=JSON)
-    assert res.status_code == 500
+    assert res.status_code == 400
+    assert res.json()["error"]["code"] == "MALFORMED_JSON"
     res = await client.post("/v1/auth/sync", json={"email": 5})
     assert res.status_code == 400
 
