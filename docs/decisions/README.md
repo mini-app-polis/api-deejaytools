@@ -25,3 +25,4 @@ ADR in another repository is cited with that repository's name first, as in
 | [ADR-0010](ADR-0010-replacement-api-contract-and-testing.md) | Replacement API: wire contract, reuse, and how it is tested |
 | [ADR-0011](ADR-0011-season-year-rolls-over-october-1.md) | The season year rolls over on October 1 |
 | [ADR-0012](ADR-0012-per-event-staff-roles.md) | Per-event staff roles: coordinator, DJ and event manager |
+| [ADR-0013](ADR-0013-event-capacity-target.md) | The event capacity target is thousands of dancers behind one IP |
