@@ -102,6 +102,9 @@ export default defineRailway((ctx) => {
       // scripts/apply_migrations.py. Like the one above, a database URL.
       DEEJAYTOOLS_DATABASE_URL_MIGRATIONS: preserve(),
       PORT: preserve(),
+      // uvicorn's worker count; the image defaults it to the 4 CPUs allowed
+      // above (docs/OPERATIONS.md, "Workers and database connections").
+      WEB_CONCURRENCY: preserve(),
       // The fallback for every Discord channel without its own webhook.
       DISCORD_WEBHOOK_URL: preserve(),
       // Mutes the change feed without a deploy (docs/OPERATIONS.md).

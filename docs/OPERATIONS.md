@@ -33,6 +33,22 @@ the unprefixed `CORS_ORIGINS` is not read. Without `DEEJAYTOOLS_CORS_ORIGINS`
 the service allows only `http://localhost:5173`, so the web app's requests
 fail in the browser.
 
+## Workers and database connections
+
+The container runs `WEB_CONCURRENCY` uvicorn workers, 4 by default: one per
+CPU of the 4 Railway allows (`.railway/railway.ts`). Set `WEB_CONCURRENCY` on
+the service to change it. Each worker is its own process with its own
+database engine, response cache and rate-limit windows, and its own
+scheduler (safe to run more than once).
+
+Each engine holds at most `pool_size` 8 + `max_overflow` 4 = 12
+connections (`src/api_deejaytools/database.py`), so 4 workers use at most
+48. Railway Postgres allows 100 connections by default, which leaves about
+50 for the crons, migrations (one connection at deploy) and operator
+sessions. Keep workers x 12 at or below 60 against a 100-connection limit:
+if you raise `WEB_CONCURRENCY`, lower the pool in `database.py` to match, and
+if the database's limit changes, recompute the same sum.
+
 ## Client address
 
 The capacity target this has to fit, a whole event behind one venue
