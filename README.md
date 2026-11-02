@@ -17,7 +17,7 @@ The behavior spec is ADR-0006 and [docs/API.md](docs/API.md),
 - **In:** HTTPS requests from the deejaytools.com web app, authenticated with
   Clerk session JWTs from this environment's Clerk instance.
 - **Out:** JSON in the envelope
-  `{ data, meta: { version } }` / `{ error: { code, message } }` — and rows
+  `{ data, meta: { version, count, total } }` / `{ error: { code, message } }` — and rows
   in the shared deejaytools Postgres database.
 
 ## Endpoints
@@ -58,8 +58,10 @@ grant from a per-event staff role (ADR-0012) on that event only.
 | `GET /v1/event-song-submissions` | `deejaytools.submissions.read` |
 | `POST /v1/event-song-submissions`, `DELETE /v1/event-song-submissions/{id}` | `deejaytools.submissions.write` |
 | `GET /v1/songs`, `GET /v1/songs/{id}` | `deejaytools.songs.read` |
-| `POST /v1/songs`, `POST /v1/songs/upload/chunk`, `PATCH`/`DELETE /v1/songs/{id}` | `deejaytools.songs.write`; acting for another user also needs `deejaytools.delegation.act` (an event's DJ or event manager only for people connected to that event) |
-| `POST /v1/checkins`, `DELETE /v1/checkins/{id}` | `deejaytools.checkins.write`; on behalf of another user also `deejaytools.delegation.act` (an event's DJ or event manager only for people connected to that event) |
+| `POST /v1/songs`, `PATCH`/`DELETE /v1/songs/{id}` | `deejaytools.songs.write` |
+| `POST /v1/songs/upload/chunk` | `deejaytools.songs.write`; acting for another user (`on_behalf_of_user_id`) also needs `deejaytools.delegation.act` (an event's DJ or event manager only for people connected to that event) |
+| `POST /v1/checkins` | `deejaytools.checkins.write`; on behalf of another user also `deejaytools.delegation.act` (an event's DJ or event manager only for people connected to that event) |
+| `DELETE /v1/checkins/{id}` | `deejaytools.checkins.write`; withdraws the caller's own check-in only |
 | `GET /v1/checkins/mine` | `deejaytools.checkins.read` |
 | `GET /v1/queue/{session_id}/active`, `GET /v1/queue/{session_id}/waiting` | public; `notes` always null |
 | `GET /v1/queue/{session_id}/active/staff`, `GET /v1/queue/{session_id}/priority`, `GET /v1/queue/{session_id}/non-priority` | `deejaytools.queue.read` on the session's event |
@@ -179,7 +181,7 @@ Discord notifications (`DISCORD_WEBHOOK_URL`, optionally
 `DISCORD_WEBHOOK_URL_ERRORS` and `DISCORD_WEBHOOK_URL_ACTIVITY`; off when
 unset), the change-feed switch `NOTIFY_DATA_CHANGES` and the
 per-environment event allow-list `DISCORD_NOTIFY_EVENTS` (events
-`data_changed` and `fault`, posted from production only) are described in [docs/OPERATIONS.md](docs/OPERATIONS.md), with
+`data_changed` and `fault`: production posts both, development posts faults only) are described in [docs/OPERATIONS.md](docs/OPERATIONS.md), with
 retrying failed song builds.
 Symptoms and their fixes (failed deploys, 401s on every call, Drive,
 email, the scheduler, CORS) and the log events to grep for are in

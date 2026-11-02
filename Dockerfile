@@ -34,7 +34,7 @@ RUN uv sync --locked --no-dev
 
 # CD-023: the final stage runs unprivileged. Song upload chunks are written under /tmp/dj-upload-chunks, which an
 # unprivileged user can create.
-RUN useradd --system --uid 10001 --no-create-home --home-dir /app deejaytools-api
-USER deejaytools-api
+RUN useradd --system --uid 10001 --no-create-home --home-dir /app app
+USER app
 
 CMD ["/bin/sh", "-c", "python scripts/apply_migrations.py && python scripts/backfill_principals.py && exec uvicorn src.api_deejaytools.main:app --host 0.0.0.0 --port ${PORT:-3001}"]

@@ -1611,7 +1611,7 @@ const patchBody = z.object({
 
 ## `routers/teams.py` — `/v1/teams`
 
-Schema (`src/schemas`):
+Schema:
 
 ```typescript
 export const teamIdentifierSchema = z
@@ -1725,7 +1725,7 @@ export const createTeamBodySchema = z.object({
 
 ## `routers/managed_partnerships.py` — `/v1/managed-partnerships`
 
-Schema (`src/schemas`):
+Schema:
 
 ```typescript
 export const createManagedPartnershipBodySchema = z.object({
@@ -1839,7 +1839,7 @@ export const createManagedPartnershipBodySchema = z.object({
 
 ## `routers/event_song_submissions.py` — `/v1/event-song-submissions`
 
-Schema (`src/schemas`):
+Schema:
 
 ```typescript
 export const createEventSongSubmissionBodySchema = z.object({
