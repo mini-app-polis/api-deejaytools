@@ -39,7 +39,6 @@ from ..errors import Envelope, ErrorCode, ErrorResponse, api_error, success
 from ..models import Event, EventSongSubmission, Partner, Song, SongUpload, Team, User
 from ..services import song_builds
 from ..services.audio_format import detect_audio_format
-from ..services.drive_jobs import enqueue_copy_job
 from ..song_records import (
     assert_managed_partnership_owned,
     assert_partner_owned,
@@ -498,12 +497,7 @@ async def upload_chunk(
         "song": map_song(song),
     }
     if submission_id is not None:
-        # Finds no file until the build has one; the build re-queues it then.
-        await enqueue_copy_job(
-            db,
-            submission_id,
-            context={"submission_id": submission_id, "user_id": effective_user_id},
-        )
+        # The build queues the copy when it records the file.
         rows = await fetch_user_submission_rows(
             db, effective_user_id, submission_id=submission_id
         )
