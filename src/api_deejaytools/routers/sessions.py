@@ -1,15 +1,20 @@
 """``/v1/sessions`` (docs/API.md).
 
-The two reads are public with an optional caller: a valid, synced caller
-also gets ``has_active_checkin`` (and on the detail, the division of their
-live entry); anonymous responses omit those keys entirely. Changes are
-behind ``deejaytools.sessions.write`` on the session's event (event-scoped,
+The two reads are public. One session is the same for every caller
+(ADR-0013): a caller's own check-in comes from the check-in routes. The list
+has an optional caller: a valid, synced caller also gets
+``has_active_checkin`` on each session, and admins and event staff read it
+fresh; anonymous responses omit that key entirely. Changes are behind
+``deejaytools.sessions.write`` on the session's event (event-scoped,
 ADR-0012): the body's ``event_id`` for a create, the path session's for the
 rest. A session with no event, or a create without one, needs the scope
 through a role (an admin's).
 
-The shared part of each read is cached for 5 s; the caller's own fields are
-always computed fresh.
+One session, and the list as an anonymous caller gets it, are cached for
+5 s as their JSON bytes and sent with a Cache-Control that lets shared
+caches hold them as long (cache.py). A signed-in caller's list is built
+from a cached base with their own fields computed fresh, and is never
+marked shareable.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ import uuid
 from typing import Annotated, Any, ClassVar, Literal
 
 import sentry_sdk
-from fastapi import APIRouter, Depends, Header, Path, Request
+from fastapi import APIRouter, Depends, Header, Path, Request, Response
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
@@ -32,10 +37,16 @@ from ..auth import (
     EventRef,
     authorize_on_event,
     optional_synced_caller,
-    optional_synced_user_id,
     require_event_scope,
 )
-from ..cache import SESSION_TTL_SECONDS, invalidate_session_cache, response_cache
+from ..cache import (
+    SESSION_TTL_SECONDS,
+    cache_control,
+    cached_json,
+    invalidate_session_cache,
+    render,
+    response_cache,
+)
 from ..clock import now_ms
 from ..database import get_db_session
 from ..domain import ms_to_date_in_zone
@@ -181,13 +192,14 @@ class SessionData(BaseModel):
 
 
 class SessionResponse(Envelope[SessionData]):
-    """One session. Optional-caller and event fields appear only when present."""
+    """One session. Event fields appear only where the route adds them."""
 
     data: SessionData = Field(..., description="The session.")
 
 
 class SessionListResponse(Envelope[list[SessionData]]):
-    """Sessions, newest date first."""
+    """Sessions, newest date first. has_active_checkin appears only for a
+    synced caller."""
 
     data: list[SessionData] = Field(..., description="The sessions.")
 
@@ -412,51 +424,48 @@ class SessionListQuery(ZodModel):
         "Sessions, newest date first, with divisions, queue depth and the "
         "event's timezone. Intentionally public; a valid synced caller also "
         "gets has_active_checkin on each. Cached for 5 s, except for admins "
-        "and event staff, who read it fresh."
+        "and event staff, who read it fresh. Only the anonymous response is "
+        "shareable (Cache-Control: public, s-maxage=5); a request with "
+        "Authorization gets Cache-Control: private, no-store."
     ),
 )
 @documents_zod_query(SessionListQuery)
 async def list_sessions(
     request: Request,
+    response: Response,
     authorization: Authorization = None,
     db: AsyncSession = Depends(get_db_session),
-) -> dict[str, Any]:
+) -> Any:
     """List sessions. Public, with an optional caller."""
     event_id = parse_zod_query(request, SessionListQuery).event_id
     caller = await optional_synced_caller(authorization, db)
-    user_id = caller.user_id if caller else None
+    cache_key = f"sessions:list:{event_id or 'all'}"
+    if caller is None:
+        # The same for everyone: rendered once per window, sent as it is.
+        # What it is built from is kept for signed-in callers' lists too.
+        async def rendered() -> bytes:
+            generation = response_cache.generation
+            base = await _list_base(db, event_id)
+            response_cache.set_unless_invalidated(
+                cache_key, base, SESSION_TTL_SECONDS, generation
+            )
+            items = _list_items(base, None, set())
+            return render(SessionListResponse, success_list(items), exclude_unset=True)
+
+        body = await response_cache.get_or_build(
+            f"sessions:list:public:{event_id or 'all'}", rendered, SESSION_TTL_SECONDS
+        )
+        return cached_json(body, request, SESSION_TTL_SECONDS)
+
+    response.headers["Cache-Control"] = cache_control(request, SESSION_TTL_SECONDS)
+    user_id = caller.user_id
     # The people who change sessions read the list fresh, so a session they
     # just created or deleted is never missing or still there.
-    fresh = caller is not None and caller.runs_events
+    fresh = caller.runs_events
 
-    cache_key = f"sessions:list:{event_id or 'all'}"
     base = None if fresh else response_cache.get(cache_key)
     if base is None:
-        # Newest date first (Postgres puts null dates first, as drizzle's
-        # desc() did), then by floor-trial start within a date.
-        query = select(Session).order_by(
-            Session.date.desc(), Session.floor_trial_starts_at.desc()
-        )
-        if event_id:
-            query = query.where(Session.event_id == event_id)
-        rows = list((await db.execute(query)).scalars())
-        ids = [r.id for r in rows]
-        event_ids = list({r.event_id for r in rows if r.event_id})
-        zones: dict[str, str] = {}
-        if event_ids:
-            zones = dict(
-                (
-                    await db.execute(
-                        select(Event.id, Event.timezone).where(Event.id.in_(event_ids))
-                    )
-                ).all()  # type: ignore[arg-type]
-            )
-        base = {
-            "rows": rows,
-            "divisions": await _divisions(db, ids),
-            "depths": await _queue_depths(db, ids),
-            "zones": zones,
-        }
+        base = await _list_base(db, event_id)
         response_cache.set(cache_key, base, SESSION_TTL_SECONDS)
 
     rows = base["rows"]
@@ -473,10 +482,44 @@ async def list_sessions(
                 )
             ).scalars()
         )
+    return success_list(_list_items(base, user_id, active))
 
+
+async def _list_base(db: AsyncSession, event_id: str | None) -> dict[str, Any]:
+    """What every caller's list is built from."""
+    # Newest date first (Postgres puts null dates first, as drizzle's
+    # desc() did), then by floor-trial start within a date.
+    query = select(Session).order_by(
+        Session.date.desc(), Session.floor_trial_starts_at.desc()
+    )
+    if event_id:
+        query = query.where(Session.event_id == event_id)
+    rows = list((await db.execute(query)).scalars())
+    ids = [r.id for r in rows]
+    event_ids = list({r.event_id for r in rows if r.event_id})
+    zones: dict[str, str] = {}
+    if event_ids:
+        zones = dict(
+            (
+                await db.execute(
+                    select(Event.id, Event.timezone).where(Event.id.in_(event_ids))
+                )
+            ).all()  # type: ignore[arg-type]
+        )
+    return {
+        "rows": rows,
+        "divisions": await _divisions(db, ids),
+        "depths": await _queue_depths(db, ids),
+        "zones": zones,
+    }
+
+
+def _list_items(
+    base: dict[str, Any], user_id: str | None, active: set[str]
+) -> list[dict[str, Any]]:
     now = now_ms()
     results = []
-    for row in rows:
+    for row in base["rows"]:
         item = {
             **map_session_base(row, now),
             "event_timezone": base["zones"].get(row.event_id) if row.event_id else None,
@@ -486,7 +529,7 @@ async def list_sessions(
         if user_id:
             item["has_active_checkin"] = row.id in active
         results.append(item)
-    return success_list(results)
+    return results
 
 
 @router.post(
@@ -758,58 +801,37 @@ async def delete_session(
     summary="Get a session",
     description=(
         "One session with its event's name and timezone, divisions and queue "
-        "depth. Intentionally public; a valid synced caller also gets "
-        "has_active_checkin, and active_checkin_division when queued."
+        "depth. Intentionally public and the same for every caller: a "
+        "caller's own check-in is GET /v1/checkins/mine. Cached for 5 s, "
+        "status included, here and, for a request without Authorization, by "
+        "shared caches (Cache-Control: public, s-maxage=5)."
     ),
     responses=NOT_FOUND,
 )
 async def get_session(
     id: SessionId,
-    authorization: Authorization = None,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
-) -> dict[str, Any]:
-    """Get one session. Public, with an optional caller."""
-    cache_key = f"sessions:base:{id}"
-    base = response_cache.get(cache_key)
-    if base is None:
+) -> Response:
+    """Get one session. Public."""
+
+    async def rendered() -> bytes:
         row = await _load(db, id)
         event_name = event_timezone = None
         if row.event_id:
             event = await db.get(Event, row.event_id)
             if event is not None:
                 event_name, event_timezone = event.name, event.timezone
-        base = {
-            "row": row,
+        data: dict[str, Any] = {
+            **map_session_base(row),
             "event_name": event_name,
             "event_timezone": event_timezone,
             "divisions": (await _divisions(db, [id]))[id],
-            "depth": (await _queue_depths(db, [id]))[id],
+            "queue_depth": (await _queue_depths(db, [id]))[id],
         }
-        response_cache.set(cache_key, base, SESSION_TTL_SECONDS)
+        return render(SessionResponse, success(data), exclude_unset=True)
 
-    data: dict[str, Any] = {
-        **map_session_base(base["row"]),
-        "event_name": base["event_name"],
-        "event_timezone": base["event_timezone"],
-        "divisions": base["divisions"],
-        "queue_depth": base["depth"],
-    }
-    user_id = await optional_synced_user_id(authorization, db)
-    if user_id:
-        pair_ids, managed_ids = await _caller_entities(db, user_id)
-        hit = (
-            await db.execute(
-                select(Checkin.division_name)
-                .select_from(QueueEntry)
-                .join(Checkin, Checkin.id == QueueEntry.checkin_id)
-                .where(
-                    QueueEntry.session_id == id,
-                    _live_entry_filter(user_id, pair_ids, managed_ids),
-                )
-                .limit(1)
-            )
-        ).first()
-        data["has_active_checkin"] = hit is not None
-        if hit is not None:
-            data["active_checkin_division"] = hit[0]
-    return success(data)
+    body = await response_cache.get_or_build(
+        f"sessions:base:{id}", rendered, SESSION_TTL_SECONDS
+    )
+    return cached_json(body, request, SESSION_TTL_SECONDS)

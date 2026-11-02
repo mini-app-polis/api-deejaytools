@@ -53,7 +53,11 @@ if the database's limit changes, recompute the same sum.
 ## Response cache across workers
 
 Each worker caches the hot public reads (`src/api_deejaytools/cache.py`:
-queue reads 3 s, session reads 5 s). A write drops the affected keys in its
+queue reads 3 s, session reads 5 s) as the JSON bytes it sends, so a hit is
+sent without being serialised again. Concurrent misses for one key run one
+database read between them; one that fails is not kept, and one that a
+write invalidates while it reads answers the requests already waiting but
+is not stored. A write drops the affected keys in its
 own worker and sends a Postgres `NOTIFY` on the `deejaytools_cache` channel;
 every other worker `LISTEN`s on its cache-bus connection
 (`src/api_deejaytools/cache_bus.py`, `application_name`
@@ -65,6 +69,26 @@ lost`, serves its cache on the TTL alone, and reconnects with backoff; on
 reconnecting it drops its whole cache, since it may have missed
 notifications. Admins and event staff read `GET /v1/sessions` fresh either
 way, so a session they create or delete shows at once.
+
+## Shared caching at Cloudflare
+
+The public reads that are the same for every caller send `Cache-Control:
+public, max-age=0, s-maxage=<TTL>, stale-while-revalidate=<TTL>`, with the
+server cache's TTL, to an anonymous request, and `private, no-store` to a
+request that carries `Authorization` (docs/API.md, "Shared caching").
+Cloudflare bypasses its cache for a request with `Authorization`, so admins
+and event staff still read the session list fresh.
+
+The headers say what may be held; whether Cloudflare holds it is the zone's
+configuration. Cloudflare does not cache JSON by default: a Cache Rule in
+the infra repo has to make these paths eligible, respecting the origin's
+`Cache-Control`. Its cache key has to include the request's `Origin`: the
+API answers CORS per origin (`Access-Control-Allow-Origin` and `Vary:
+Origin`), and Cloudflare does not vary on `Origin` by itself, so one
+origin's cached answer would otherwise reach another, or a request without
+`Origin` would cache an answer the browser refuses. A write does not purge
+Cloudflare: a cached read can lag a write by `s-maxage` plus
+`stale-while-revalidate`.
 
 ## Rate limit
 
@@ -89,7 +113,7 @@ request is:
    division list, the session list and one session, a queue's active and
    waiting lists): not counted. A whole event polls these from one address;
    the response cache keeps them off the database, not a limit. A signed-in
-   caller's reads of them are personalised and count against the user.
+   caller's reads of them count against the user.
 3. **Any other anonymous request**: the client address (below).
 
 `/health`, `/version` and `/internal/tick` are outside `/v1/` and never

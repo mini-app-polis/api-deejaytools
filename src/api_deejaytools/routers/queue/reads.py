@@ -4,23 +4,25 @@ active and waiting are public (API-008), without check-in notes, which are
 for the event's staff only. active/staff, priority and non-priority are
 behind ``deejaytools.queue.read`` on the path session's event, with notes.
 The public reads are the same for every caller, so they are cached for 3 s
-per session (ADR-0013) and invalidated, in every worker, by every mutation
-of that session. The staff reads are not cached: the people running the
-queue act on what they see, and they are few.
+per session as their JSON bytes (ADR-0013), sent with a Cache-Control that
+lets shared caches hold them as long (cache.py), and invalidated, in every
+worker, by every mutation of that session. The staff reads are not cached,
+here or anywhere else: the people running the queue act on what they see,
+and they are few.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from ...auth import Caller, EventRef, require_event_scope
-from ...cache import QUEUE_TTL_SECONDS, response_cache
+from ...cache import QUEUE_TTL_SECONDS, cached_json, render, response_cache
 from ...database import get_db_session
 from ...domain import full_name
 from ...errors import Envelope, ErrorResponse, success_list
@@ -178,13 +180,14 @@ async def list_queue(
     return out
 
 
-async def _cached(key: str, build: Any) -> dict[str, Any]:
-    cached = response_cache.get(key)
-    if cached is not None:
-        return cached  # type: ignore[no-any-return]
-    result = success_list(await build())
-    response_cache.set(key, result, QUEUE_TTL_SECONDS)
-    return result
+async def _cached(
+    request: Request, key: str, model: type[BaseModel], build: Any
+) -> Response:
+    async def rendered() -> bytes:
+        return render(model, success_list(await build()))
+
+    body = await response_cache.get_or_build(key, rendered, QUEUE_TTL_SECONDS)
+    return cached_json(body, request, QUEUE_TTL_SECONDS)
 
 
 def _public(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -207,18 +210,23 @@ READ: dict[int | str, dict[str, Any]] = {
         "The active queue, position 1 first (position 1 is on the floor). "
         "Intentionally public: the dancer-facing session page polls it. "
         "Check-in notes are left out (null): staff read them through "
-        "/active/staff. Cached for 3 s."
+        "/active/staff. Cached for 3 s, here and, for an anonymous request, "
+        "by shared caches (Cache-Control: public, s-maxage=3)."
     ),
 )
 async def active_queue(
-    session_id: SessionId, db: AsyncSession = Depends(get_db_session)
-) -> dict[str, Any]:
+    session_id: SessionId,
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+) -> Response:
     """List the active queue. Public, so without notes."""
 
     async def build() -> list[dict[str, Any]]:
         return _public(await list_queue(db, session_id, "active"))
 
-    return await _cached(f"queue:{session_id}:active", build)
+    return await _cached(
+        request, f"queue:{session_id}:active", QueueListResponse, build
+    )
 
 
 @router.get(
@@ -250,12 +258,16 @@ async def active_queue_for_staff(
     description=(
         "Priority entries then standard entries, each tagged with subQueue. "
         "Intentionally public: the dancer-facing session page polls it. "
-        "Check-in notes are left out (null). Cached for 3 s."
+        "Check-in notes are left out (null). Cached for 3 s, here and, for an "
+        "anonymous request, by shared caches (Cache-Control: public, "
+        "s-maxage=3)."
     ),
 )
 async def waiting_queue(
-    session_id: SessionId, db: AsyncSession = Depends(get_db_session)
-) -> dict[str, Any]:
+    session_id: SessionId,
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+) -> Response:
     """List both waiting queues. Public."""
 
     async def build() -> list[dict[str, Any]]:
@@ -265,7 +277,9 @@ async def waiting_queue(
             {**r, "subQueue": "non_priority"} for r in _public(standard)
         ]
 
-    return await _cached(f"queue:{session_id}:waiting", build)
+    return await _cached(
+        request, f"queue:{session_id}:waiting", WaitingListResponse, build
+    )
 
 
 @router.get(

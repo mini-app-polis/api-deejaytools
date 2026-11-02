@@ -622,7 +622,7 @@ def caller_name(principal: Principal) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Optional caller, for the two public session reads
+# Optional caller, for the public session list
 # ---------------------------------------------------------------------------
 
 
@@ -639,24 +639,6 @@ async def _optional_subject(authorization: str | None) -> VerifiedSubject | None
         return None
 
 
-async def optional_synced_user_id(
-    authorization: str | None, session: AsyncSession
-) -> str | None:
-    """The caller's users.id when they send a valid token and have synced.
-
-    Used by GET /v1/sessions/{id}, which is public: a credential is read,
-    never required. No token, a bad token or an unsynced caller all mean
-    anonymous, with no error. No scope is checked and no decision is
-    audited: nothing is authorized here, the caller only learns about their
-    own check-ins.
-    """
-    subject = await _optional_subject(authorization)
-    if subject is None:
-        return None
-    row = await session.get(User, subject.subject)
-    return row.id if row is not None else None
-
-
 @dataclass(frozen=True)
 class OptionalCaller:
     """A synced caller on a public read."""
@@ -670,11 +652,14 @@ class OptionalCaller:
 async def optional_synced_caller(
     authorization: str | None, session: AsyncSession
 ) -> OptionalCaller | None:
-    """``optional_synced_user_id``, plus whether the caller runs events.
+    """The caller when they send a valid token and have synced, with whether
+    they run events.
 
-    Used by GET /v1/sessions, as optional_synced_user_id is: nothing is
-    authorized or audited. ``runs_events`` only decides whether the read
-    may come from the response cache.
+    Used by GET /v1/sessions, which is public: a credential is read, never
+    required. No token, a bad token or an unsynced caller all mean
+    anonymous, with no error. Nothing is authorized or audited: the caller
+    only learns about their own check-ins, and ``runs_events`` only decides
+    whether the read may come from the response cache.
     """
     subject = await _optional_subject(authorization)
     if subject is None:
