@@ -86,8 +86,8 @@ Applied in [`src/api_deejaytools/middleware.py`](../src/api_deejaytools/middlewa
 | Middleware | Scope | Limit |
 |------------|-------|-------|
 | Body limit | `*` | 11 MiB max body; **413** `payload_too_large` |
-| Rate limit | `/v1/*` only | 300 requests / minute per client address (`cf-connecting-ip` through Cloudflare, else the last `X-Forwarded-For` hop; see [OPERATIONS.md](./OPERATIONS.md#client-address)); **429** `too_many_requests` |
-| Rate limit, feedback | `POST /v1/feedback` | **5 requests / minute** per client address, counted as well as the 300 above; **429** `too_many_requests` |
+| Rate limit | `/v1/*` only | 300 requests / minute per caller: the verified user when signed in, else the client address; anonymous `GET`s of the public cached reads are not counted (see [OPERATIONS.md](./OPERATIONS.md#rate-limit)); **429** `too_many_requests` |
+| Rate limit, feedback | `POST /v1/feedback` | **5 requests / minute** per caller, counted as well as the 300 above; **429** `too_many_requests` |
 | Deadline | `/v1/*` only | **30 s** default; **300 s** for paths starting with `/v1/songs/upload/`; **503** `request_timeout` |
 
 **Exempt from rate limiting and the deadline:** `/health`, `/version`, `/internal/tick` (unversioned).
@@ -2193,6 +2193,7 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 400 | `BAD_REQUEST` | submit_to_event needs on_behalf_of_user_id and event_id | `submit_to_event` without either |
 | 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` through a role or on `event_id`'s event (a DJ without `event_id` included), or for a person not connected to that event |
 | 400 | `BAD_REQUEST` | Chunk exceeds 10 MB limit | Chunk > 10 MiB |
+| 400 | `BAD_REQUEST` | File exceeds 100 MB limit | A chunk other than the last whose size × (`total_chunks` − 1), plus the last chunk's byte at least, is over 110 MiB: chunks before the last are all one size, so the file would be. Refused before the chunk is staged; anything already staged for the upload is removed |
 | 429 | `TOO_MANY_UPLOADS` | You have 3 uploads in progress. Finish or wait for one before starting another. | First chunk of a new upload while the caller already has 3 uploads staged (counted per caller, also when uploading on behalf) |
 | 400 | `BAD_REQUEST` | File exceeds 100 MB limit | Any chunk that takes the upload's staged chunks past 110 MiB; the staged chunks are removed |
 | 400 | `BAD_REQUEST` | Portal uploads cannot specify partner_id or managed_partnership_id | Final chunk: `entity_type` with a partner field |

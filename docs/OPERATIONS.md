@@ -66,14 +66,40 @@ reconnecting it drops its whole cache, since it may have missed
 notifications. Admins and event staff read `GET /v1/sessions` fresh either
 way, so a session they create or delete shows at once.
 
-## Client address
+## Rate limit
 
 The capacity target this has to fit, a whole event behind one venue
 address, is in [ADR-0013](decisions/ADR-0013-event-capacity-target.md).
 
-The rate limit (300 requests a minute on `/v1/*`) keys on the client's
-address, and `POST /v1/feedback` is public, so the key must be one the
-client cannot choose. Both deployed environments take the same path:
+`RateLimitMiddleware` in `src/api_deejaytools/middleware.py` allows
+`RATE_LIMIT` requests a minute on `/v1/*` per caller, and a lower limit of
+its own on the paths in `PATH_RATE_LIMITS` (`POST /v1/feedback`), counted
+per caller as well. Each worker keeps its own windows. The key for a
+request is:
+
+1. **A signed-in request** (an `Authorization: Bearer` token that verifies
+   against the configured Clerk issuer): the verified user, issuer and
+   subject. The token is verified in the middleware, and the route's auth
+   reuses that outcome rather than verifying again
+   (`auth.verified_credential`), so it costs one verification per request
+   as before. A token that does not verify, forged, expired or from another
+   issuer, counts as anonymous: a made-up subject never gets a window of
+   its own.
+2. **An anonymous `GET` of a public cached read** (`PUBLIC_READS`: the
+   division list, the session list and one session, a queue's active and
+   waiting lists): not counted. A whole event polls these from one address;
+   the response cache keeps them off the database, not a limit. A signed-in
+   caller's reads of them are personalised and count against the user.
+3. **Any other anonymous request**: the client address (below).
+
+`/health`, `/version` and `/internal/tick` are outside `/v1/` and never
+limited.
+
+## Client address
+
+An anonymous request's rate limit keys on the client's address, and
+`POST /v1/feedback` is public, so the key must be one the client cannot
+choose. Both deployed environments take the same path:
 `api.deejaytools.com` and `api-dev.deejaytools.com` are proxied by
 Cloudflare (`proxied = true` on their DNS records in the infra repo's
 `cloudflare_dns.tf`), which forwards to Railway's edge, which forwards to

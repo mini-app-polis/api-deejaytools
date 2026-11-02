@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
+from identity.types import VerifiedSubject
+from starlette.types import Message, Receive, Scope, Send
 
 from api_deejaytools.cache import TtlCache
 from api_deejaytools.middleware import (
@@ -180,6 +184,141 @@ async def test_rate_limit_ignores_headers_the_client_writes() -> None:
     assert [r.status_code for r in spoofed] == [200, 200, 429]
     assert [r.status_code for r in via_cloudflare] == [200, 200, 429]
     assert another_client.status_code == 200  # same edge, its own window
+
+
+@asynccontextmanager
+async def _stand_in_verify(
+    authorization: str | None,
+) -> AsyncIterator[VerifiedSubject | None]:
+    """``auth.verified_credential`` without Clerk: ``Bearer user_…`` verifies
+    as that user, any other credential fails."""
+    if authorization and authorization.startswith("Bearer user_"):
+        yield VerifiedSubject(
+            issuer="https://clerk.test.local",
+            subject=authorization[len("Bearer ") :],
+            kind="human",
+            claims={},
+        )
+    else:
+        yield None
+
+
+async def _ok(scope: Scope, receive: Receive, send: Send) -> None:
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": b""})
+
+
+VENUE = "198.51.100.7"
+
+
+async def _status(
+    layer: RateLimitMiddleware,
+    path: str,
+    *,
+    method: str = "GET",
+    user: str | None = None,
+    token: str | None = None,
+) -> int:
+    """One request through the rate limit straight over ASGI, from the venue
+    address; the status it was answered with."""
+    headers = [(b"x-forwarded-for", VENUE.encode())]
+    if user is not None or token is not None:
+        headers.append((b"authorization", f"Bearer {token or user}".encode()))
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    await layer(
+        {"type": "http", "method": method, "path": path, "headers": headers},
+        receive,
+        send,
+    )
+    return int(sent[0]["status"])
+
+
+async def test_an_event_behind_one_address_is_not_limited() -> None:
+    """ADR-0013's steady state: 3,000 signed-in dancers on one venue address,
+    each at 3 requests a minute, and the anonymous polls of the public
+    reads beside them. Nobody gets a 429."""
+    clock = Clock()
+    layer = RateLimitMiddleware(_ok, clock=clock, verify=_stand_in_verify)
+    users = [f"user_{n:04d}" for n in range(3000)]
+    statuses: set[int] = set()
+    for _ in range(3):
+        for user in users:
+            statuses.add(await _status(layer, "/v1/checkins/mine", user=user))
+            statuses.add(await _status(layer, "/v1/queue/s1/active"))
+        clock.now += 20
+    assert statuses == {200}
+
+
+async def test_an_anonymous_address_is_still_limited() -> None:
+    clock = Clock()
+    layer = RateLimitMiddleware(_ok, limit=3, clock=clock, verify=_stand_in_verify)
+    anonymous = [await _status(layer, "/v1/events") for _ in range(4)]
+    # A credential that does not verify shares the address's window: a
+    # forged subject gets no fresh one.
+    forged = await _status(layer, "/v1/events", token="forged.sub.token")
+    signed_in = await _status(layer, "/v1/events", user="user_a")
+    clock.now += 60
+    after = await _status(layer, "/v1/events")
+    assert anonymous == [200, 200, 200, 429]
+    assert forged == 429
+    assert signed_in == 200  # the user's own window, not the address's
+    assert after == 200
+
+
+async def test_a_signed_in_caller_is_limited_per_user() -> None:
+    clock = Clock()
+    layer = RateLimitMiddleware(
+        _ok,
+        limit=2,
+        clock=clock,
+        path_limits={"/v1/feedback": 1},
+        verify=_stand_in_verify,
+    )
+    a = [await _status(layer, "/v1/runs", user="user_a") for _ in range(3)]
+    b = await _status(layer, "/v1/runs", user="user_b")
+    # A signed-in caller's public reads are personalised, so they count too.
+    a_public = await _status(layer, "/v1/sessions/s1", user="user_a")
+    anonymous = await _status(layer, "/v1/runs")
+    feedback = [
+        await _status(layer, "/v1/feedback", method="POST", user="user_b")
+        for _ in range(2)
+    ]
+    feedback_other = await _status(layer, "/v1/feedback", method="POST")
+    assert a == [200, 200, 429]
+    assert b == 200
+    assert a_public == 429
+    assert anonymous == 200
+    assert feedback == [200, 429]  # its own limit, per caller
+    assert feedback_other == 200
+
+
+async def test_only_anonymous_public_reads_go_uncounted() -> None:
+    layer = RateLimitMiddleware(_ok, limit=1, clock=Clock(), verify=_stand_in_verify)
+    public = [
+        await _status(layer, path)
+        for path in (
+            "/v1/divisions",
+            "/v1/sessions",
+            "/v1/sessions/s1",
+            "/v1/queue/s1/active",
+            "/v1/queue/s1/waiting",
+        )
+        for _ in range(3)
+    ]
+    assert set(public) == {200}
+    # The staff queue read, a write to a session and a nested session path
+    # are not public reads: the address's one request, then 429.
+    assert await _status(layer, "/v1/queue/s1/active/staff") == 200
+    assert await _status(layer, "/v1/queue/s1/priority") == 429
+    assert await _status(layer, "/v1/sessions", method="POST") == 429
+    assert await _status(layer, "/v1/sessions/s1/divisions") == 429
 
 
 async def test_deadline_answers_503_and_lets_the_handler_finish() -> None:
