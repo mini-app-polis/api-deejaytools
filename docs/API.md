@@ -103,7 +103,7 @@ CORS: origins from `DEEJAYTOOLS_CORS_ORIGINS` (comma-separated), default `http:/
 | `SessionInfoHeader` | 30 s | Local clock only (no API) |
 | `FloorTrialsPage` | none | Loads `GET /v1/sessions` + `GET /v1/events` once on mount |
 
-Queue read responses are cached server-side for **3 s** (`QUEUE_TTL_SECONDS` in `src/api_deejaytools/cache.py`); session list/detail shared data for **5 s** (`SESSION_TTL_SECONDS`).
+The public queue reads (`/active`, `/waiting`) are cached server-side for **3 s** (`QUEUE_TTL_SECONDS` in `src/api_deejaytools/cache.py`); session list/detail shared data for **5 s** (`SESSION_TTL_SECONDS`). The staff queue reads (`/active/staff`, `/priority`, `/non-priority`) are not cached. The cache is per worker process; a write clears the affected keys in every worker through Postgres `NOTIFY` (docs/OPERATIONS.md, "Response cache across workers"). Admins and event staff read `GET /v1/sessions` uncached.
 
 ### Shared error rows
 

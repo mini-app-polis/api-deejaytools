@@ -357,3 +357,38 @@ async def test_event_changes_reach_cached_session_reads(
     await client.delete(f"/v1/events/{event_id}", headers=admin.headers)
     assert (await client.get("/v1/sessions")).json()["data"] == []
     assert (await client.get(f"/v1/sessions/{session_id}")).status_code == 404
+
+
+async def test_admins_and_event_staff_read_the_list_fresh(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    """The cache is per worker, so a list read moments after a write can come
+    from a worker that has not seen it. The people who change sessions read
+    the list fresh; everyone else gets the cached list."""
+    from .queue_helpers import insert_floor_session
+
+    admin = await person("admin", admin=True)
+    dancer = await person("dancer")
+    staff = await person("staff")
+    event_id = await _event(client, admin)
+    res = await client.put(
+        f"/v1/events/{event_id}/staff/{staff.id}/coordinator", headers=admin.headers
+    )
+    assert res.status_code == 200, res.text
+
+    assert (await client.get("/v1/sessions")).json()["data"] == []
+    # Written behind the API's back, as another worker's write looks to this one.
+    created = await insert_floor_session(db)
+
+    assert (await client.get("/v1/sessions")).json()["data"] == []
+    assert (await client.get("/v1/sessions", headers=dancer.headers)).json()[
+        "data"
+    ] == []
+    for caller in (admin, staff):
+        ids = [
+            s["id"]
+            for s in (await client.get("/v1/sessions", headers=caller.headers)).json()[
+                "data"
+            ]
+        ]
+        assert ids == [created]

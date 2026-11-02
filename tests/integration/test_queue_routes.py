@@ -935,3 +935,18 @@ async def test_a_bug_mid_action_is_a_500_not_a_retry(
     assert res.status_code == 500
     assert any(isinstance(e, KeyError) for e in captured)
     assert await positions(db, session_id, "non_priority") == [(entry["entry_id"], 1)]
+
+
+async def test_staff_reads_are_not_cached(
+    client: httpx.AsyncClient, person: Callable[..., Any], db: asyncpg.Connection
+) -> None:
+    """The staff act on what they see, and the cache is per worker process,
+    so their reads go to the database every time."""
+    admin = await person("admin", admin=True)
+    session_id = await insert_floor_session(db, **_closed_window())
+    await _fill(db, session_id, "non_priority", 1)
+    url = f"/v1/queue/{session_id}/non-priority"
+    assert len((await client.get(url, headers=admin.headers)).json()["data"]) == 1
+    await _fill(db, session_id, "non_priority", 1)
+    assert len((await client.get(url, headers=admin.headers)).json()["data"]) == 2
+    assert response_cache.get(f"queue:{session_id}:non-priority") is None

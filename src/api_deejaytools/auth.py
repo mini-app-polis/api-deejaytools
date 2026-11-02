@@ -85,7 +85,7 @@ from .config import get_settings
 from .database import get_db_session
 from .errors import api_error, forbidden, unauthorized, user_not_synced
 from .event_connections import is_connected
-from .models import QueueEntry, User
+from .models import EventStaffGrant, QueueEntry, User
 from .models import Session as FloorSession
 
 logger = get_logger()
@@ -573,28 +573,73 @@ def caller_name(principal: Principal) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def optional_synced_user_id(
-    authorization: str | None, session: AsyncSession
-) -> str | None:
-    """The caller's users.id when they send a valid token and have synced.
-
-    Used only by GET /v1/sessions and GET /v1/sessions/{id}, which are
-    public: a credential is read, never required. No token, a bad token or
-    an unsynced caller all mean anonymous, with no error. No scope is
-    checked and no decision is audited: nothing is authorized here, the
-    caller only learns about their own check-ins.
-    """
+async def _optional_subject(authorization: str | None) -> VerifiedSubject | None:
+    """The verified subject of an optional credential, or None for anonymous."""
     if not authorization or not authorization.startswith("Bearer "):
         return None
     verifier = get_verifier()
     if verifier is None:
         return None
     try:
-        subject = await verifier.verify(authorization[len("Bearer ") :])
+        return await verifier.verify(authorization[len("Bearer ") :])
     except Exception:  # noqa: BLE001 - anonymous on any failure, as today
+        return None
+
+
+async def optional_synced_user_id(
+    authorization: str | None, session: AsyncSession
+) -> str | None:
+    """The caller's users.id when they send a valid token and have synced.
+
+    Used by GET /v1/sessions/{id}, which is public: a credential is read,
+    never required. No token, a bad token or an unsynced caller all mean
+    anonymous, with no error. No scope is checked and no decision is
+    audited: nothing is authorized here, the caller only learns about their
+    own check-ins.
+    """
+    subject = await _optional_subject(authorization)
+    if subject is None:
         return None
     row = await session.get(User, subject.subject)
     return row.id if row is not None else None
+
+
+@dataclass(frozen=True)
+class OptionalCaller:
+    """A synced caller on a public read."""
+
+    user_id: str
+    #: An admin, or staff on any event: someone who changes sessions and
+    #: needs to see their change at once.
+    runs_events: bool
+
+
+async def optional_synced_caller(
+    authorization: str | None, session: AsyncSession
+) -> OptionalCaller | None:
+    """``optional_synced_user_id``, plus whether the caller runs events.
+
+    Used by GET /v1/sessions, as optional_synced_user_id is: nothing is
+    authorized or audited. ``runs_events`` only decides whether the read
+    may come from the response cache.
+    """
+    subject = await _optional_subject(authorization)
+    if subject is None:
+        return None
+    row = await session.get(User, subject.subject)
+    if row is None:
+        return None
+    principal = await resolve_principal(subject, session)
+    if wire_role(principal) == "admin":
+        return OptionalCaller(user_id=row.id, runs_events=True)
+    grant = (
+        await session.execute(
+            select(EventStaffGrant.user_id)
+            .where(EventStaffGrant.user_id == row.id)
+            .limit(1)
+        )
+    ).first()
+    return OptionalCaller(user_id=row.id, runs_events=grant is not None)
 
 
 # ---------------------------------------------------------------------------

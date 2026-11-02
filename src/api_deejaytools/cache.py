@@ -3,6 +3,9 @@
 Queue reads are cached for 3 s and the shared part of session reads for 5 s,
 so a room full of polling phones hits the database once per window. Entries
 are shared: callers must not mutate what ``get`` returns.
+
+The cache is per worker process. A write drops the keys it affects here and,
+through the cache bus (cache_bus.py), in every other worker.
 """
 
 from __future__ import annotations
@@ -10,6 +13,8 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from typing import Any
+
+from . import cache_bus
 
 QUEUE_TTL_SECONDS = 3.0
 SESSION_TTL_SECONDS = 5.0
@@ -57,17 +62,35 @@ class TtlCache:
 response_cache = TtlCache()
 
 
+def drop(prefixes: list[str]) -> None:
+    """Drop ``prefixes`` here and, through the cache bus, in every other
+    worker process (cache_bus.py)."""
+    for prefix in prefixes:
+        response_cache.invalidate_prefix(prefix)
+    cache_bus.publish(prefixes)
+
+
+def drop_local(prefixes: list[str]) -> None:
+    """Drop ``prefixes`` in this worker only: the cache bus's receiving end."""
+    for prefix in prefixes:
+        response_cache.invalidate_prefix(prefix)
+
+
 def invalidate_queue_cache(session_id: str) -> None:
     """Invalidate every cached queue view for a session after a mutation."""
-    response_cache.invalidate_prefix(f"queue:{session_id}:")
+    drop([f"queue:{session_id}:"])
 
 
 def invalidate_session_cache(session_id: str) -> None:
     """Invalidate a session's cached base data, every list, and its queues."""
-    response_cache.invalidate_prefix(f"sessions:base:{session_id}")
-    # A change to any session can affect every GET /v1/sessions variant.
-    response_cache.invalidate_prefix("sessions:list:")
-    invalidate_queue_cache(session_id)
+    drop(
+        [
+            f"sessions:base:{session_id}",
+            # A change to any session can affect every GET /v1/sessions variant.
+            "sessions:list:",
+            f"queue:{session_id}:",
+        ]
+    )
 
 
 def invalidate_all_session_caches() -> None:
@@ -76,5 +99,4 @@ def invalidate_all_session_caches() -> None:
     For an event change: session reads carry the event's name and timezone,
     and deleting an event deletes its sessions with their queues.
     """
-    response_cache.invalidate_prefix("sessions:")
-    response_cache.invalidate_prefix("queue:")
+    drop(["sessions:", "queue:"])

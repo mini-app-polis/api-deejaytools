@@ -30,6 +30,7 @@ from ..auth import (
     Caller,
     EventRef,
     authorize_on_event,
+    optional_synced_caller,
     optional_synced_user_id,
     require_event_scope,
 )
@@ -409,7 +410,8 @@ class SessionListQuery(ZodModel):
     description=(
         "Sessions, newest date first, with divisions, queue depth and the "
         "event's timezone. Intentionally public; a valid synced caller also "
-        "gets has_active_checkin on each."
+        "gets has_active_checkin on each. Cached for 5 s, except for admins "
+        "and event staff, who read it fresh."
     ),
 )
 @documents_zod_query(SessionListQuery)
@@ -420,10 +422,14 @@ async def list_sessions(
 ) -> dict[str, Any]:
     """List sessions. Public, with an optional caller."""
     event_id = parse_zod_query(request, SessionListQuery).event_id
-    user_id = await optional_synced_user_id(authorization, db)
+    caller = await optional_synced_caller(authorization, db)
+    user_id = caller.user_id if caller else None
+    # The people who change sessions read the list fresh, so a session they
+    # just created or deleted is never missing or still there.
+    fresh = caller is not None and caller.runs_events
 
     cache_key = f"sessions:list:{event_id or 'all'}"
-    base = response_cache.get(cache_key)
+    base = None if fresh else response_cache.get(cache_key)
     if base is None:
         # Newest date first (Postgres puts null dates first, as drizzle's
         # desc() did), then by floor-trial start within a date.
