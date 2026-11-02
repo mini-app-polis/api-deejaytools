@@ -1,3 +1,17 @@
+# [1.25.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.24.1...v1.25.0) (2026-11-02)
+
+
+### Bug Fixes
+
+* **pairs:** return the existing pair when concurrent find-or-create requests race ([40d499f](https://github.com/mini-app-polis/api-deejaytools/commit/40d499fe0ed22c33a5579651a6a386c1da9c5ec9))
+* **uploads:** refuse an upload declared over the size limit on its first chunk ([d661032](https://github.com/mini-app-polis/api-deejaytools/commit/d661032091d33901e8dc02df38c4ec01ee7357a5))
+
+
+### Features
+
+* **cache:** serve one public session read to everyone and let shared caches hold the public reads ([4e4abfa](https://github.com/mini-app-polis/api-deejaytools/commit/4e4abfaf63182942b8c9b8c28644eed32f0430b0))
+* **rate-limit:** limit signed-in callers per verified user and stop counting anonymous public reads ([c5ce8d0](https://github.com/mini-app-polis/api-deejaytools/commit/c5ce8d07e3ac293dba8f473195064f2c68048dab))
+
 ## [1.24.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.24.0...v1.24.1) (2026-11-02)
 
 
