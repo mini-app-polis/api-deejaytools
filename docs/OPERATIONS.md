@@ -35,6 +35,9 @@ fail in the browser.
 
 ## Client address
 
+The capacity target this has to fit, a whole event behind one venue
+address, is in [ADR-0013](decisions/ADR-0013-event-capacity-target.md).
+
 The rate limit (300 requests a minute on `/v1/*`) keys on the client's
 address, and `POST /v1/feedback` is public, so the key must be one the
 client cannot choose. Both deployed environments take the same path:
