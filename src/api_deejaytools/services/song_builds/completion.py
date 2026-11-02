@@ -24,7 +24,7 @@ from ...models import (
     User,
 )
 from .. import drive, notifications
-from ..drive_jobs import enqueue_drive_job
+from ..drive_jobs import add_drive_job, enqueue_drive_job
 from .claims import LostClaim, _mine
 from .naming import _name
 
@@ -182,56 +182,26 @@ async def _finish(
             raise LostClaim(song_id)
         if announcement is not None and not deleted_meanwhile:
             _announce(db, song_id, announcement, drive_file_id)
+        if not deleted_meanwhile:
+            # A copy job for each submission still without a copy: one made
+            # before the file existed had its own copy job find nothing.
+            submission_ids = (
+                await db.execute(
+                    select(EventSongSubmission.id).where(
+                        EventSongSubmission.song_id == song_id,
+                        EventSongSubmission.drive_copy_file_id.is_(None),
+                    )
+                )
+            ).scalars()
+            for submission_id in list(submission_ids):
+                add_drive_job(db, "copy", submission_id=submission_id)
         await db.commit()
 
     if deleted_meanwhile:
         # Deleted by its owner while building: its delete saw no file to
         # deprecate, so deprecate it now.
         await _discard_file(maker, drive_file_id, song_id)
-    else:
-        await _requeue_event_copies(maker, song_id)
     return True
-
-
-async def _requeue_event_copies(
-    maker: async_sessionmaker[AsyncSession], song_id: str
-) -> None:
-    """A copy job for each submission of the song still without a copy. A
-    submission made mid-build may have had its copy job find no file."""
-    submission_ids: list[str] = []
-    try:
-        async with maker() as db:
-            submission_ids = list(
-                (
-                    await db.execute(
-                        select(EventSongSubmission.id).where(
-                            EventSongSubmission.song_id == song_id,
-                            EventSongSubmission.drive_copy_file_id.is_(None),
-                        )
-                    )
-                ).scalars()
-            )
-            for submission_id in submission_ids:
-                await enqueue_drive_job(db, "copy", submission_id=submission_id)
-    except Exception as exc:  # noqa: BLE001 - best-effort, reported
-        logger.error(
-            with_log_prefix(
-                LOG_FAILURE,
-                f"drive_copy_requeue_failed song={song_id} submissions={submission_ids}: {exc!r}",
-            )
-        )
-        with sentry_sdk.new_scope() as scope:
-            scope.set_tag("subsystem", "drive_jobs")
-            scope.set_tag("drive_job_kind", "copy")
-            scope.set_context(
-                "drive_job",
-                {
-                    "song_id": song_id,
-                    "submission_ids": submission_ids,
-                    "stage": "requeue",
-                },
-            )
-            sentry_sdk.capture_exception(exc)
 
 
 async def _discard_file(
