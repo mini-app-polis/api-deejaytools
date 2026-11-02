@@ -3,8 +3,11 @@
 active and waiting are public (API-008), without check-in notes, which are
 for the event's staff only. active/staff, priority and non-priority are
 behind ``deejaytools.queue.read`` on the path session's event, with notes.
-All are cached for 3 s per session and invalidated by every mutation of
-that session.
+The public reads are the same for every caller, so they are cached for 3 s
+per session (ADR-0013) and invalidated by every mutation of that session.
+The cache is per worker process, so another worker can serve a public read
+up to 3 s old. The staff reads are not cached: the people running the
+queue act on what they see, and they are few.
 """
 
 from __future__ import annotations
@@ -226,7 +229,7 @@ async def active_queue(
     description=(
         "Requires deejaytools.queue.read on the session's event. The active "
         "queue as the public route gives it, with each entry's check-in notes. "
-        "Cached for 3 s."
+        "Not cached."
     ),
     responses=READ,
 )
@@ -238,10 +241,7 @@ async def active_queue_for_staff(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the active queue, with notes."""
-    return await _cached(
-        f"queue:{session_id}:active-staff",
-        lambda: list_queue(db, session_id, "active"),
-    )
+    return success_list(await list_queue(db, session_id, "active"))
 
 
 @router.get(
@@ -275,7 +275,7 @@ async def waiting_queue(
     summary="Priority queue",
     description=(
         "Requires deejaytools.queue.read on the session's event. The priority "
-        "queue. Cached for 3 s."
+        "queue. Not cached."
     ),
     responses=READ,
 )
@@ -287,9 +287,7 @@ async def priority_queue(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the priority queue."""
-    return await _cached(
-        f"queue:{session_id}:priority", lambda: list_queue(db, session_id, "priority")
-    )
+    return success_list(await list_queue(db, session_id, "priority"))
 
 
 @router.get(
@@ -298,7 +296,7 @@ async def priority_queue(
     summary="Standard queue",
     description=(
         "Requires deejaytools.queue.read on the session's event. The standard "
-        "queue. Cached for 3 s."
+        "queue. Not cached."
     ),
     responses=READ,
 )
@@ -310,7 +308,4 @@ async def non_priority_queue(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List the standard queue."""
-    return await _cached(
-        f"queue:{session_id}:non-priority",
-        lambda: list_queue(db, session_id, "non_priority"),
-    )
+    return success_list(await list_queue(db, session_id, "non_priority"))

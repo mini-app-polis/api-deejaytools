@@ -6205,7 +6205,7 @@
           "queue"
         ],
         "summary": "Active queue, for the event's staff",
-        "description": "Requires deejaytools.queue.read on the session's event. The active queue as the public route gives it, with each entry's check-in notes. Cached for 3 s.",
+        "description": "Requires deejaytools.queue.read on the session's event. The active queue as the public route gives it, with each entry's check-in notes. Not cached.",
         "operationId": "active_queue_for_staff_v1_queue__session_id__active_staff_get",
         "parameters": [
           {
@@ -6331,7 +6331,7 @@
           "queue"
         ],
         "summary": "Priority queue",
-        "description": "Requires deejaytools.queue.read on the session's event. The priority queue. Cached for 3 s.",
+        "description": "Requires deejaytools.queue.read on the session's event. The priority queue. Not cached.",
         "operationId": "priority_queue_v1_queue__session_id__priority_get",
         "parameters": [
           {
@@ -6412,7 +6412,7 @@
           "queue"
         ],
         "summary": "Standard queue",
-        "description": "Requires deejaytools.queue.read on the session's event. The standard queue. Cached for 3 s.",
+        "description": "Requires deejaytools.queue.read on the session's event. The standard queue. Not cached.",
         "operationId": "non_priority_queue_v1_queue__session_id__non_priority_get",
         "parameters": [
           {
