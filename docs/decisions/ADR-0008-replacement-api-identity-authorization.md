@@ -42,7 +42,10 @@ the same shape, sharing the schema and never the rows.
   migration of the new service (ADR-0009).
 - One trusted issuer: `https://clerk.deejaytools.com` with its JWKS URL, in
   `identity_issuers` and in settings (`ClerkIssuer`). No machine issuer:
-  there are no machine callers (CD-030 stays exempt, as in ADR-0004).
+  `/internal/tick` is an operator trigger gated by the shared `TICK_SECRET`
+  (`x-tick-secret`), which forces one scheduler pass and gives no data
+  access, so no named machine key is needed (CD-030 stays exempt, as in
+  ADR-0004). Every other route is Clerk-only.
 - The enforcement point name is the repository name.
 
 ### Roles
