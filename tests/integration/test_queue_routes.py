@@ -950,3 +950,30 @@ async def test_staff_reads_are_not_cached(
     await _fill(db, session_id, "non_priority", 1)
     assert len((await client.get(url, headers=admin.headers)).json()["data"]) == 2
     assert response_cache.get(f"queue:{session_id}:non-priority") is None
+
+
+async def test_public_reads_are_shareable_and_staff_reads_are_not(
+    client: httpx.AsyncClient, person: Callable[..., Any], db: asyncpg.Connection
+) -> None:
+    """active and waiting are the same for everyone, so an anonymous read
+    may be held by a shared cache for the 3 s this server caches it, and a
+    hit sends the bytes the miss rendered. The staff reads carry notes and
+    are never marked shareable."""
+    admin = await person("admin", admin=True)
+    session_id = await insert_floor_session(db, **_closed_window())
+    await _fill(db, session_id, "non_priority", 1)
+    shared = "public, max-age=0, s-maxage=3, stale-while-revalidate=3"
+    for view in ("active", "waiting"):
+        url = f"/v1/queue/{session_id}/{view}"
+        miss = await client.get(url)
+        hit = await client.get(url)
+        assert miss.headers["cache-control"] == shared
+        assert hit.content == miss.content
+        assert response_cache.get(f"queue:{session_id}:{view}") == miss.content
+        signed_in = await client.get(url, headers=admin.headers)
+        assert signed_in.headers["cache-control"] == "private, no-store"
+        assert signed_in.content == miss.content
+    for view in ("active/staff", "priority", "non-priority"):
+        res = await client.get(f"/v1/queue/{session_id}/{view}", headers=admin.headers)
+        assert res.status_code == 200
+        assert "cache-control" not in res.headers, view

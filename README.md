@@ -79,7 +79,7 @@ grant from a per-event staff role (ADR-0012) on that event only.
 | `GET /v1/admin/checkins/test` | `deejaytools.testdata.read` |
 
 Requests are limited by `src/api_deejaytools/middleware.py`: 11 MiB bodies, 300 requests a minute
-per client address on `/v1/*`, and a 30 s deadline (300 s for uploads).
+per signed-in user or anonymous client address on `/v1/*` (docs/OPERATIONS.md, "Rate limit"), and a 30 s deadline (300 s for uploads).
 
 The full contract is checked by the conformance suite
 ([docs/CONFORMANCE.md](docs/CONFORMANCE.md)). Background work (session

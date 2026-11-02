@@ -67,17 +67,12 @@ For a caller who holds a scope only through a per-event staff role, a request th
 
 ### Optional-user pattern
 
-`GET /v1/sessions` and `GET /v1/sessions/:id` call `optional_synced_user_id()` ([`src/api_deejaytools/auth.py`](../src/api_deejaytools/auth.py)):
+`GET /v1/sessions` calls `optional_synced_caller()` ([`src/api_deejaytools/auth.py`](../src/api_deejaytools/auth.py)):
 
 - No token, invalid token, or unsynced user → treated as anonymous; no error.
-- Valid token + synced user → extra fields are added.
+- Valid token + synced user → `has_active_checkin: boolean` is added on each session row.
 
-| Endpoint | Extra fields when authenticated |
-|----------|----------------------------------|
-| `GET /v1/sessions` | `has_active_checkin: boolean` on each session row |
-| `GET /v1/sessions/:id` | `has_active_checkin: boolean`, `active_checkin_division: string` when in queue |
-
-Anonymous responses **omit** these keys entirely (not `null`).
+Anonymous responses **omit** the key entirely (not `null`). `GET /v1/sessions/:id` has no optional user: it is the same for every caller, so shared caches can hold it ([ADR-0013](./decisions/ADR-0013-event-capacity-target.md)). A caller's own check-in in a session comes from `GET /v1/checkins/mine`.
 
 ### Rate limiting and timeouts
 
@@ -86,8 +81,8 @@ Applied in [`src/api_deejaytools/middleware.py`](../src/api_deejaytools/middlewa
 | Middleware | Scope | Limit |
 |------------|-------|-------|
 | Body limit | `*` | 11 MiB max body; **413** `payload_too_large` |
-| Rate limit | `/v1/*` only | 300 requests / minute per client address (`cf-connecting-ip` through Cloudflare, else the last `X-Forwarded-For` hop; see [OPERATIONS.md](./OPERATIONS.md#client-address)); **429** `too_many_requests` |
-| Rate limit, feedback | `POST /v1/feedback` | **5 requests / minute** per client address, counted as well as the 300 above; **429** `too_many_requests` |
+| Rate limit | `/v1/*` only | 300 requests / minute per caller: the verified user when signed in, else the client address; anonymous `GET`s of the public cached reads are not counted (see [OPERATIONS.md](./OPERATIONS.md#rate-limit)); **429** `too_many_requests` |
+| Rate limit, feedback | `POST /v1/feedback` | **5 requests / minute** per caller, counted as well as the 300 above; **429** `too_many_requests` |
 | Deadline | `/v1/*` only | **30 s** default; **300 s** for paths starting with `/v1/songs/upload/`; **503** `request_timeout` |
 
 **Exempt from rate limiting and the deadline:** `/health`, `/version`, `/internal/tick` (unversioned).
@@ -103,7 +98,18 @@ CORS: origins from `DEEJAYTOOLS_CORS_ORIGINS` (comma-separated), default `http:/
 | `SessionInfoHeader` | 30 s | Local clock only (no API) |
 | `FloorTrialsPage` | none | Loads `GET /v1/sessions` + `GET /v1/events` once on mount |
 
-The public queue reads (`/active`, `/waiting`) are cached server-side for **3 s** (`QUEUE_TTL_SECONDS` in `src/api_deejaytools/cache.py`); session list/detail shared data for **5 s** (`SESSION_TTL_SECONDS`). The staff queue reads (`/active/staff`, `/priority`, `/non-priority`) are not cached. The cache is per worker process; a write clears the affected keys in every worker through Postgres `NOTIFY` (docs/OPERATIONS.md, "Response cache across workers"). Admins and event staff read `GET /v1/sessions` uncached.
+The public queue reads (`/active`, `/waiting`) are cached server-side for **3 s** (`QUEUE_TTL_SECONDS` in `src/api_deejaytools/cache.py`); session list/detail for **5 s** (`SESSION_TTL_SECONDS`). The staff queue reads (`/active/staff`, `/priority`, `/non-priority`) are not cached. The cache is per worker process; a write clears the affected keys in every worker through Postgres `NOTIFY` (docs/OPERATIONS.md, "Response cache across workers"). Admins and event staff read `GET /v1/sessions` uncached.
+
+### Shared caching (Cache-Control)
+
+The public reads that are the same for every caller tell shared caches (Cloudflare) they may hold them for as long as the server cache does, and serve them stale for as long again while one request refreshes them; browsers revalidate every time:
+
+| Endpoint | `Cache-Control` without `Authorization` |
+|----------|------------------------------------------|
+| `GET /v1/sessions/:id`, `GET /v1/sessions` | `public, max-age=0, s-maxage=5, stale-while-revalidate=5` |
+| `GET /v1/queue/:sessionId/active`, `…/waiting` | `public, max-age=0, s-maxage=3, stale-while-revalidate=3` |
+
+A request that carries `Authorization` gets `Cache-Control: private, no-store` on these, whatever its answer: the session list is personalised (and read fresh by admins and event staff), and nothing answered to a signed-in request is marked shareable. Errors, the staff queue reads, `GET /v1/divisions` (not cached server-side) and every other route carry no `Cache-Control`. A shared cache can hold a read for up to the server's TTL plus `s-maxage` plus `stale-while-revalidate` after it was read from the database, and a write does not clear it there.
 
 ### Shared error rows
 
@@ -712,7 +718,7 @@ export const SessionStatusSchema = z.enum([
 
 **Auth:** optional-user
 
-**Purpose:** List sessions with divisions, queue depths, and optional per-user check-in flag.
+**Purpose:** List sessions with divisions, queue depths, and optional per-user check-in flag. `Cache-Control` as in [Shared caching](#shared-caching-cache-control).
 
 **Path params:** none
 
@@ -772,9 +778,9 @@ export const SessionStatusSchema = z.enum([
 
 ### GET /v1/sessions/:id
 
-**Auth:** optional-user
+**Auth:** public
 
-**Purpose:** Fetch one session with event name, divisions, queue depth, optional user check-in state.
+**Purpose:** Fetch one session with event name, divisions and queue depth. The same for every caller; `Cache-Control` as in [Shared caching](#shared-caching-cache-control). `status` is as of the cached read.
 
 **Path params:** `id`
 
@@ -782,13 +788,11 @@ export const SessionStatusSchema = z.enum([
 
 **Request body:** none
 
-**Response:** Session object as in list, plus:
+**Response:** Session object as in list, without `has_active_checkin`, plus:
 
 ```json
 {
-  "event_name": "Rising Star Classic 2026",
-  "has_active_checkin": true,
-  "active_checkin_division": "Classic"
+  "event_name": "Rising Star Classic 2026"
 }
 ```
 
@@ -1227,7 +1231,7 @@ z.object({ queueEntryId: z.string().min(1) })
 
 **Request body:** none
 
-**Response:** Array of queue entry objects in `data`, with `notes` always `null`: check-in notes are for the event's staff, who read them through `GET /v1/queue/:sessionId/active/staff`.
+**Response:** Array of queue entry objects in `data`, with `notes` always `null`: check-in notes are for the event's staff, who read them through `GET /v1/queue/:sessionId/active/staff`. `Cache-Control` as in [Shared caching](#shared-caching-cache-control).
 
 **Errors:** none (empty array valid).
 
@@ -1267,7 +1271,7 @@ z.object({ queueEntryId: z.string().min(1) })
 
 **Request body:** none
 
-**Response:** Same as active entries (`notes` always `null`) plus `"subQueue": "priority" | "non_priority"` on each row.
+**Response:** Same as active entries (`notes` always `null`) plus `"subQueue": "priority" | "non_priority"` on each row. `Cache-Control` as in [Shared caching](#shared-caching-cache-control).
 
 **Errors:** none.
 
@@ -2193,6 +2197,7 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 400 | `BAD_REQUEST` | submit_to_event needs on_behalf_of_user_id and event_id | `submit_to_event` without either |
 | 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` through a role or on `event_id`'s event (a DJ without `event_id` included), or for a person not connected to that event |
 | 400 | `BAD_REQUEST` | Chunk exceeds 10 MB limit | Chunk > 10 MiB |
+| 400 | `BAD_REQUEST` | File exceeds 100 MB limit | A chunk other than the last whose size × (`total_chunks` − 1), plus the last chunk's byte at least, is over 110 MiB: chunks before the last are all one size, so the file would be. Refused before the chunk is staged; anything already staged for the upload is removed |
 | 429 | `TOO_MANY_UPLOADS` | You have 3 uploads in progress. Finish or wait for one before starting another. | First chunk of a new upload while the caller already has 3 uploads staged (counted per caller, also when uploading on behalf) |
 | 400 | `BAD_REQUEST` | File exceeds 100 MB limit | Any chunk that takes the upload's staged chunks past 110 MiB; the staged chunks are removed |
 | 400 | `BAD_REQUEST` | Portal uploads cannot specify partner_id or managed_partnership_id | Final chunk: `entity_type` with a partner field |

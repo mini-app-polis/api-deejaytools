@@ -58,7 +58,9 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Literal
@@ -128,6 +130,57 @@ def get_verifier() -> ClerkVerifier | None:
     return _verifier(issuer, jwks_url)
 
 
+#: The credential verified for the current request and what came of it, kept
+#: by ``verified_credential`` so the route's own check does not verify again.
+_verified: ContextVar[tuple[str, VerifiedSubject | Exception] | None] = ContextVar(
+    "verified_credential", default=None
+)
+
+
+async def _verify(verifier: ClerkVerifier, credential: str) -> VerifiedSubject:
+    """``verifier.verify``, or the outcome already reached for this
+    request's credential (``verified_credential``)."""
+    kept = _verified.get()
+    if kept is not None and kept[0] == credential:
+        if isinstance(kept[1], Exception):
+            raise kept[1]
+        return kept[1]
+    return await verifier.verify(credential)
+
+
+@asynccontextmanager
+async def verified_credential(
+    authorization: str | None,
+) -> AsyncIterator[VerifiedSubject | None]:
+    """Verify a request's bearer credential ahead of its route.
+
+    For the rate limit (middleware.py), which keys a signed-in request on
+    its verified user. Yields the subject, or None when there is no bearer
+    credential, no issuer is configured, or it fails verification for any
+    reason: the route answers the failure itself. Inside the block,
+    ``verify_bearer`` and the optional-caller reads take the outcome for the
+    same credential rather than verifying it again.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        yield None
+        return
+    verifier = get_verifier()
+    if verifier is None:
+        yield None
+        return
+    credential = authorization[len("Bearer ") :]
+    outcome: VerifiedSubject | Exception
+    try:
+        outcome = await verifier.verify(credential)
+    except Exception as exc:  # noqa: BLE001 - kept for the route to answer
+        outcome = exc
+    token = _verified.set((credential, outcome))
+    try:
+        yield None if isinstance(outcome, Exception) else outcome
+    finally:
+        _verified.reset(token)
+
+
 async def verify_bearer(authorization: str | None) -> VerifiedSubject:
     """Verify ``Authorization: Bearer <Clerk session JWT>``.
 
@@ -152,7 +205,7 @@ async def verify_bearer(authorization: str | None) -> VerifiedSubject:
         )
         raise unauthorized()
     try:
-        return await verifier.verify(authorization[len("Bearer ") :])
+        return await _verify(verifier, authorization[len("Bearer ") :])
     except IssuerUnavailable as exc:
         logger.warning(with_log_prefix(LOG_WARNING, f"auth_unavailable: {exc!r}"))
         raise api_error(
@@ -569,7 +622,7 @@ def caller_name(principal: Principal) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Optional caller, for the two public session reads
+# Optional caller, for the public session list
 # ---------------------------------------------------------------------------
 
 
@@ -581,27 +634,9 @@ async def _optional_subject(authorization: str | None) -> VerifiedSubject | None
     if verifier is None:
         return None
     try:
-        return await verifier.verify(authorization[len("Bearer ") :])
+        return await _verify(verifier, authorization[len("Bearer ") :])
     except Exception:  # noqa: BLE001 - anonymous on any failure, as today
         return None
-
-
-async def optional_synced_user_id(
-    authorization: str | None, session: AsyncSession
-) -> str | None:
-    """The caller's users.id when they send a valid token and have synced.
-
-    Used by GET /v1/sessions/{id}, which is public: a credential is read,
-    never required. No token, a bad token or an unsynced caller all mean
-    anonymous, with no error. No scope is checked and no decision is
-    audited: nothing is authorized here, the caller only learns about their
-    own check-ins.
-    """
-    subject = await _optional_subject(authorization)
-    if subject is None:
-        return None
-    row = await session.get(User, subject.subject)
-    return row.id if row is not None else None
 
 
 @dataclass(frozen=True)
@@ -617,11 +652,14 @@ class OptionalCaller:
 async def optional_synced_caller(
     authorization: str | None, session: AsyncSession
 ) -> OptionalCaller | None:
-    """``optional_synced_user_id``, plus whether the caller runs events.
+    """The caller when they send a valid token and have synced, with whether
+    they run events.
 
-    Used by GET /v1/sessions, as optional_synced_user_id is: nothing is
-    authorized or audited. ``runs_events`` only decides whether the read
-    may come from the response cache.
+    Used by GET /v1/sessions, which is public: a credential is read, never
+    required. No token, a bad token or an unsynced caller all mean
+    anonymous, with no error. Nothing is authorized or audited: the caller
+    only learns about their own check-ins, and ``runs_events`` only decides
+    whether the read may come from the response cache.
     """
     subject = await _optional_subject(authorization)
     if subject is None:

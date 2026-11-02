@@ -7,7 +7,6 @@ they verify the credential and require no scope. The credential is the
 
 from __future__ import annotations
 
-import time
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Request
@@ -27,6 +26,7 @@ from ..auth import (
     verify_bearer,
     wire_role,
 )
+from ..clock import now_ms
 from ..database import get_db_session
 from ..db_errors import is_unique_violation
 from ..errors import (
@@ -205,7 +205,7 @@ async def sync(
     # the caller chose, and personal data in a shared channel.
     request.state.caller = subject.subject
     email = _email_for(subject, body.email)
-    now = int(time.time() * 1000)
+    now = now_ms()
     try:
         await session.execute(
             insert(User)
@@ -310,6 +310,6 @@ async def update_me(
         raise api_error(404, ErrorCode.NOT_FOUND, "User not found")
     row.first_name = body.firstName
     row.last_name = body.lastName
-    row.updated_at = int(time.time() * 1000)
+    row.updated_at = now_ms()
     await session.commit()
     return success(_user_data(row, wire_role(caller.principal)))

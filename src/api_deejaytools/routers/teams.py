@@ -7,7 +7,6 @@ caller's own teams. Names are unique per user (``uq_teams_user_identifier``).
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Annotated, Any
 
@@ -21,14 +20,15 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
+from ..clock import now_ms
 from ..database import get_db_session
 from ..db_errors import is_unique_violation
 from ..errors import (
-    ApiError,
     Envelope,
     ErrorCode,
     ErrorResponse,
     api_error,
+    conflict,
     error_body,
     success,
     success_list,
@@ -99,8 +99,8 @@ def map_team(row: Team) -> dict[str, Any]:
     }
 
 
-def _conflict() -> ApiError:
-    return api_error(409, "conflict", "You already have a team with that name.")
+#: The 409 for a second team of the same name.
+DUPLICATE_NAME = "You already have a team with that name."
 
 
 async def _load_owned(session: AsyncSession, team_id: str, user_id: str) -> Team:
@@ -167,7 +167,7 @@ async def create_team(
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Create a team."""
-    now = int(time.time() * 1000)
+    now = now_ms()
     team_id = str(uuid.uuid4())
     identifier = title_case_if_no_caps(body.identifier)
     try:
@@ -184,7 +184,7 @@ async def create_team(
     except SQLAlchemyError as exc:
         await session.rollback()
         if is_unique_violation(exc):
-            raise _conflict() from exc
+            raise conflict(DUPLICATE_NAME) from exc
         sentry_sdk.capture_exception(exc)
         logger.error(
             with_log_prefix(
@@ -222,13 +222,13 @@ async def patch_team(
         await session.execute(
             update(Team)
             .where(Team.id == id, Team.user_id == caller.user_id)
-            .values(identifier=identifier, updated_at=int(time.time() * 1000))
+            .values(identifier=identifier, updated_at=now_ms())
         )
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
         if is_unique_violation(exc):
-            raise _conflict() from exc
+            raise conflict(DUPLICATE_NAME) from exc
         raise
     row = await session.get(Team, id, populate_existing=True)
     assert row is not None

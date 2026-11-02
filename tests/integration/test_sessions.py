@@ -1,7 +1,8 @@
-"""/v1/sessions: optional-caller reads, admin writes, and their rules."""
+"""/v1/sessions: public reads, admin writes, and their rules."""
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable
 from datetime import date, timedelta
@@ -10,6 +11,7 @@ from typing import Any
 import asyncpg
 import httpx
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 HOUR = 3_600_000
 
@@ -123,7 +125,7 @@ async def test_event_rules(client: httpx.AsyncClient, person: Callable) -> None:
     }
 
 
-async def test_reads_are_public_and_add_caller_fields_when_synced(
+async def test_reads_are_public_and_only_the_list_adds_caller_fields(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:
     admin = await person("admin", admin=True)
@@ -143,12 +145,6 @@ async def test_reads_are_public_and_add_caller_fields_when_synced(
     bad = await client.get("/v1/sessions", headers={"Authorization": "Bearer junk"})
     assert bad.status_code == 200 and "has_active_checkin" not in bad.json()["data"][0]
 
-    mine = (
-        await client.get(f"/v1/sessions/{session['id']}", headers=dancer.headers)
-    ).json()
-    assert mine["data"]["has_active_checkin"] is False
-    assert "active_checkin_division" not in mine["data"]
-
     await db.execute(
         "INSERT INTO songs (id, user_id, created_at, updated_at) VALUES ('s1', $1, 1, 1)",
         dancer.id,
@@ -167,13 +163,119 @@ async def test_reads_are_public_and_add_caller_fields_when_synced(
         dancer.id,
     )
 
-    mine = (
-        await client.get(f"/v1/sessions/{session['id']}", headers=dancer.headers)
-    ).json()
-    assert mine["data"]["has_active_checkin"] is True
-    assert mine["data"]["active_checkin_division"] == "Classic"
     listed = (await client.get("/v1/sessions", headers=dancer.headers)).json()
     assert listed["data"][0]["has_active_checkin"] is True
+
+
+async def test_one_session_is_the_same_for_every_caller(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    """A queued dancer's own read of the session carries nothing of theirs:
+    the bytes are the anonymous read's, so a shared cache can hold it."""
+    admin = await person("admin", admin=True)
+    dancer = await person("dancer")
+    session = (await _session(client, admin)).json()["data"]
+    url = f"/v1/sessions/{session['id']}"
+    await db.execute(
+        "INSERT INTO songs (id, user_id, created_at, updated_at) VALUES ('s1', $1, 1, 1)",
+        dancer.id,
+    )
+    await db.execute(
+        "INSERT INTO checkins (id, session_id, division_name, entity_solo_user_id, song_id,"
+        " submitted_by_user_id, initial_queue, created_at)"
+        " VALUES ('c1', $1, 'Classic', $2, 's1', $2, 'priority', 1)",
+        session["id"],
+        dancer.id,
+    )
+    await db.execute(
+        "INSERT INTO queue_entries (id, checkin_id, session_id, queue_type, position,"
+        " entered_queue_at, entity_solo_user_id) VALUES ('q1', 'c1', $1, 'priority', 1, 1, $2)",
+        session["id"],
+        dancer.id,
+    )
+
+    mine = await client.get(url, headers=dancer.headers)
+    anon = await client.get(url)
+
+    assert mine.content == anon.content
+    data = anon.json()["data"]
+    assert "has_active_checkin" not in data
+    assert "active_checkin_division" not in data
+    assert data["queue_depth"]["priority"] == 1
+
+
+# --- shared caching -------------------------------------------------------------
+
+PUBLIC = "public, max-age=0, s-maxage={ttl}, stale-while-revalidate={ttl}"
+
+
+async def test_public_reads_tell_shared_caches_to_hold_them(
+    client: httpx.AsyncClient, person: Callable
+) -> None:
+    """An anonymous read is shareable for the server cache's TTL; a request
+    with Authorization never is, whatever it gets back."""
+    admin = await person("admin", admin=True)
+    dancer = await person("dancer")
+    session_id = (await _session(client, admin)).json()["data"]["id"]
+    for url in (f"/v1/sessions/{session_id}", "/v1/sessions"):
+        anon = await client.get(url)
+        assert anon.headers["cache-control"] == PUBLIC.format(ttl=5), url
+        assert anon.headers["content-type"] == "application/json"
+        for headers in (dancer.headers, admin.headers, {"Authorization": "junk"}):
+            res = await client.get(url, headers=headers)
+            assert res.status_code == 200
+            assert res.headers["cache-control"] == "private, no-store", url
+
+    missing = await client.get("/v1/sessions/no-such-session")
+    assert missing.status_code == 404
+    assert "public" not in missing.headers.get("cache-control", "")
+
+
+async def test_a_hit_sends_the_bytes_the_miss_sent(
+    client: httpx.AsyncClient, person: Callable
+) -> None:
+    from api_deejaytools.cache import response_cache
+
+    admin = await person("admin", admin=True)
+    event_id = await _event(client, admin)
+    session_id = (await _session(client, admin, event_id)).json()["data"]["id"]
+    for url, key in (
+        (f"/v1/sessions/{session_id}", f"sessions:base:{session_id}"),
+        ("/v1/sessions", "sessions:list:public:all"),
+    ):
+        miss = await client.get(url)
+        assert response_cache.get(key) == miss.content
+        hit = await client.get(url)
+        assert hit.content == miss.content, url
+    # The anonymous list still leaves out the caller-only key.
+    [listed] = (await client.get("/v1/sessions")).json()["data"]
+    assert "has_active_checkin" not in listed
+    assert listed["event_timezone"] == "UTC"
+
+
+async def test_concurrent_misses_read_the_database_once(
+    client: httpx.AsyncClient, person: Callable, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from api_deejaytools.routers import sessions as session_routes
+
+    admin = await person("admin", admin=True)
+    session_id = (await _session(client, admin)).json()["data"]["id"]
+    real = session_routes._queue_depths
+    calls = 0
+
+    async def slow_depths(*args: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.05)
+        return await real(*args)
+
+    monkeypatch.setattr(session_routes, "_queue_depths", slow_depths)
+    responses = await asyncio.gather(
+        *(client.get(f"/v1/sessions/{session_id}") for _ in range(20))
+    )
+    assert {r.status_code for r in responses} == {200}
+    assert len({r.content for r in responses}) == 1
+    assert calls == 1
 
 
 async def test_writes_need_the_sessions_scope(
@@ -219,7 +321,11 @@ async def test_a_failed_divisions_update_hides_the_database_text(
     monkeypatch.setattr(session_routes.sentry_sdk, "capture_exception", captured.append)
 
     def boom(*_: Any) -> Any:
-        raise RuntimeError('update or delete on table "session_divisions" violates')
+        raise IntegrityError(
+            "INSERT INTO session_divisions ...",
+            None,
+            Exception('update or delete on table "session_divisions" violates'),
+        )
 
     monkeypatch.setattr(session_routes, "_division_rows", boom)
     res = await client.put(

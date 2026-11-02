@@ -76,7 +76,7 @@ and shapes of [API.md](API.md) (`errors.py`).
   (`DELETE … RETURNING`, `UPDATE … RETURNING`), so a copy or build finishing
   concurrently is never left behind in Drive.
 - **Request limits** (`middleware.py`): 11 MiB bodies, 300 requests a minute
-  per client address on `/v1/*` (5 a minute on `POST /v1/feedback`), a 30 s deadline (300 s for uploads). The
+  per signed-in user or anonymous client address on `/v1/*` (5 a minute on `POST /v1/feedback`; anonymous public cached reads not counted), a 30 s deadline (300 s for uploads). The
   deadline does not cancel the handler: it runs on and its writes land, only
   its response is discarded.
 - **Discord notifications** (`services/notifications.py`, on

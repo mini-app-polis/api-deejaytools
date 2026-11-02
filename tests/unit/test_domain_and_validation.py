@@ -13,7 +13,6 @@ from api_deejaytools.domain import (
     entity_display,
     entity_name_pair,
     ms_to_date_in_zone,
-    partnership_display,
     season_year_from_date_string,
     song_entity_key,
 )
@@ -30,13 +29,6 @@ def test_song_entity_key_precedence() -> None:
     assert song_entity_key("u", "p", "m") == "mp:m"
     assert song_entity_key("u", "p", None) == "pt:p"
     assert song_entity_key("u", None, None) == "us:u"
-
-
-def test_partnership_display() -> None:
-    assert partnership_display("Ada L", "Bo P") == "Ada L & Bo P"
-    assert partnership_display("Ada L", "") == "Ada L"
-    assert partnership_display("Ada L", "Team X", "team") == "Team X"
-    assert partnership_display("Ada L", "", "solo") == "Ada L"
 
 
 def test_entity_name_pair() -> None:

@@ -45,21 +45,6 @@ def song_entity_key(
     return f"us:{user_id}"
 
 
-def partnership_display(
-    owner_name: str | None, partner_name: str | None, partner_kind: str | None = None
-) -> str:
-    """The "who" label for a song's partnership or a pair entity.
-
-    Placeholder partners (kind solo/team/other) are a single entity: just
-    their name, never "owner & placeholder".
-    """
-    owner = js_trim(owner_name or "")
-    partner = js_trim(partner_name or "")
-    if partner_kind and partner_kind != "partner":
-        return partner or owner
-    return f"{owner} & {partner}" if partner else owner
-
-
 def full_name(*parts: str | None) -> str:
     """Join name parts, skipping empty ones, as ``[a, b].filter(Boolean).join(" ")``."""
     return js_trim(" ".join(p for p in parts if p))

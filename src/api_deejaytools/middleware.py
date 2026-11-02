@@ -1,17 +1,21 @@
-"""Request limits (docs/API.md, ADR-0010).
+"""Request limits (docs/API.md, ADR-0010, ADR-0013).
 
     body limit   every path   11 MiB      413 payload_too_large
-    rate limit   /v1/* only   300 / min   429 too_many_requests   per client IP
+    rate limit   /v1/* only   300 / min   429 too_many_requests   per caller
                  /v1/feedback 5 / min     (as well as the 300)
     deadline     /v1/* only   30 s        503 request_timeout
                               300 s on /v1/songs/upload/*
+
+The rate limit's caller is the verified user for a signed-in request and the
+client address for an anonymous one; an anonymous request to a public cached
+read (``PUBLIC_READS``) is not counted (docs/OPERATIONS.md, "Rate limit").
 
 Pure ASGI middleware rather than ``BaseHTTPMiddleware``: the body limit has
 to see the stream before the app does, and the deadline has to answer while
 the handler is still running.
 
 State is process-local (one window table, one set of background handlers):
-the service runs as a single process.
+each worker process keeps its own.
 """
 
 from __future__ import annotations
@@ -19,24 +23,34 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
 import time
 from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from ipaddress import IPv4Address, IPv6Address, ip_address, ip_network
 from typing import Any
 
+from identity.types import VerifiedSubject
 from mini_app_polis import activity
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from .auth import verified_credential
 from .errors import error_body
 
 logger = get_logger()
 
 BODY_LIMIT_BYTES = 11 * 1024 * 1024
 RATE_LIMIT = 300
-#: Routes with a lower per-address limit of their own, on top of the global one.
+#: Routes with a lower per-caller limit of their own, on top of the global one.
 #: Feedback is public and each valid request sends one email.
 PATH_RATE_LIMITS = {"/v1/feedback": 5}
+#: The public cached reads (GET): an anonymous request to one is not counted.
+#: A whole event polls them from one venue address (ADR-0013); the response
+#: cache, not a limit, is what keeps them off the database.
+PUBLIC_READS = re.compile(
+    r"/v1/(divisions|sessions(/[^/]+)?|queue/[^/]+/(active|waiting))"
+)
 RATE_WINDOW_SECONDS = 60.0
 DEADLINE_SECONDS = 30.0
 UPLOAD_DEADLINE_SECONDS = 300.0
@@ -176,8 +190,8 @@ def _ip(value: str) -> IPv4Address | IPv6Address | None:
 
 
 def client_address(scope: Scope) -> str:
-    """The client's address the rate limit keys on (docs/OPERATIONS.md,
-    "Client address").
+    """The client's address an anonymous request's rate limit keys on
+    (docs/OPERATIONS.md, "Client address").
 
     The peer is the last X-Forwarded-For hop, the one Railway's edge appends
     for whoever connected to it; every earlier hop is the client's to write.
@@ -204,8 +218,16 @@ def client_address(scope: Scope) -> str:
 
 
 class RateLimitMiddleware:
-    """Fixed window per client address on /v1/*: 300 requests a minute, and
-    for the paths in ``path_limits`` a lower limit of their own."""
+    """Fixed window per caller on /v1/*: 300 requests a minute, and for the
+    paths in ``path_limits`` a lower limit of their own.
+
+    The caller is the verified user when the request carries a credential
+    that verifies, so a forged or expired token gets the address's window,
+    never a fresh one; otherwise it is the client address. An anonymous
+    request to a public cached read is not counted. ``verify`` is
+    ``auth.verified_credential``: the route reuses its outcome rather than
+    verifying the credential a second time.
+    """
 
     def __init__(
         self,
@@ -214,12 +236,16 @@ class RateLimitMiddleware:
         window_seconds: float = RATE_WINDOW_SECONDS,
         clock: Callable[[], float] = time.monotonic,
         path_limits: dict[str, int] | None = None,
+        verify: Callable[
+            [str | None], AbstractAsyncContextManager[VerifiedSubject | None]
+        ] = verified_credential,
     ) -> None:
         self.app = app
         self.limit = limit
         self.path_limits = PATH_RATE_LIMITS if path_limits is None else path_limits
         self.window = window_seconds
         self.clock = clock
+        self.verify = verify
         self.windows: dict[str, list[float]] = {}  # key → [window_start, count]
         self._last_prune = clock()
 
@@ -227,24 +253,31 @@ class RateLimitMiddleware:
         if not _versioned(scope):
             await self.app(scope, receive, send)
             return
-        now = self.clock()
-        self._prune(now)
-        address = client_address(scope)
-        retry_after = self._take(address, self.limit, now)
-        path_limit = self.path_limits.get(scope["path"])
-        if retry_after is None and path_limit is not None:
-            retry_after = self._take(f"{scope['path']} {address}", path_limit, now)
-        if retry_after is not None:
-            await _send_json(
-                send,
-                429,
-                error_body(
-                    "too_many_requests", "Rate limit exceeded. Please slow down."
-                ),
-                [(b"retry-after", str(retry_after).encode())],
-            )
-            return
-        await self.app(scope, receive, send)
+        async with self.verify(_header(scope, b"authorization")) as subject:
+            if subject is not None:
+                key = f"user {subject.issuer} {subject.subject}"
+            elif scope["method"] == "GET" and PUBLIC_READS.fullmatch(scope["path"]):
+                await self.app(scope, receive, send)
+                return
+            else:
+                key = f"address {client_address(scope)}"
+            now = self.clock()
+            self._prune(now)
+            retry_after = self._take(key, self.limit, now)
+            path_limit = self.path_limits.get(scope["path"])
+            if retry_after is None and path_limit is not None:
+                retry_after = self._take(f"{scope['path']} {key}", path_limit, now)
+            if retry_after is not None:
+                await _send_json(
+                    send,
+                    429,
+                    error_body(
+                        "too_many_requests", "Rate limit exceeded. Please slow down."
+                    ),
+                    [(b"retry-after", str(retry_after).encode())],
+                )
+                return
+            await self.app(scope, receive, send)
 
     def _take(self, key: str, limit: int, now: float) -> int | None:
         """Count one request against ``key``; None if allowed, else the

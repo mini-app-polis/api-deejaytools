@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
 import asyncpg
 import httpx
+import pytest
 
 from .content_helpers import (
     insert_checkin,
@@ -169,6 +171,49 @@ async def test_patch(client: httpx.AsyncClient, person: Callable) -> None:
         f"/v1/partners/{pid}", json={"first_name": None}, headers=alice.headers
     )
     assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+async def test_find_or_create_pair_races_to_one_pair(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Overlapping requests for the same pair all look it up before any of
+    them inserts: one creates it (201), the rest get that pair (200)."""
+    from api_deejaytools.routers import pairs
+
+    alice = await person("alice")
+    pid = (await _create(client, alice))["id"]
+    racers = 4
+    all_looked = asyncio.Barrier(racers)
+    lookups = 0
+    lookup = pairs._pair_id
+
+    async def look_then_wait(*args: Any) -> str | None:
+        nonlocal lookups
+        lookups += 1
+        found = await lookup(*args)
+        if lookups <= racers:  # each request's first lookup
+            await all_looked.wait()
+        return found
+
+    monkeypatch.setattr(pairs, "_pair_id", look_then_wait)
+    results = await asyncio.gather(
+        *(
+            client.post(
+                "/v1/pairs/find-or-create",
+                json={"partner_id": pid},
+                headers=alice.headers,
+            )
+            for _ in range(racers)
+        )
+    )
+    assert sorted(r.status_code for r in results) == [200, 200, 200, 201], [
+        r.text for r in results
+    ]
+    assert len({r.json()["data"]["id"] for r in results}) == 1
+    assert await db.fetchval("SELECT count(*) FROM pairs") == 1
 
 
 async def test_find_or_create_pair(
