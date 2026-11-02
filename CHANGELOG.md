@@ -1,3 +1,21 @@
+# [1.23.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.22.3...v1.23.0) (2026-11-02)
+
+
+### Bug Fixes
+
+* **api:** answer malformed JSON 400 and rate-limit feedback separately ([151c1fe](https://github.com/mini-app-polis/api-deejaytools/commit/151c1fe7beb2a7ecf39b21d3056e9c4526025db9))
+* **deps:** bump miniapppolis-common-utils to 7.8.3 ([b063c86](https://github.com/mini-app-polis/api-deejaytools/commit/b063c86b97276cc2b7c7d6c760148fbcbc29a906))
+* **deps:** bump miniapppolis-common-utils to 7.9.0 ([530dec8](https://github.com/mini-app-polis/api-deejaytools/commit/530dec8660ec026b871f41f74cf09be154af0083))
+* **deps:** bump pytest-asyncio ([9d0abf1](https://github.com/mini-app-polis/api-deejaytools/commit/9d0abf13a47d6048c2ceca0dbecfe3f870024a0e))
+* **models:** declare users foreign keys and narrow the API-006 exemption ([4b86764](https://github.com/mini-app-polis/api-deejaytools/commit/4b867643448a3e172b7fd9901080cc895b6a6107))
+* **song-builds:** queue the event copy in the build's transaction ([45f5804](https://github.com/mini-app-polis/api-deejaytools/commit/45f580471ea5705ea3efba30df2f4b7d831ff25f))
+* **submissions:** serialise the one-song-per-entity check per event and entity ([c9bfb1c](https://github.com/mini-app-polis/api-deejaytools/commit/c9bfb1cfad126b77f6a58b362c9f3dba00ff4a1d))
+
+
+### Features
+
+* **api:** run uvicorn workers per CPU and size the database pool for them ([336c581](https://github.com/mini-app-polis/api-deejaytools/commit/336c581ceaef7905c70e776b202ff15edb231116))
+
 ## [1.22.3](https://github.com/mini-app-polis/api-deejaytools/compare/v1.22.2...v1.22.3) (2026-11-01)
 
 
