@@ -20,7 +20,8 @@ from mini_app_polis.request_metrics import RequestMetricsMiddleware
 from mini_app_polis.sentry import init_sentry
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 
-from . import __version__
+from . import __version__, cache_bus
+from .cache import drop_local
 from .config import get_settings
 from .errors import install_error_handlers
 from .middleware import BodyLimitMiddleware, DeadlineMiddleware, RateLimitMiddleware
@@ -99,7 +100,10 @@ async def lifespan(_app: FastAPI):
     log_settings(settings)
     # Off under DISABLE_SCHEDULER=1 and ENVIRONMENT=test (services/scheduler.py).
     scheduler = start_scheduler(settings)
+    # Drops other workers' cached reads when this one writes (cache_bus.py).
+    cache_bus.start(settings.DEEJAYTOOLS_DATABASE_URL, drop_local)
     yield
+    await cache_bus.stop()
     if scheduler is not None:
         await scheduler.stop()
     # Let Discord messages already dispatched (a last fault, a song added)

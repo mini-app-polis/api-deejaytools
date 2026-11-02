@@ -42,12 +42,29 @@ database engine, response cache and rate-limit windows, and its own
 scheduler (safe to run more than once).
 
 Each engine holds at most `pool_size` 8 + `max_overflow` 4 = 12
-connections (`src/api_deejaytools/database.py`), so 4 workers use at most
-48. Railway Postgres allows 100 connections by default, which leaves about
-50 for the crons, migrations (one connection at deploy) and operator
-sessions. Keep workers x 12 at or below 60 against a 100-connection limit:
+connections (`src/api_deejaytools/database.py`), and each worker also holds
+one connection of its own for the cache bus (below), so 4 workers use at
+most 52. Railway Postgres allows 100 connections by default, which leaves
+about 50 for the crons, migrations (one connection at deploy) and operator
+sessions. Keep workers x 13 at or below 60 against a 100-connection limit:
 if you raise `WEB_CONCURRENCY`, lower the pool in `database.py` to match, and
 if the database's limit changes, recompute the same sum.
+
+## Response cache across workers
+
+Each worker caches the hot public reads (`src/api_deejaytools/cache.py`:
+queue reads 3 s, session reads 5 s). A write drops the affected keys in its
+own worker and sends a Postgres `NOTIFY` on the `deejaytools_cache` channel;
+every other worker `LISTEN`s on its cache-bus connection
+(`src/api_deejaytools/cache_bus.py`, `application_name`
+`api-deejaytools-cache-bus` in `pg_stat_activity`) and drops the same keys,
+within milliseconds.
+
+If a worker's cache-bus connection drops, it logs `cache_bus: connection
+lost`, serves its cache on the TTL alone, and reconnects with backoff; on
+reconnecting it drops its whole cache, since it may have missed
+notifications. Admins and event staff read `GET /v1/sessions` fresh either
+way, so a session they create or delete shows at once.
 
 ## Client address
 

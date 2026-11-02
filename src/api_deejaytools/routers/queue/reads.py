@@ -4,9 +4,8 @@ active and waiting are public (API-008), without check-in notes, which are
 for the event's staff only. active/staff, priority and non-priority are
 behind ``deejaytools.queue.read`` on the path session's event, with notes.
 The public reads are the same for every caller, so they are cached for 3 s
-per session (ADR-0013) and invalidated by every mutation of that session.
-The cache is per worker process, so another worker can serve a public read
-up to 3 s old. The staff reads are not cached: the people running the
+per session (ADR-0013) and invalidated, in every worker, by every mutation
+of that session. The staff reads are not cached: the people running the
 queue act on what they see, and they are few.
 """
 

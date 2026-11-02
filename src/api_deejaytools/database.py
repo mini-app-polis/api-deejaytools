@@ -32,9 +32,9 @@ def _get_engine(database_url: str) -> AsyncEngine:
         async_url(database_url),
         pool_pre_ping=True,
         # Each uvicorn worker has its own engine, so the database sees
-        # workers x (pool_size + max_overflow) connections. Sized for 4
-        # workers: 4 x 12 = 48 (docs/OPERATIONS.md, "Workers and database
-        # connections").
+        # workers x (pool_size + max_overflow) connections, plus one per
+        # worker for the cache bus. Sized for 4 workers: 4 x 13 = 52
+        # (docs/OPERATIONS.md, "Workers and database connections").
         pool_size=8,
         max_overflow=4,
         # No prepared-statement caches, in asyncpg or in SQLAlchemy's adapter.
