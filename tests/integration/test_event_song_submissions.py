@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -189,6 +190,29 @@ async def test_duplicate_and_entity_slot(
     assert res.json()["error"]["message"] == (
         "This entity already has a song submitted for this division. "
         "Remove it before adding another."
+    )
+
+
+async def test_simultaneous_submissions_take_one_slot(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    alice = await person("alice")
+    event = await insert_event(db)
+    songs = [await insert_song(db, alice.id, division="Classic") for _ in range(4)]
+
+    results = await asyncio.gather(
+        *(_submit(client, alice, event_id=event, song_id=s) for s in songs)
+    )
+
+    assert sorted(r.status_code for r in results) == [201, 409, 409, 409]
+    assert {r.json()["error"]["code"] for r in results if r.status_code == 409} == {
+        "ENTITY_SLOT_TAKEN"
+    }
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM event_song_submissions WHERE event_id = $1", event
+        )
+        == 1
     )
 
 

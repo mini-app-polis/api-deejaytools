@@ -49,6 +49,7 @@ from ..submissions import (
     DEFAULT_ROUND,
     entity_slot_taken,
     fetch_user_submission_rows,
+    lock_entity_slot,
     map_submission_row,
     slot_taken_message,
 )
@@ -350,14 +351,17 @@ async def upload_chunk(
         if await db.get(Event, submit_event_id) is None:
             _remove(upload_dir)
             raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
+        slot_entity = song_entity_key(
+            effective_user_id,
+            None if managed_partnership_id else partner_id,
+            managed_partnership_id,
+        )
+        # Held until the commit that inserts the submission.
+        await lock_entity_slot(db, event_id=submit_event_id, entity=slot_entity)
         if await entity_slot_taken(
             db,
             event_id=submit_event_id,
-            entity=song_entity_key(
-                effective_user_id,
-                None if managed_partnership_id else partner_id,
-                managed_partnership_id,
-            ),
+            entity=slot_entity,
             division=division,
             round_=DEFAULT_ROUND,
         ):
