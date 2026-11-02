@@ -6,7 +6,6 @@ the caller and one of their partners, for the check-in flow.
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Any
 
@@ -14,9 +13,11 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
+from ..clock import now_ms
 from ..database import get_db_session
 from ..errors import Envelope, ErrorCode, ErrorResponse, api_error, success
 from ..models import Pair, Partner
@@ -98,27 +99,40 @@ async def find_or_create_pair(
         raise api_error(404, ErrorCode.NOT_FOUND, "Partner not found")
     leader_id = partner.user_id
 
-    existing = (
-        await session.execute(
-            select(Pair.id)
-            .where(
-                Pair.user_a_id == leader_id,
-                Pair.partner_b_id == body.partner_id,
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    existing = await _pair_id(session, leader_id, body.partner_id)
     if existing is not None:
         return success({"id": existing})
 
-    pair_id = str(uuid.uuid4())
-    session.add(
-        Pair(
-            id=pair_id,
-            user_a_id=leader_id,
-            partner_b_id=body.partner_id,
-            created_at=int(time.time() * 1000),
+    # A concurrent find-or-create of the same pair can insert it first: this
+    # insert then does nothing on uq_pairs_user_partner, and the answer is
+    # the pair that won.
+    created = (
+        await session.execute(
+            insert(Pair)
+            .values(
+                id=str(uuid.uuid4()),
+                user_a_id=leader_id,
+                partner_b_id=body.partner_id,
+                created_at=now_ms(),
+            )
+            .on_conflict_do_nothing(index_elements=[Pair.user_a_id, Pair.partner_b_id])
+            .returning(Pair.id)
         )
-    )
+    ).scalar_one_or_none()
     await session.commit()
-    return JSONResponse(status_code=201, content=success({"id": pair_id}))
+    if created is None:
+        return success({"id": await _pair_id(session, leader_id, body.partner_id)})
+    return JSONResponse(status_code=201, content=success({"id": created}))
+
+
+async def _pair_id(
+    session: AsyncSession, leader_id: str, partner_id: str
+) -> str | None:
+    """The id of the pair of ``leader_id`` and ``partner_id``, if there is one."""
+    return (
+        await session.execute(
+            select(Pair.id)
+            .where(Pair.user_a_id == leader_id, Pair.partner_b_id == partner_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
