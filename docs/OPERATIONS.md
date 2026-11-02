@@ -173,7 +173,8 @@ logged, and the first drop of an episode is reported to Sentry.
     is `failed` for good (retry it with
     `POST /v1/admin/drive-jobs/{id}/retry`). Retries are not posted.
   - `scheduler · sessions`, `scheduler · song builds`,
-    `scheduler · drive jobs`, `drive jobs · claim failed`: a scheduler step
+    `scheduler · drive jobs`, `scheduler · event folder sweep`,
+    `drive jobs · claim failed`: a scheduler step
     failed. Posted once per run of failures: the next is posted only after
     the step has succeeded again.
 
@@ -197,8 +198,9 @@ logged, and the first drop of an episode is reported to Sentry.
 
 The legacy `POST /v1/songs` (a song record with no file and no build) gets
 no "song added": it appears in the change feed as an ordinary change. The
-conformance and e2e suites upload real songs to dev, so dev's `activity`
-channel shows their songs, labelled `[DEVELOPMENT]`.
+web app's e2e suite uploads real songs to dev. This repo's conformance
+suite runs against a local target with no Drive and uploads none; dev posts
+faults only, so those songs are not announced.
 
 ### What it cannot see
 
