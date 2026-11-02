@@ -1466,7 +1466,7 @@
           "sessions"
         ],
         "summary": "List sessions",
-        "description": "Sessions, newest date first, with divisions, queue depth and the event's timezone. Intentionally public; a valid synced caller also gets has_active_checkin on each.",
+        "description": "Sessions, newest date first, with divisions, queue depth and the event's timezone. Intentionally public; a valid synced caller also gets has_active_checkin on each. Cached for 5 s, except for admins and event staff, who read it fresh.",
         "operationId": "list_sessions_v1_sessions_get",
         "parameters": [
           {
