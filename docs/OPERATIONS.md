@@ -152,7 +152,8 @@ the key is the address Railway saw.
 
 ## Capacity
 
-The target is ADR-0013's: an event of 3,000 dancers on their own phones
+Before an event, see [EVENT-RUNBOOK.md](EVENT-RUNBOOK.md). The target is
+ADR-0013's: an event of 3,000 dancers on their own phones
 behind one venue address. deejaytools-com's `load/event.k6.js` (its
 `load/README.md` says how to run it) checks it against the development API
 from one address.
