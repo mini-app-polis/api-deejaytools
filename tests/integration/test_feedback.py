@@ -217,6 +217,20 @@ async def test_brevo_failure_is_502(
     assert brevo.routes["brevo"].call_count == 1
 
 
+async def test_feedback_is_limited_per_address_far_below_the_global_limit(
+    client: httpx.AsyncClient, brevo: respx.Router
+) -> None:
+    from api_deejaytools.middleware import PATH_RATE_LIMITS
+
+    allowed = PATH_RATE_LIMITS[URL]
+    body = {"type": "bug", "subject": "s", "message": "m"}
+    for _ in range(allowed):
+        assert (await client.post(URL, json=body)).status_code == 201
+    res = await client.post(URL, json=body)
+    assert res.status_code == 429
+    assert res.json()["error"]["code"] == "too_many_requests"
+
+
 async def test_a_brevo_timeout_is_502_and_reported(
     client: httpx.AsyncClient, brevo: respx.Router, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -59,7 +59,7 @@ and shapes of [API.md](API.md) (`errors.py`).
 - **Bodies are parsed by a dependency** (`zod_types.zod_body`), declared
   after the auth dependency, so a missing token wins over a bad body; a body
   without a JSON content type is `{}`, and malformed JSON answers
-  `500 INTERNAL`.
+  `400 MALFORMED_JSON` (an `ApiError`, so not reported to Sentry or Discord).
   `document_zod_bodies` puts those bodies back into the OpenAPI schema.
 - **Durable song builds** (`services/song_builds/`, migration 003). The
   uploaded bytes wait in `song_uploads` until the Drive build finishes, so a
@@ -76,7 +76,7 @@ and shapes of [API.md](API.md) (`errors.py`).
   (`DELETE … RETURNING`, `UPDATE … RETURNING`), so a copy or build finishing
   concurrently is never left behind in Drive.
 - **Request limits** (`middleware.py`): 11 MiB bodies, 300 requests a minute
-  per client address on `/v1/*`, a 30 s deadline (300 s for uploads). The
+  per client address on `/v1/*` (5 a minute on `POST /v1/feedback`), a 30 s deadline (300 s for uploads). The
   deadline does not cancel the handler: it runs on and its writes land, only
   its response is discarded.
 - **Discord notifications** (`services/notifications.py`, on

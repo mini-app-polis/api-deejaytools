@@ -105,6 +105,40 @@ async def test_rate_limit_per_forwarded_address() -> None:
     assert after.status_code == 200  # new window
 
 
+async def test_a_path_limit_is_lower_than_the_global_one() -> None:
+    clock = Clock()
+    app = _echo_app()
+    app.add_middleware(
+        RateLimitMiddleware,
+        limit=10,
+        window_seconds=60,
+        clock=clock,
+        path_limits={"/v1/echo": 2},
+    )
+    a = {"x-forwarded-for": "10.0.0.1"}
+    b = {"x-forwarded-for": "10.0.0.2"}
+    async with _client(app) as c:
+        assert (await c.post("/v1/echo", headers=a)).status_code == 200
+        assert (await c.post("/v1/echo", headers=a)).status_code == 200
+        limited = await c.post("/v1/echo", headers=a)
+        other_address = await c.post("/v1/echo", headers=b)
+        other_path = await c.get("/v1/ping", headers=a)
+        clock.now += 60
+        after = await c.post("/v1/echo", headers=a)
+
+    assert limited.status_code == 429
+    assert limited.json()["error"]["code"] == "too_many_requests"
+    assert other_address.status_code == 200
+    assert other_path.status_code == 200
+    assert after.status_code == 200
+
+
+async def test_feedback_has_its_own_limit_far_below_the_global_one() -> None:
+    from api_deejaytools.middleware import PATH_RATE_LIMITS, RATE_LIMIT
+
+    assert PATH_RATE_LIMITS["/v1/feedback"] <= RATE_LIMIT // 10
+
+
 async def test_rate_limit_ignores_headers_the_client_writes() -> None:
     """Rotating cf-connecting-ip or the X-Forwarded-For hops before Railway's
     gets no fresh window: off Cloudflare the key is the peer Railway saw,
