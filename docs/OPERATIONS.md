@@ -150,6 +150,86 @@ window rather than getting one each. If the API ever stops being proxied
 by Cloudflare, nothing needs changing: no peer is a Cloudflare edge, and
 the key is the address Railway saw.
 
+## Capacity
+
+Before an event, see [EVENT-RUNBOOK.md](EVENT-RUNBOOK.md). The target is
+ADR-0013's: an event of 3,000 dancers on their own phones
+behind one venue address. deejaytools-com's `load/event.k6.js` (its
+`load/README.md` says how to run it) checks it against the development API
+from one address.
+
+### Scenario
+
+- **Steady:** 3,000 phones on one session's page, a third signed in,
+  arriving over 3 minutes. Each loads the page once, then polls the
+  session and its active and waiting queues every 60 s, anonymously, from a
+  random start; a quarter of them regain focus each minute and refetch.
+- **Reload burst:** 1,000 page loads in 10 s. A page load is `/version`,
+  the session and its two queues, anonymous; signed in, also `auth/me` and
+  `checkins/mine` with the token. That is 4 to 6 requests, fewer than the
+  ADR's estimate of about 10.
+- **Check-in rush:** 300 check-ins through `POST /v1/checkins` in the first
+  minute the session's check-in window is open, each with the check-in
+  dialog's reads before it and the page's refetches after it.
+
+Pass: p95 under 500 ms for reads and under 2 s for check-ins, no 5xx, and
+no 429 or Cloudflare block that a real event would also get. The test has
+only three users, so per-user refusals caused by sharing them are counted
+apart.
+
+### Sizing, dev and prod
+
+| | dev | prod |
+| --- | --- | --- |
+| API service | 1 Railway replica, 4 vCPU / 4 GB limit | 1 Railway replica, 4 vCPU / 4 GB limit |
+| uvicorn workers | `WEB_CONCURRENCY`, default 4 | same |
+| Database connections | `pool_size` 8 + `max_overflow` 4 per worker, plus 1 cache-bus connection each (at most 52) | same |
+| Response cache | queues 3 s, sessions 5 s, shared across workers | same |
+| Cloudflare | edge cache on the anonymous public reads; a per-IP ceiling on everything else (infra `cloudflare_rules.tf`) | same rules |
+
+### Results
+
+Run 2026-11-02 against dev at api-deejaytools 4e4abfa, deejaytools-com
+717d392, from one address on a home connection.
+
+| Measure | Result | Pass? |
+| --- | --- | --- |
+| Requests | 118,242 in 15.6 min; the API saw about 14,900 | |
+| Edge cache (session, active, waiting) | 102,500 HIT, 1,356 EXPIRED, 18 MISS: about 99% answered at the edge | |
+| Steady reads p95 | 153 ms | yes |
+| Rush reads p95 | 542 ms | no, see below |
+| Reload reads p95 | 10.2 s | no, see below |
+| Check-in p95 | 1.07 s (221 placed) | yes |
+| 5xx | 0 | yes |
+| Cloudflare blocks | 0 | yes |
+| API 429 per address | 0 | yes |
+| API 429 per user (shared test users) | 219, all in the rush | not counted |
+| Network errors | 2,809 connection resets, late in the run | no, see below |
+| API p95 per minute (Railway) | at most 353 ms | |
+| API CPU / memory peak (Railway) | 0.83 of 4 vCPU / 0.7 of 4 GB | |
+
+What the failures were:
+
+- **Reload burst and connection resets: the client, not the API.** While
+  the reload reads took seconds, the API answered every minute at a p95 of
+  353 ms or less. The time went to the test machine opening about a
+  thousand new TLS connections in 10 s (k6 measured up to 10 s waiting for
+  a connection and up to 8.7 s in TLS handshakes), and the resets came from
+  the same machine and network. At a venue each phone opens its own
+  connections, so this measures the test's one machine; the venue's Wi-Fi
+  and router are the limit there, and nothing here can raise it.
+- **Rush reads, 42 ms over: the test's data.** The check-in dialog reads
+  the caller's songs, pairs and event submissions. Every check-in in the
+  rush is the admin test user's, so those lists hold all 300 entries; a
+  dancer's hold a few.
+- **Check-ins placed: the test's users.** 79 of the 300 were refused by the
+  per-user limit, because one test user sent all of them. A real rush is
+  hundreds of users sending one each.
+
+The API had headroom to spare: under a fifth of its CPU at peak. Run the test
+again after a change to the session page's requests, the caches or the
+limits.
+
 ## Discord notifications
 
 The service posts to the fleet's shared Discord channels through
