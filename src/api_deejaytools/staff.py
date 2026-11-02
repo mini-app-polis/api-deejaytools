@@ -16,7 +16,6 @@ and a re-share for all of them when the event's folder moves.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -28,6 +27,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import STAFF_ROLES, ensure_principal, event_resource, load_roles
+from .clock import now_ms
 from .config import get_settings
 from .models import EventStaffGrant, User
 from .services.drive_jobs import (
@@ -160,7 +160,7 @@ async def grant_event_role(
                 user_id=user_id,
                 role=role,
                 granted_by=granter,
-                granted_at=int(time.time() * 1000),
+                granted_at=now_ms(),
             )
             .on_conflict_do_nothing(
                 index_elements=[

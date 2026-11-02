@@ -10,6 +10,7 @@ from typing import Any
 import asyncpg
 import httpx
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 HOUR = 3_600_000
 
@@ -219,7 +220,11 @@ async def test_a_failed_divisions_update_hides_the_database_text(
     monkeypatch.setattr(session_routes.sentry_sdk, "capture_exception", captured.append)
 
     def boom(*_: Any) -> Any:
-        raise RuntimeError('update or delete on table "session_divisions" violates')
+        raise IntegrityError(
+            "INSERT INTO session_divisions ...",
+            None,
+            Exception('update or delete on table "session_divisions" violates'),
+        )
 
     monkeypatch.setattr(session_routes, "_division_rows", boom)
     res = await client.put(

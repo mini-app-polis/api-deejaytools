@@ -9,7 +9,6 @@ Classic at The Open). Drive copies run from the ``drive_jobs`` queue.
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Annotated, Any
 
@@ -23,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, require_scope
+from ..clock import now_ms
 from ..database import get_db_session
 from ..db_errors import is_unique_violation
 from ..domain import song_entity_key
@@ -291,7 +291,7 @@ async def create_submission(
                 # song's own division stays the source of truth otherwise.
                 division=(normalized or None) if body.division is not None else None,
                 round=body.round,
-                created_at=int(time.time() * 1000),
+                created_at=now_ms(),
             )
         )
         await session.commit()

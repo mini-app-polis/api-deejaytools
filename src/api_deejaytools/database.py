@@ -51,11 +51,6 @@ def _get_engine(database_url: str) -> AsyncEngine:
     )
 
 
-def get_engine() -> AsyncEngine:
-    """Return the process engine for the configured database."""
-    return _get_engine(get_settings().DEEJAYTOOLS_DATABASE_URL)
-
-
 @lru_cache(maxsize=1)
 def _get_sessionmaker(database_url: str) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(

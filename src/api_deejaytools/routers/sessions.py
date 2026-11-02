@@ -24,6 +24,7 @@ from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
 from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import (
@@ -612,7 +613,7 @@ async def put_divisions(
                 )
             )
         await db.commit()
-    except Exception as exc:  # noqa: BLE001 - one 500 for any failure
+    except DBAPIError as exc:
         await db.rollback()
         logger.error(
             with_log_prefix(

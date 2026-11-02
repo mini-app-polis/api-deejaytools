@@ -8,7 +8,6 @@ best-effort enqueue helpers that run after a request's own commit, and
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Literal
 
@@ -16,6 +15,7 @@ import sentry_sdk
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...clock import now_ms
 from ...domain import season_year_from_date_string
 from ...models import DriveJob
 from ...zod_coerce import js_trim
@@ -50,7 +50,7 @@ def add_drive_job(
 ) -> None:
     """Add one pending job, due now, to the session's transaction. Does not
     commit: the caller's commit makes it durable with the change it is for."""
-    now = int(time.time() * 1000)
+    now = now_ms()
     session.add(
         DriveJob(
             id=str(uuid.uuid4()),

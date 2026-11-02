@@ -12,7 +12,6 @@ role change grants or revokes that role; nothing about it is stored on
 
 from __future__ import annotations
 
-import time
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Path
@@ -35,6 +34,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import ROLE_ADMIN, Caller, ensure_principal, require_scope
+from ..clock import now_ms
 from ..config import get_settings
 from ..database import get_db_session
 from ..errors import (
@@ -266,7 +266,7 @@ async def update_role(
 
     try:
         await session.execute(
-            update(User).where(User.id == id).values(updated_at=int(time.time() * 1000))
+            update(User).where(User.id == id).values(updated_at=now_ms())
         )
         principal_id = await ensure_principal(
             session,
