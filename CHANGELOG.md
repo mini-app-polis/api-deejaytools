@@ -1,3 +1,16 @@
+# [1.24.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.23.0...v1.24.0) (2026-11-02)
+
+
+### Bug Fixes
+
+* **queue:** stop caching the staff queue reads, so staff never act on another worker's stale view ([33abd77](https://github.com/mini-app-polis/api-deejaytools/commit/33abd77798f37949924354c0118ef8bdbfe42d19))
+* **sessions:** admins and event staff read the session list fresh ([c343de9](https://github.com/mini-app-polis/api-deejaytools/commit/c343de97b2c60205417f9fe46e9dc9b8586da65a))
+
+
+### Features
+
+* **cache:** clear cached reads in every worker over Postgres NOTIFY ([f39ed25](https://github.com/mini-app-polis/api-deejaytools/commit/f39ed256baac8f15a81c877c5345bec20d1fd73f))
+
 # [1.23.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.22.3...v1.23.0) (2026-11-02)
 
 
