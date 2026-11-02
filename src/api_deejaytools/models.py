@@ -2,8 +2,9 @@
 
 The schema is migrations/001_baseline.sql — drizzle's result, adopted as is.
 These models describe it; they never create it (no ``create_all``), so they
-carry columns and primary keys only, not constraints or indexes. Generated
-from a baseline-built database and kept in its column order.
+carry columns and primary keys only, not constraints or indexes, except the
+``users.id`` foreign keys, declared so each owning column names its owner.
+Generated from a baseline-built database and kept in its column order.
 
 Timestamps are epoch milliseconds in ``bigint`` columns, as everywhere in
 this schema. Postgres enums are mapped as strings.
@@ -18,6 +19,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     Enum,
+    ForeignKey,
     Integer,
     LargeBinary,
     Table,
@@ -82,7 +84,7 @@ class Event(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text)
-    created_by: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(Text, ForeignKey("users.id"))
     created_at: Mapped[int] = mapped_column(BigInteger)
     updated_at: Mapped[int] = mapped_column(BigInteger)
     start_date: Mapped[str] = mapped_column(Text)
@@ -102,7 +104,9 @@ class EventStaffGrant(Base):
     __tablename__ = "event_staff_grants"
 
     event_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
     role: Mapped[str] = mapped_column(Text, primary_key=True)
     granted_by: Mapped[str] = mapped_column(Text)
     granted_at: Mapped[int] = mapped_column(BigInteger)
@@ -114,11 +118,11 @@ class Partner(Base):
     __tablename__ = "partners"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    user_id: Mapped[str] = mapped_column(Text)
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id"))
     first_name: Mapped[str] = mapped_column(Text)
     last_name: Mapped[str] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(Text)
-    linked_user_id: Mapped[str | None] = mapped_column(Text)
+    linked_user_id: Mapped[str | None] = mapped_column(Text, ForeignKey("users.id"))
     created_at: Mapped[int] = mapped_column(BigInteger)
     updated_at: Mapped[int] = mapped_column(BigInteger)
     partner_role: Mapped[str] = mapped_column(PARTNER_ROLE, server_default="follower")
@@ -131,7 +135,7 @@ class Team(Base):
     __tablename__ = "teams"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    user_id: Mapped[str] = mapped_column(Text)
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id"))
     identifier: Mapped[str] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(BigInteger)
     updated_at: Mapped[int] = mapped_column(BigInteger)
@@ -143,7 +147,7 @@ class ManagedPartnership(Base):
     __tablename__ = "managed_partnerships"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    user_id: Mapped[str] = mapped_column(Text)
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id"))
     leader_first_name: Mapped[str] = mapped_column(Text)
     leader_last_name: Mapped[str] = mapped_column(Text)
     follower_first_name: Mapped[str] = mapped_column(Text)
@@ -159,7 +163,7 @@ class Pair(Base):
     __tablename__ = "pairs"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    user_a_id: Mapped[str] = mapped_column(Text)
+    user_a_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id"))
     partner_b_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(BigInteger)
 
@@ -170,7 +174,7 @@ class Song(Base):
     __tablename__ = "songs"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    user_id: Mapped[str] = mapped_column(Text)
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id"))
     partner_id: Mapped[str | None] = mapped_column(Text)
     display_name: Mapped[str | None] = mapped_column(Text)
     original_filename: Mapped[str | None] = mapped_column(Text)
@@ -195,7 +199,7 @@ class EventSongSubmission(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     event_id: Mapped[str] = mapped_column(Text)
     song_id: Mapped[str] = mapped_column(Text)
-    submitted_by_user_id: Mapped[str] = mapped_column(Text)
+    submitted_by_user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id"))
     drive_copy_file_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(BigInteger)
     division: Mapped[str | None] = mapped_column(Text)
@@ -226,7 +230,7 @@ class Session(Base):
     floor_trial_starts_at: Mapped[int] = mapped_column(BigInteger)
     floor_trial_ends_at: Mapped[int] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(SESSION_STATUS, server_default="scheduled")
-    created_by: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(Text, ForeignKey("users.id"))
     created_at: Mapped[int] = mapped_column(BigInteger)
     active_priority_max: Mapped[int] = mapped_column(Integer, server_default="6")
     active_non_priority_max: Mapped[int] = mapped_column(Integer, server_default="4")
@@ -254,9 +258,11 @@ class Checkin(Base):
     session_id: Mapped[str] = mapped_column(Text)
     division_name: Mapped[str] = mapped_column(Text)
     entity_pair_id: Mapped[str | None] = mapped_column(Text)
-    entity_solo_user_id: Mapped[str | None] = mapped_column(Text)
+    entity_solo_user_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="RESTRICT")
+    )
     song_id: Mapped[str] = mapped_column(Text)
-    submitted_by_user_id: Mapped[str] = mapped_column(Text)
+    submitted_by_user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id"))
     notes: Mapped[str | None] = mapped_column(Text)
     initial_queue: Mapped[str] = mapped_column(INITIAL_QUEUE)
     created_at: Mapped[int] = mapped_column(BigInteger)
@@ -275,7 +281,9 @@ class QueueEntry(Base):
     position: Mapped[int] = mapped_column(Integer)
     entered_queue_at: Mapped[int] = mapped_column(BigInteger)
     entity_pair_id: Mapped[str | None] = mapped_column(Text)
-    entity_solo_user_id: Mapped[str | None] = mapped_column(Text)
+    entity_solo_user_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="RESTRICT")
+    )
     entity_managed_partnership_id: Mapped[str | None] = mapped_column(Text)
 
 
@@ -292,7 +300,7 @@ class QueueEvent(Base):
     from_position: Mapped[int | None] = mapped_column(Integer)
     to_queue: Mapped[str | None] = mapped_column(QUEUE_TYPE)
     to_position: Mapped[int | None] = mapped_column(Integer)
-    actor_user_id: Mapped[str | None] = mapped_column(Text)
+    actor_user_id: Mapped[str | None] = mapped_column(Text, ForeignKey("users.id"))
     reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(BigInteger)
 
@@ -308,10 +316,12 @@ class Run(Base):
     event_id: Mapped[str | None] = mapped_column(Text)
     division_name: Mapped[str] = mapped_column(Text)
     entity_pair_id: Mapped[str | None] = mapped_column(Text)
-    entity_solo_user_id: Mapped[str | None] = mapped_column(Text)
+    entity_solo_user_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="RESTRICT")
+    )
     song_id: Mapped[str] = mapped_column(Text)
     completed_at: Mapped[int] = mapped_column(BigInteger)
-    completed_by_user_id: Mapped[str] = mapped_column(Text)
+    completed_by_user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.id"))
     entity_managed_partnership_id: Mapped[str | None] = mapped_column(Text)
 
 
