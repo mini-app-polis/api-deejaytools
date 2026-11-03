@@ -1,3 +1,10 @@
+## [1.25.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.25.0...v1.25.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* **evaluator:** make evaluator.yaml parse again, and name the cache bus close timeout ([f111b9e](https://github.com/mini-app-polis/api-deejaytools/commit/f111b9eb298f274fcf4519db52a1fe261655162b))
+
 # [1.25.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.24.1...v1.25.0) (2026-11-02)
 
 
