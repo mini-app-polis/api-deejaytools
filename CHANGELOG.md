@@ -1,3 +1,10 @@
+## [1.25.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.25.1...v1.25.2) (2026-11-03)
+
+
+### Bug Fixes
+
+* **models:** declare song_uploads.song_id foreign key to songs ([1f1696a](https://github.com/mini-app-polis/api-deejaytools/commit/1f1696a4a0a0e79489f214ccf8406b0e570075dd))
+
 ## [1.25.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.25.0...v1.25.1) (2026-11-03)
 
 
