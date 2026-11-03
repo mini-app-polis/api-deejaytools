@@ -355,7 +355,9 @@ class SongUpload(Base):
 
     __tablename__ = "song_uploads"
 
-    song_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    song_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("songs.id", ondelete="CASCADE"), primary_key=True
+    )
     data: Mapped[bytes] = mapped_column(LargeBinary)
     mime_type: Mapped[str] = mapped_column(Text)
     original_filename: Mapped[str] = mapped_column(Text)
