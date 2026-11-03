@@ -37,6 +37,8 @@ APPLICATION_NAME = "api-deejaytools-cache-bus"
 HEALTH_CHECK_SECONDS = 30.0
 #: Waits between reconnect attempts, the last repeated.
 RECONNECT_BACKOFF_SECONDS = (1.0, 2.0, 5.0, 10.0, 30.0)
+#: How long closing a lost connection may take before it is abandoned.
+CLOSE_TIMEOUT_SECONDS = 2.0
 #: Notifications queued while the connection is down beyond this are dropped:
 #: the other workers fall back to the TTL for them.
 MAX_PENDING = 1000
@@ -147,7 +149,7 @@ class CacheBus:
             finally:
                 self.connected = False
                 with contextlib.suppress(Exception):
-                    await conn.close(timeout=2)
+                    await conn.close(timeout=CLOSE_TIMEOUT_SECONDS)
 
     async def _send_until_lost(self, conn: asyncpg.Connection) -> None:
         lost = asyncio.ensure_future(self._lost.wait())
