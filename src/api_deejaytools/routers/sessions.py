@@ -191,17 +191,39 @@ class SessionData(BaseModel):
     queue_depth: QueueDepth = Field(..., description="Queue sizes.")
 
 
+class SessionListItem(SessionData):
+    """A session in ``GET /v1/sessions``."""
+
+    event_timezone: str | None = Field(..., description="The event's IANA timezone.")
+    has_active_checkin: bool = Field(
+        False,
+        description="Whether the caller has a live entry; only for a synced caller.",
+    )
+
+
+class SessionDetail(SessionData):
+    """The session of ``GET /v1/sessions/{id}``."""
+
+    event_name: str | None = Field(..., description="The event's name.")
+    event_timezone: str | None = Field(..., description="The event's IANA timezone.")
+
+
 class SessionResponse(Envelope[SessionData]):
-    """One session. Event fields appear only where the route adds them."""
+    """One session, as a write returns it."""
 
     data: SessionData = Field(..., description="The session.")
 
 
-class SessionListResponse(Envelope[list[SessionData]]):
-    """Sessions, newest date first. has_active_checkin appears only for a
-    synced caller."""
+class SessionDetailResponse(Envelope[SessionDetail]):
+    """One session with its event's name and timezone."""
 
-    data: list[SessionData] = Field(..., description="The sessions.")
+    data: SessionDetail = Field(..., description="The session.")
+
+
+class SessionListResponse(Envelope[list[SessionListItem]]):
+    """Sessions, newest date first."""
+
+    data: list[SessionListItem] = Field(..., description="The sessions.")
 
 
 class DeletedResponse(Envelope[dict[str, bool]]):
@@ -796,7 +818,7 @@ async def delete_session(
 
 @router.get(
     "/{id}",
-    response_model=SessionResponse,
+    response_model=SessionDetailResponse,
     response_model_exclude_unset=True,
     summary="Get a session",
     description=(
@@ -829,7 +851,7 @@ async def get_session(
             "divisions": (await _divisions(db, [id]))[id],
             "queue_depth": (await _queue_depths(db, [id]))[id],
         }
-        return render(SessionResponse, success(data), exclude_unset=True)
+        return render(SessionDetailResponse, success(data), exclude_unset=True)
 
     body = await response_cache.get_or_build(
         f"sessions:base:{id}", rendered, SESSION_TTL_SECONDS
