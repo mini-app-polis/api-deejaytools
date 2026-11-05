@@ -1,3 +1,11 @@
+## [1.26.3](https://github.com/mini-app-polis/api-deejaytools/compare/v1.26.2...v1.26.3) (2026-11-05)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 7.19.0 ([8e48c23](https://github.com/mini-app-polis/api-deejaytools/commit/8e48c2333086a7d3c2c7e84002bb5f3ec96de6c5))
+* **deps:** bump oauthlib to 4.0.1 and miniapppolis-common-utils to 7.20.0 ([f43229b](https://github.com/mini-app-polis/api-deejaytools/commit/f43229b8d67754d3f3f91f399dcebf942e9e4129))
+
 ## [1.26.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.26.1...v1.26.2) (2026-11-05)
 
 
