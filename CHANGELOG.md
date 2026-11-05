@@ -1,3 +1,18 @@
+# [1.26.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.25.4...v1.26.0) (2026-11-05)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 7.15.0 ([d7d0939](https://github.com/mini-app-polis/api-deejaytools/commit/d7d0939bfc36c9c361f99c463694d7d050daa797))
+* **deps:** bump miniapppolis-common-utils to 7.16.0 ([35909cf](https://github.com/mini-app-polis/api-deejaytools/commit/35909cf9939861782423c8678c16147652624a20))
+* **deps:** bump miniapppolis-common-utils to 7.17.0 ([81719b8](https://github.com/mini-app-polis/api-deejaytools/commit/81719b8b38040f6e4e80b0ca49842aed037f6e90))
+* **deps:** bump miniapppolis-common-utils to 7.18.0 ([add22e5](https://github.com/mini-app-polis/api-deejaytools/commit/add22e55b15c2b4df0a746fdd40a1e49cd6afd54))
+
+
+### Features
+
+* **facts:** publish the test-function count ([ae4b986](https://github.com/mini-app-polis/api-deejaytools/commit/ae4b98693267e06ddce6d655611719a657a410a9))
+
 ## [1.25.4](https://github.com/mini-app-polis/api-deejaytools/compare/v1.25.3...v1.25.4) (2026-11-04)
 
 
