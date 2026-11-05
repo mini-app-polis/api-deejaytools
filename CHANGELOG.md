@@ -1,3 +1,10 @@
+## [1.26.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.26.1...v1.26.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-identity to 2.4.0 ([c2daa12](https://github.com/mini-app-polis/api-deejaytools/commit/c2daa1291d14f60a5a56e268d5e442e3cd4d589b))
+
 ## [1.26.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.26.0...v1.26.1) (2026-11-05)
 
 
