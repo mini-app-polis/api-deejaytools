@@ -26,6 +26,7 @@ from ..errors import Envelope, ErrorCode, ErrorResponse, error_body, success_lis
 from ..event_connections import email_for_caller
 from ..labels import build_structured_song_label, partnership_label
 from ..models import Event, EventSongSubmission, ManagedPartnership, Partner, Song, User
+from ..submissions import DEFAULT_ROUND
 from ..validation import ZodModel
 from ..zod_types import QueryStr, zod_query
 
@@ -50,7 +51,17 @@ class AdminSubmissionData(BaseModel):
     id: str = Field(..., description="Submission id.")
     event_id: str = Field(..., description="Event id.")
     event_name: str = Field(..., description="Event name.")
-    division: str | None = Field(None, description="The song's division.")
+    division: str | None = Field(
+        None,
+        description="The division it is entered under: the override, else the song's.",
+    )
+    round: str = Field(
+        ...,
+        description=(
+            "Rounds it is entered for: prelims_and_finals, prelims_only or "
+            "finals_only (Classic at The Open only splits)."
+        ),
+    )
     song_id: str = Field(..., description="Song id.")
     owner_user_id: str = Field(
         ...,
@@ -122,6 +133,8 @@ async def event_submissions_response(
                     Event.name.label("event_name"),
                     Song.id.label("song_id"),
                     Song.user_id.label("owner_user_id"),
+                    EventSongSubmission.division.label("submission_division"),
+                    EventSongSubmission.round.label("submission_round"),
                     Song.division.label("song_division"),
                     Song.display_name.label("song_display_name"),
                     Song.processed_filename.label("song_processed_filename"),
@@ -155,6 +168,12 @@ async def event_submissions_response(
 
         data = []
         for r in rows:
+            # The division it is entered under: the override, else the song's.
+            division = (
+                r.submission_division
+                if r.submission_division is not None
+                else r.song_division
+            )
             label = partnership_label(
                 managed_leader_first=r.managed_leader_first,
                 managed_leader_last=r.managed_leader_last,
@@ -166,19 +185,24 @@ async def event_submissions_response(
                 partner_last=r.partner_last,
                 partner_kind=r.partner_kind,
                 partner_role=r.partner_role,
-                division=r.song_division,
+                division=division,
             )
             data.append(
                 {
                     "id": r.id,
                     "event_id": r.event_id,
                     "event_name": r.event_name,
-                    "division": r.song_division,
+                    "division": division,
+                    "round": (
+                        r.submission_round
+                        if r.submission_round is not None
+                        else DEFAULT_ROUND
+                    ),
                     "song_id": r.song_id,
                     "owner_user_id": r.owner_user_id,
                     "song_label": build_structured_song_label(
                         partnership=label,
-                        division=r.song_division,
+                        division=division,
                         season_year=r.song_season_year,
                         routine_name=r.song_routine_name,
                         processed_filename=r.song_processed_filename,

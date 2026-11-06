@@ -331,3 +331,107 @@ async def test_an_upload_without_submit_to_event_is_not_submitted(
     assert "submission" not in res.json()["data"]
     await song_builds.wait_for_builds()
     assert await db.fetchval("SELECT count(*) FROM event_song_submissions") == 1
+
+
+# --- the round, for Classic at The Open ---------------------------------------
+
+
+async def _open_world(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> dict[str, Any]:
+    """_world, plus The Open with the same DJ and the dancer on it."""
+    w = await _world(client, person, db)
+    the_open = await _event(client, w["admin"], "The Open 2026")
+    await _grant(client, w["admin"], the_open, w["dj"].id, "dj")
+    await _connect(db, the_open, w["dancer"].id, w["partner"])
+    return {**w, "the_open": the_open}
+
+
+async def test_a_staff_upload_at_the_open_enters_the_round_sent(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    fake_drive: FakeDrive,  # noqa: F811 - the fixture
+) -> None:
+    w = await _open_world(client, person, db)
+
+    async def upload(round_: str) -> httpx.Response:
+        return await _upload(
+            client,
+            w["dj"],
+            on_behalf_of_user_id=w["dancer"].id,
+            event_id=w["the_open"],
+            partner_id=w["partner"],
+            submit_to_event="true",
+            round=round_,
+        )
+
+    finals = await upload("finals_only")
+    assert finals.status_code == 200, finals.text
+    submission = finals.json()["data"]["submission"]
+    assert submission["round"] == "finals_only"
+    assert (
+        await db.fetchval(
+            "SELECT round FROM event_song_submissions WHERE id = $1", submission["id"]
+        )
+        == "finals_only"
+    )
+
+    # The other round is free: a second song fills it.
+    prelims = await upload("prelims_only")
+    assert prelims.status_code == 200, prelims.text
+    assert prelims.json()["data"]["submission"]["round"] == "prelims_only"
+
+    # Both rounds are now taken.
+    again = await upload("prelims_only")
+    assert again.status_code == 409
+    assert again.json()["error"]["code"] == "ENTITY_SLOT_TAKEN"
+    await song_builds.wait_for_builds()
+
+
+async def test_a_round_is_refused_where_rounds_do_not_split(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    fake_drive: FakeDrive,  # noqa: F811 - the fixture
+) -> None:
+    w = await _open_world(client, person, db)
+    songs = await db.fetchval("SELECT count(*) FROM songs")
+    on_behalf = {
+        "on_behalf_of_user_id": w["dancer"].id,
+        "partner_id": w["partner"],
+    }
+    cases = (
+        (
+            {**on_behalf, "event_id": w["event"], "submit_to_event": "true"},
+            "Round selection is only available for The Open",
+        ),
+        (
+            {
+                **on_behalf,
+                "event_id": w["the_open"],
+                "submit_to_event": "true",
+                "division": "Showcase",
+            },
+            "Round selection is only available for the Classic division",
+        ),
+        (
+            {**on_behalf, "event_id": w["the_open"]},
+            "round needs submit_to_event",
+        ),
+    )
+    for extra, message in cases:
+        res = await _upload(client, w["dj"], round="prelims_only", **extra)
+        assert res.status_code == 400, res.text
+        assert res.json()["error"]["message"] == message
+    res = await _upload(
+        client,
+        w["dj"],
+        round="semis_only",
+        event_id=w["the_open"],
+        submit_to_event="true",
+        **on_behalf,
+    )
+    assert res.status_code == 400
+    assert res.json()["error"]["message"] == "Invalid round"
+    assert await db.fetchval("SELECT count(*) FROM songs") == songs

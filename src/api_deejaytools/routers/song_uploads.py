@@ -54,8 +54,11 @@ from ..song_records import (
 )
 from ..submissions import (
     DEFAULT_ROUND,
+    ROUND_SPLIT_DIVISION,
+    SUBMISSION_ROUNDS,
     entity_slot_taken,
     fetch_user_submission_rows,
+    is_open_event,
     lock_entity_slot,
     map_submission_row,
     slot_taken_message,
@@ -162,7 +165,9 @@ def _is_int(value: float) -> bool:
         "DJ or event manager). submit_to_event=true (with on_behalf_of_user_id "
         "and event_id) also submits the song to that event in the same "
         "request, the dancer as submitter, refused with 409 "
-        "ENTITY_SLOT_TAKEN before anything is saved when the slot is taken."
+        "ENTITY_SLOT_TAKEN before anything is saved when the slot is taken; "
+        "its optional round (default prelims_and_finals) splits only for "
+        "Classic at The Open, as POST /v1/event-song-submissions does."
     ),
     responses={
         200: {"model": ChunkResponse, "description": "Chunk received."},
@@ -220,6 +225,8 @@ async def upload_chunk(
     entity_name = js_trim(_text(form, "entity_name") or "")
     team_id = js_trim(_text(form, "team_id") or "")
     submit_to_event = _text(form, "submit_to_event") == "true"
+    # The rounds a submit_to_event entry is for; stored only when sent.
+    round_sent = _trimmed_or_none(form, "round")
     chunk = form.get("chunk")
     chunk_file = chunk if isinstance(chunk, UploadFile) else None
 
@@ -237,6 +244,18 @@ async def upload_chunk(
         raise bad_request("Missing chunk field")
     if submit_to_event and not (on_behalf_of and event_id):
         raise bad_request("submit_to_event needs on_behalf_of_user_id and event_id")
+    if round_sent is not None:
+        if not submit_to_event:
+            raise bad_request("round needs submit_to_event")
+        if round_sent not in SUBMISSION_ROUNDS:
+            raise bad_request("Invalid round")
+    round_ = round_sent if round_sent is not None else DEFAULT_ROUND
+    # Rounds are an Open-only affordance for Classic; The Open is checked
+    # once the event is read, on the final chunk.
+    if round_ != DEFAULT_ROUND and division != ROUND_SPLIT_DIVISION:
+        raise bad_request(
+            f"Round selection is only available for the {ROUND_SPLIT_DIVISION} division"
+        )
     # The event the song is submitted to, or None when it is not submitted.
     submit_event_id = event_id if submit_to_event else None
     if on_behalf_of:
@@ -358,9 +377,12 @@ async def upload_chunk(
             ).scalar_one_or_none()
             if kind != "partner":
                 raise refuse("Partner is not on the dancer's partner list")
-        if await db.get(Event, submit_event_id) is None:
+        event = await db.get(Event, submit_event_id)
+        if event is None:
             _remove(upload_dir)
             raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
+        if round_ != DEFAULT_ROUND and not is_open_event(event.name):
+            raise refuse("Round selection is only available for The Open")
         slot_entity = song_entity_key(
             effective_user_id,
             None if managed_partnership_id else partner_id,
@@ -373,7 +395,7 @@ async def upload_chunk(
             event_id=submit_event_id,
             entity=slot_entity,
             division=division,
-            round_=DEFAULT_ROUND,
+            round_=round_,
         ):
             _remove(upload_dir)
             raise api_error(409, "ENTITY_SLOT_TAKEN", slot_taken_message(division))
@@ -489,7 +511,7 @@ async def upload_chunk(
     )
     submission_id: str | None = None
     if submit_event_id is not None:
-        # The song's own division and the default round: no override.
+        # The song's own division (no override) and the round sent, if any.
         submission_id = str(uuid.uuid4())
         db.add(
             EventSongSubmission(
@@ -498,7 +520,7 @@ async def upload_chunk(
                 song_id=song.id,
                 submitted_by_user_id=effective_user_id,
                 division=None,
-                round=None,
+                round=round_sent,
                 created_at=now,
             )
         )
