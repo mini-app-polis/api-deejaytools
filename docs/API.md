@@ -2158,7 +2158,8 @@ it.
 | `entity_type` | `team` \| `other` | portal uploads | Creates placeholder partner. Any other non-empty value, including `solo`, is rejected with `Invalid entity_type` (the handler's solo branch is unreachable) |
 | `entity_name` | string | `other` / optional solo | |
 | `team_id` | string | team uploads | Must own team |
-| `submit_to_event` | `"true"` | optional | With `on_behalf_of_user_id` and `event_id`: also submits the song to that event in the same request, the dancer as submitter and the caller as uploader, with the song's own division and the default round (no override). `partner_id`, if sent, must be one of the dancer's partners of kind `partner` (`GET /v1/events/:id/people/:user_id/partners`). Not for portal uploads |
+| `submit_to_event` | `"true"` | optional | With `on_behalf_of_user_id` and `event_id`: also submits the song to that event in the same request, the dancer as submitter and the caller as uploader, with the song's own division (no override) and `round` if sent. `partner_id`, if sent, must be one of the dancer's partners of kind `partner` (`GET /v1/events/:id/people/:user_id/partners`). Not for portal uploads |
+| `round` | `prelims_and_finals` \| `prelims_only` \| `finals_only` | optional | Only with `submit_to_event`: the rounds the entry is for, as `POST /v1/event-song-submissions` takes them. Default `prelims_and_finals`; the others only for `Classic` at The Open. Stored only when sent |
 
 **Response (non-final chunk):**
 
@@ -2195,6 +2196,9 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 400 | `BAD_REQUEST` | chunk_index out of range | `chunk_index >= total_chunks` |
 | 400 | `BAD_REQUEST` | Missing chunk field | `chunk` absent or not a file |
 | 400 | `BAD_REQUEST` | submit_to_event needs on_behalf_of_user_id and event_id | `submit_to_event` without either |
+| 400 | `BAD_REQUEST` | round needs submit_to_event | `round` without `submit_to_event` |
+| 400 | `BAD_REQUEST` | Invalid round | `round` not one of the three |
+| 400 | `BAD_REQUEST` | Round selection is only available for the Classic division | A round other than `prelims_and_finals` for another division |
 | 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` through a role or on `event_id`'s event (a DJ without `event_id` included), or for a person not connected to that event |
 | 400 | `BAD_REQUEST` | Chunk exceeds 10 MB limit | Chunk > 10 MiB |
 | 400 | `BAD_REQUEST` | File exceeds 100 MB limit | A chunk other than the last whose size × (`total_chunks` − 1), plus the last chunk's byte at least, is over 110 MiB: chunks before the last are all one size, so the file would be. Refused before the chunk is staged; anything already staged for the upload is removed |
@@ -2213,7 +2217,8 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 400 | `BAD_REQUEST` | submit_to_event is not available for portal uploads | `submit_to_event` with `entity_type` (checked before the partner fields) |
 | 400 | `BAD_REQUEST` | Partner is not on the dancer's partner list | `submit_to_event`: the partner is the dancer's but not of kind `partner` |
 | 404 | `NOT_FOUND` | Event not found | `submit_to_event`: unknown `event_id` |
-| 409 | `ENTITY_SLOT_TAKEN` | This entity already has a song submitted for … | `submit_to_event`: the entity already has a song in that division at the event. Nothing is saved |
+| 400 | `BAD_REQUEST` | Round selection is only available for The Open | `submit_to_event`: a round other than `prelims_and_finals` at another event |
+| 409 | `ENTITY_SLOT_TAKEN` | This entity already has a song submitted for … | `submit_to_event`: the entity already has a song in that division at the event, in a round that overlaps. Nothing is saved |
 | 500 | `CHUNK_ERROR` | Failed to read uploaded chunks | Upload directory can't be listed (directory is left in place) |
 | 409 | `CHUNK_MISSING` | Expected N chunks but only received M. Please retry the upload. | Chunk count ≠ `total_chunks` |
 | 400 | `BAD_REQUEST` | File exceeds 100 MB limit | Assembled size > 110 MiB |
@@ -2693,6 +2698,7 @@ const listQuery = z.object({
       "event_id": "evt_…",
       "event_name": "RSC 2026",
       "division": "Classic",
+      "round": "prelims_and_finals",
       "song_id": "song_…",
       "owner_user_id": "user_…",
       "song_label": "…",
@@ -2704,6 +2710,8 @@ const listQuery = z.object({
   "meta": { "version": "…", "count": 1, "total": 1 }
 }
 ```
+
+`division` is the division the song is entered under: the submission's override, else the song's own; the partnership and song labels use it too. `round` is the rounds it is entered for (`prelims_and_finals` when none was chosen).
 
 `owner_user_id` is the song owner's user id, the `on_behalf_of_user_id` that `POST /v1/checkins` takes to check in for that song.
 

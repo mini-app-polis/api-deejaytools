@@ -24,17 +24,19 @@ async def _submit(
     user_id: str,
     created_at: int,
     division: str | None = None,
+    round_: str | None = None,
 ) -> None:
     await db.execute(
         "INSERT INTO event_song_submissions (id, event_id, song_id,"
-        " submitted_by_user_id, created_at, division)"
-        " VALUES ($1, $2, $3, $4, $5, $6)",
+        " submitted_by_user_id, created_at, division, round)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
         sid,
         event_id,
         song_id,
         user_id,
         created_at,
         division,
+        round_,
     )
 
 
@@ -84,7 +86,7 @@ async def test_shape_labels_and_order(
     managed = await insert_song(
         db, bob.id, managed_partnership_id="mp1", division="Showcase"
     )
-    # The submission's own division override is not what this list shows.
+    # The division it is entered under wins over the song's own.
     await _submit(db, "s_old", event, partnered, alice.id, 10, division="Masters")
     await _submit(db, "s_new", event, managed, bob.id, 20)
     await _submit(db, "s_other", other, partnered, alice.id, 30)
@@ -99,6 +101,7 @@ async def test_shape_labels_and_order(
             "event_id": event,
             "event_name": "RSC 2026",
             "division": "Showcase",
+            "round": "prelims_and_finals",
             "song_id": managed,
             "owner_user_id": bob.id,
             "song_label": "Lee Der & Fol Lower Showcase",
@@ -110,10 +113,11 @@ async def test_shape_labels_and_order(
             "id": "s_old",
             "event_id": event,
             "event_name": "RSC 2026",
-            "division": "Classic",
+            "division": "Masters",
+            "round": "prelims_and_finals",
             "song_id": partnered,
             "owner_user_id": alice.id,
-            "song_label": "Alice & Bob Jones Classic 2026 Routine v02",
+            "song_label": "Alice & Bob Jones Masters 2026 Routine v02",
             "partnership_label": "Alice & Bob Jones",
             "submitter_email": f"alice.{alice.id}@example.test",
             "created_at": 10,
@@ -144,6 +148,34 @@ async def test_label_reads_leader_first_and_proam_am_first(
     assert res.status_code == 200, res.text
     labels = {r["id"]: r["partnership_label"] for r in res.json()["data"]}
     assert labels == {"s_classic": "Lee Lead & Fay", "s_proam": "Fay & Lee Lead"}
+
+
+async def test_rows_carry_the_round_and_the_entered_division(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    fay = await person("fay")
+    event = await insert_event(db, name="The Open 2026")
+    await db.execute(
+        "INSERT INTO partners (id, user_id, first_name, last_name, partner_role,"
+        " created_at, updated_at) VALUES ('lead1', $1, 'Lee', 'Lead', 'leader', 1, 1)",
+        fay.id,
+    )
+    prelims = await insert_song(db, fay.id, partner_id="lead1", division="Exhibition")
+    finals = await insert_song(db, fay.id, partner_id="lead1", division="Classic")
+    await _submit(
+        db, "s_prelims", event, prelims, fay.id, 10, "Classic", "prelims_only"
+    )
+    await _submit(db, "s_finals", event, finals, fay.id, 20, round_="finals_only")
+
+    res = await client.get(URL, params={"event_id": event}, headers=admin.headers)
+
+    assert res.status_code == 200, res.text
+    rows = {r["id"]: (r["division"], r["round"]) for r in res.json()["data"]}
+    assert rows == {
+        "s_prelims": ("Classic", "prelims_only"),
+        "s_finals": ("Classic", "finals_only"),
+    }
 
 
 async def test_unknown_event_is_an_empty_list(
