@@ -1,3 +1,11 @@
+## [1.26.6](https://github.com/mini-app-polis/api-deejaytools/compare/v1.26.5...v1.26.6) (2026-11-06)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 8.2.0 ([ad1884c](https://github.com/mini-app-polis/api-deejaytools/commit/ad1884cee248ab6be15b0667714de207c69cdbb2))
+* **event-submissions:** list each submission under the division it is entered in, with its round, and take a round on a staff upload to The Open ([946391d](https://github.com/mini-app-polis/api-deejaytools/commit/946391de30ee32d83fa8c921d1a14bf76ecb7e0b))
+
 ## [1.26.5](https://github.com/mini-app-polis/api-deejaytools/compare/v1.26.4...v1.26.5) (2026-11-06)
 
 
