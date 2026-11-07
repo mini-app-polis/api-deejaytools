@@ -132,6 +132,8 @@ class EventRegistration(Base):
     linked_label: Mapped[str | None] = mapped_column(Text)
     handled: Mapped[bool] = mapped_column(Boolean, server_default="false")
     note: Mapped[str | None] = mapped_column(Text)
+    # Migration 010: signed up but no longer competing.
+    scratched: Mapped[bool] = mapped_column(Boolean, server_default="false")
     created_at: Mapped[int] = mapped_column(BigInteger)
     updated_at: Mapped[int] = mapped_column(BigInteger)
 
@@ -228,6 +230,9 @@ class EventSongSubmission(Base):
     created_at: Mapped[int] = mapped_column(BigInteger)
     division: Mapped[str | None] = mapped_column(Text)
     round: Mapped[str | None] = mapped_column(Text)
+    # Migration 010: the scratched registration entry that hides it from the
+    # event's public entry list; NULL for every visible submission.
+    hidden_by_registration_id: Mapped[str | None] = mapped_column(Text)
 
 
 # No primary key: the logical key is (event_id, division_name), enforced by
