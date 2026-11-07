@@ -1,3 +1,19 @@
+# [1.27.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.26.6...v1.27.0) (2026-11-07)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 8.3.0 ([6dde9d0](https://github.com/mini-app-polis/api-deejaytools/commit/6dde9d0bc319898086e7fffeed224e9fe41e53a5))
+* **deps:** bump miniapppolis-common-utils to 8.4.0 ([b65f238](https://github.com/mini-app-polis/api-deejaytools/commit/b65f2387460c2e6c6624de794f552b5791a8ff91))
+* **deps:** bump miniapppolis-common-utils to 8.5.0 ([9891c01](https://github.com/mini-app-polis/api-deejaytools/commit/9891c01114c6ab634e253124b59fbddc12220910))
+* **deps:** bump miniapppolis-common-utils to 8.6.0 ([f3bb14e](https://github.com/mini-app-polis/api-deejaytools/commit/f3bb14e399e96d325a82d1b6910f67cb52d81fb4))
+* **deps:** bump miniapppolis-common-utils to 8.7.0 ([c98b4ef](https://github.com/mini-app-polis/api-deejaytools/commit/c98b4ef32d96b9373452ad53cc4323a78005b9ee))
+
+
+### Features
+
+* **registrations:** admin event registration lists with import and per-entry marks ([89723b6](https://github.com/mini-app-polis/api-deejaytools/commit/89723b6f50530f8acf3e7e661613a4bad367af22))
+
 ## [1.26.6](https://github.com/mini-app-polis/api-deejaytools/compare/v1.26.5...v1.26.6) (2026-11-06)
 
 
