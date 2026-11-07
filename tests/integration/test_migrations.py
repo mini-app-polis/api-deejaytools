@@ -160,12 +160,16 @@ async def test_identity_store_seed_matches_adr_007(database: str) -> None:
         "deejaytools-event-manager",
     }
     assert len(by_role["deejaytools-dancer"]) == 14
-    assert len(by_role["deejaytools-admin"]) == 16
+    assert len(by_role["deejaytools-admin"]) == 18
     assert not by_role["deejaytools-dancer"] & by_role["deejaytools-admin"]
     assert "deejaytools.delegation.act" in by_role["deejaytools-admin"]
     assert {"deejaytools.staff.read", "deejaytools.staff.write"} <= by_role[
         "deejaytools-admin"
     ]
+    assert {
+        "deejaytools.registrations.read",
+        "deejaytools.registrations.write",
+    } <= by_role["deejaytools-admin"]
 
 
 async def test_event_staff_roles_seed_matches_adr_0012(database: str) -> None:

@@ -112,6 +112,30 @@ class EventStaffGrant(Base):
     granted_at: Mapped[int] = mapped_column(BigInteger)
 
 
+class EventRegistration(Base):
+    """One entry on an event's registration list, as an admin imported it.
+
+    This service's own table (migration 009): the admin's view of who has
+    not submitted music yet. ``division`` is the registration's own name for
+    it, not one of /v1/divisions.
+    """
+
+    __tablename__ = "event_registrations"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    event_id: Mapped[str] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer)
+    division: Mapped[str] = mapped_column(Text)
+    dancer_1: Mapped[str] = mapped_column(Text)
+    dancer_2: Mapped[str | None] = mapped_column(Text)
+    entry_key: Mapped[str] = mapped_column(Text)
+    linked_label: Mapped[str | None] = mapped_column(Text)
+    handled: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[int] = mapped_column(BigInteger)
+    updated_at: Mapped[int] = mapped_column(BigInteger)
+
+
 class Partner(Base):
     """An entry in a user's address book of dance partners and placeholders."""
 

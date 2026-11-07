@@ -121,7 +121,7 @@ def test_request_bodies_are_documented() -> None:
         for op in path.values()
         if "requestBody" in op
     ]
-    assert len(bodies) == 27  # every route with a JSON body
+    assert len(bodies) == 29  # every route with a JSON body
     patch = schema["paths"]["/v1/partners/{id}"]["patch"]["requestBody"]
     assert patch["required"] is False  # all optional: an empty body is fine
 

@@ -28,6 +28,7 @@ from .middleware import BodyLimitMiddleware, DeadlineMiddleware, RateLimitMiddle
 from .routers import (
     admin_checkins,
     admin_drive_jobs,
+    admin_event_registrations,
     admin_event_submissions,
     admin_songs,
     admin_users,
@@ -181,6 +182,7 @@ def _build_app() -> FastAPI:
         admin_users.router,
         admin_songs.router,
         admin_event_submissions.router,
+        admin_event_registrations.router,
         admin_drive_jobs.router,
         checkins.router,
         queue.router,

@@ -73,6 +73,8 @@ grant from a per-event staff role (ADR-0012) on that event only.
 | `PATCH /v1/admin/users/{id}/role` | `deejaytools.users.write` |
 | `GET /v1/admin/songs` | `deejaytools.library.read` |
 | `GET /v1/admin/event-song-submissions` | `deejaytools.entries.read` |
+| `GET /v1/admin/events/{id}/registrations` | `deejaytools.registrations.read` |
+| `PUT /v1/admin/events/{id}/registrations`, `PATCH /v1/admin/event-registrations/{id}` | `deejaytools.registrations.write` |
 | `GET /v1/admin/drive-jobs`, `GET /v1/admin/drive-jobs/summary` | `deejaytools.drivejobs.read` |
 | `POST /v1/admin/drive-jobs/{id}/retry`, `POST /v1/admin/drive-jobs/backfill-renames` | `deejaytools.drivejobs.write` |
 | `POST /v1/admin/checkins`, `DELETE /v1/admin/checkins/test` | `deejaytools.testdata.write` |
@@ -151,6 +153,9 @@ PGURL=postgres://postgres:postgres@localhost:5432 bash scripts/check_baseline.sh
 - `migrations/008_drive_job_event_folder_access.sql` adds nullable
   `drive_jobs.event_id` and `drive_jobs.user_id`, for the jobs that share and
   unshare an event's Drive folder with its staff.
+- `migrations/009_event_registrations.sql` adds `event_registrations`, an
+  event's imported registration list, and the admin's two registration
+  scopes.
 - `scripts/apply_migrations.py` applies pending files on every deploy,
   tracked in `schema_migrations`, before the app starts.
 - `scripts/backfill_principals.py` runs next, on every deploy: it writes this
@@ -160,7 +165,7 @@ PGURL=postgres://postgres:postgres@localhost:5432 bash scripts/check_baseline.sh
 **First deploy against an existing database** (once per environment): set
 `BOOTSTRAP_MIGRATIONS=true` and `BOOTSTRAP_EXCLUDE` to every migration after
 the baseline (today:
-`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql,005_drop_users_role.sql,006_identity_audit_key_slot.sql,007_event_staff_grants.sql,008_drive_job_event_folder_access.sql`).
+`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql,005_drop_users_role.sql,006_identity_audit_key_slot.sql,007_event_staff_grants.sql,008_drive_job_event_folder_access.sql,009_event_registrations.sql`).
 The runner records `001_baseline.sql` as applied without running it and
 runs the rest. Remove
 both variables after that deploy. A bootstrap without `BOOTSTRAP_EXCLUDE` is
