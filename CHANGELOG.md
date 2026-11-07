@@ -1,3 +1,10 @@
+# [1.28.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.27.0...v1.28.0) (2026-11-07)
+
+
+### Features
+
+* **registrations:** scratch an entry, hiding its submissions from the event's public entry list ([31a7e6f](https://github.com/mini-app-polis/api-deejaytools/commit/31a7e6f786c8dcae84db3091f4169bdb51149277))
+
 # [1.27.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.26.6...v1.27.0) (2026-11-07)
 
 
