@@ -12,7 +12,7 @@ web app's job. The API keeps the admin's marks (``linked_label``,
 ``handled``, ``scratched``, ``note``) across re-imports, by each entry's
 normalized (division, dancer_1, dancer_2).
 
-Scratching an entry (signed up, no longer competing) keeps its songs
+Scratching an entry (signed up, then withdrew from competing) keeps its songs
 submitted to the event but hides the ones the app matched to it from the
 event's public entry list, through ``event_song_submissions.hidden_by_registration_id``.
 """
@@ -113,7 +113,7 @@ class PatchRegistrationBody(ZodModel):
     scratched: bool | None = Field(
         None,
         description=(
-            "Signed up but no longer competing. Unscratching unhides every "
+            "Signed up, then withdrew from competing. Unscratching unhides every "
             "submission it hid."
         ),
     )
@@ -142,7 +142,7 @@ class RegistrationData(BaseModel):
     )
     handled: bool = Field(..., description="Marked as needing no submission here.")
     note: str | None = Field(None, description="Admin note.")
-    scratched: bool = Field(..., description="Signed up but no longer competing.")
+    scratched: bool = Field(..., description="Signed up, then withdrew from competing.")
     hidden_submission_ids: list[str] = Field(
         ...,
         description="The event's submissions it hides from the public entry list.",
@@ -286,7 +286,7 @@ async def list_registrations(
         "Replaces the event's list with entries, in order. An entry whose "
         "division and dancers match one already there (case, accents and "
         "spacing ignored) keeps its id and its marks; the rest are new, and "
-        "entries no longer sent are removed. Requires "
+        "entries not sent are removed. Requires "
         "deejaytools.registrations.write."
     ),
     responses={

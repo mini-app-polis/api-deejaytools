@@ -132,7 +132,7 @@ class EventRegistration(Base):
     linked_label: Mapped[str | None] = mapped_column(Text)
     handled: Mapped[bool] = mapped_column(Boolean, server_default="false")
     note: Mapped[str | None] = mapped_column(Text)
-    # Migration 010: signed up but no longer competing.
+    # Migration 010: signed up, then withdrew from competing.
     scratched: Mapped[bool] = mapped_column(Boolean, server_default="false")
     created_at: Mapped[int] = mapped_column(BigInteger)
     updated_at: Mapped[int] = mapped_column(BigInteger)
