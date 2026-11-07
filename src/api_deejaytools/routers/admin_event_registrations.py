@@ -9,8 +9,12 @@ music yet. Optional per event. Reads are behind
 
 The list is plain data: matching it against the event's submissions is the
 web app's job. The API keeps the admin's marks (``linked_label``,
-``handled``, ``note``) across re-imports, by each entry's normalized
-(division, dancer_1, dancer_2).
+``handled``, ``scratched``, ``note``) across re-imports, by each entry's
+normalized (division, dancer_1, dancer_2).
+
+Scratching an entry (signed up, no longer competing) keeps its songs
+submitted to the event but hides the ones the app matched to it from the
+event's public entry list, through ``event_song_submissions.hidden_by_registration_id``.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,7 +45,7 @@ from ..errors import (
     success,
     success_list,
 )
-from ..models import Event, EventRegistration
+from ..models import Event, EventRegistration, EventSongSubmission
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import trimmed, zod_body
@@ -106,6 +110,22 @@ class PatchRegistrationBody(ZodModel):
         None, description="Needs no submission here (handled elsewhere)."
     )
     note: Note | None = Field(None, description="Admin note; null or empty clears it.")
+    scratched: bool | None = Field(
+        None,
+        description=(
+            "Signed up but no longer competing. Unscratching unhides every "
+            "submission it hid."
+        ),
+    )
+    hide_submission_ids: list[Annotated[str, trimmed(min_length=1)]] | None = Field(
+        None,
+        max_length=50,
+        description=(
+            "With a scratched entry: the event's submissions to hide from its "
+            "public entry list, replacing those it hid before. Ids of other "
+            "events' submissions are ignored."
+        ),
+    )
 
 
 class RegistrationData(BaseModel):
@@ -122,6 +142,11 @@ class RegistrationData(BaseModel):
     )
     handled: bool = Field(..., description="Marked as needing no submission here.")
     note: str | None = Field(None, description="Admin note.")
+    scratched: bool = Field(..., description="Signed up but no longer competing.")
+    hidden_submission_ids: list[str] = Field(
+        ...,
+        description="The event's submissions it hides from the public entry list.",
+    )
     created_at: int = Field(..., description="First imported, epoch ms.")
     updated_at: int = Field(..., description="Last changed, epoch ms.")
 
@@ -138,8 +163,10 @@ class RegistrationListResponse(Envelope[list[RegistrationData]]):
     data: list[RegistrationData] = Field(..., description="The entries.")
 
 
-def map_registration(row: EventRegistration) -> dict[str, Any]:
-    """An event_registrations row on the wire."""
+def map_registration(
+    row: EventRegistration, hidden: list[str] | None = None
+) -> dict[str, Any]:
+    """An event_registrations row on the wire, with the submissions it hides."""
     return {
         "id": row.id,
         "event_id": row.event_id,
@@ -150,6 +177,8 @@ def map_registration(row: EventRegistration) -> dict[str, Any]:
         "linked_label": row.linked_label,
         "handled": row.handled,
         "note": row.note,
+        "scratched": row.scratched,
+        "hidden_submission_ids": sorted(hidden or []),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -169,6 +198,26 @@ async def _require_event(session: AsyncSession, event_id: str) -> None:
         raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
 
 
+async def _hidden_by(
+    session: AsyncSession, registration_ids: list[str]
+) -> dict[str, list[str]]:
+    """Each registration's hidden submission ids."""
+    out: dict[str, list[str]] = {}
+    if not registration_ids:
+        return out
+    rows = (
+        await session.execute(
+            select(
+                EventSongSubmission.hidden_by_registration_id, EventSongSubmission.id
+            ).where(EventSongSubmission.hidden_by_registration_id.in_(registration_ids))
+        )
+    ).all()
+    for reg_id, sub_id in rows:
+        if reg_id is not None:
+            out.setdefault(reg_id, []).append(sub_id)
+    return out
+
+
 async def _list(session: AsyncSession, event_id: str) -> list[dict[str, Any]]:
     rows = (
         (
@@ -181,7 +230,8 @@ async def _list(session: AsyncSession, event_id: str) -> list[dict[str, Any]]:
         .scalars()
         .all()
     )
-    return [map_registration(r) for r in rows]
+    hidden = await _hidden_by(session, [r.id for r in rows])
+    return [map_registration(r, hidden.get(r.id)) for r in rows]
 
 
 EventId = Annotated[str, Path(description="Event id.")]
@@ -324,9 +374,10 @@ async def put_registrations(
     response_model=RegistrationResponse,
     summary="Mark a registration entry",
     description=(
-        "Sets the admin's marks on one entry: linked_label, handled and note; "
-        "fields not sent are left as they are. Requires "
-        "deejaytools.registrations.write."
+        "Sets the admin's marks on one entry: linked_label, handled, note and "
+        "scratched; fields not sent are left as they are. A scratched entry "
+        "hides hide_submission_ids from the event's public entry list; "
+        "unscratching unhides them. Requires deejaytools.registrations.write."
     ),
     responses={
         **AUTH,
@@ -346,16 +397,49 @@ async def patch_registration(
     if row is None:
         raise api_error(404, ErrorCode.NOT_FOUND, "Registration not found")
     sent = body.model_fields_set
+    scratched = (
+        body.scratched
+        if "scratched" in sent and body.scratched is not None
+        else row.scratched
+    )
+    if body.hide_submission_ids is not None and not scratched:
+        raise api_error(
+            400,
+            ErrorCode.BAD_REQUEST,
+            "hide_submission_ids needs a scratched entry",
+        )
     if "linked_label" in sent:
         row.linked_label = js_trim(body.linked_label or "") or None
     if "handled" in sent and body.handled is not None:
         row.handled = body.handled
     if "note" in sent:
         row.note = js_trim(body.note or "") or None
-    if not sent & {"linked_label", "handled", "note"}:
-        return success(map_registration(row))
+    row.scratched = scratched
+    if not sent & {
+        "linked_label",
+        "handled",
+        "note",
+        "scratched",
+        "hide_submission_ids",
+    }:
+        return success(map_registration(row, (await _hidden_by(session, [id])).get(id)))
     row.updated_at = now_ms()
     try:
+        if not scratched or body.hide_submission_ids is not None:
+            await session.execute(
+                update(EventSongSubmission)
+                .where(EventSongSubmission.hidden_by_registration_id == id)
+                .values(hidden_by_registration_id=None)
+            )
+        if scratched and body.hide_submission_ids:
+            await session.execute(
+                update(EventSongSubmission)
+                .where(
+                    EventSongSubmission.id.in_(body.hide_submission_ids),
+                    EventSongSubmission.event_id == row.event_id,
+                )
+                .values(hidden_by_registration_id=id)
+            )
         await session.commit()
     except SQLAlchemyError as exc:
         await session.rollback()
@@ -368,4 +452,4 @@ async def patch_registration(
         )
         return _internal()
     await session.refresh(row)
-    return success(map_registration(row))
+    return success(map_registration(row, (await _hidden_by(session, [id])).get(id)))

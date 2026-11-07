@@ -60,6 +60,7 @@ Explicit overrides:
 | `event_staff_grants` | `event_id` | `events.id` | `CASCADE` |
 | `event_staff_grants` | `user_id` | `users.id` | `CASCADE` |
 | `event_registrations` | `event_id` | `events.id` | `CASCADE` |
+| `event_song_submissions` | `hidden_by_registration_id` | `event_registrations.id` | `SET NULL` |
 
 ### PostgreSQL enums
 
@@ -341,6 +342,7 @@ Links a song to an event so it can be used for check-in at that event.
 | `round` | `text` | YES | — | `prelims_and_finals` \| `prelims_only` \| `finals_only` (plain text, not an enum). Null = `prelims_and_finals` |
 | `drive_copy_file_id` | `text` | YES | — | Drive id of the per-event copy. Null until the queued `copy` job succeeds (and stays null when the song has no Drive file). See [DRIVE.md](./DRIVE.md#drive_jobs-queue) |
 | `created_at` | `bigint` | NO | — | Epoch ms |
+| `hidden_by_registration_id` | `text` | YES | — | Migration 010. The scratched `event_registrations` entry that hides it from `GET /v1/events/:id/entities`; it stays submitted otherwise. Null = listed |
 
 **Primary key:** `id`
 
@@ -351,10 +353,11 @@ Links a song to an event so it can be used for check-in at that event.
 | `event_id` | `events.id` | NO ACTION |
 | `song_id` | `songs.id` | NO ACTION |
 | `submitted_by_user_id` | `users.id` | NO ACTION |
+| `hidden_by_registration_id` | `event_registrations.id` | SET NULL |
 
 **Unique constraints:** `uq_event_song_submissions_event_song` on `(event_id, song_id)`
 
-**Indexes:** `idx_event_song_submissions_event_id`, `idx_event_song_submissions_submitted_by_user_id`
+**Indexes:** `idx_event_song_submissions_event_id`, `idx_event_song_submissions_submitted_by_user_id`, `idx_event_song_submissions_hidden_by` on `(hidden_by_registration_id)` where not null
 
 **Relationships:** `events`, `songs`, `users`
 
@@ -716,6 +719,7 @@ An event's registration list, as an admin imported it (`PUT /v1/admin/events/:id
 | `entry_key` | `text` | NO | — | `(division, dancer_1, dancer_2)` normalized (case, accents, spacing): what a re-import matches on to keep the marks below |
 | `linked_label` | `text` | YES | — | A submission's partnership label the admin linked it to by hand |
 | `handled` | `boolean` | NO | `false` | Marked as needing no submission here |
+| `scratched` | `boolean` | NO | `false` | Migration 010. Signed up but no longer competing; its submissions stay, hidden from the public entry list through `event_song_submissions.hidden_by_registration_id` |
 | `note` | `text` | YES | — | Admin note |
 | `created_at` | `bigint` | NO | — | Epoch ms |
 | `updated_at` | `bigint` | NO | — | Epoch ms |

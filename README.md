@@ -156,6 +156,10 @@ PGURL=postgres://postgres:postgres@localhost:5432 bash scripts/check_baseline.sh
 - `migrations/009_event_registrations.sql` adds `event_registrations`, an
   event's imported registration list, and the admin's two registration
   scopes.
+- `migrations/010_registration_scratch.sql` adds
+  `event_registrations.scratched` and
+  `event_song_submissions.hidden_by_registration_id`, so a scratched entry's
+  songs stay submitted but leave the event's public entry list.
 - `scripts/apply_migrations.py` applies pending files on every deploy,
   tracked in `schema_migrations`, before the app starts.
 - `scripts/backfill_principals.py` runs next, on every deploy: it writes this
@@ -165,7 +169,7 @@ PGURL=postgres://postgres:postgres@localhost:5432 bash scripts/check_baseline.sh
 **First deploy against an existing database** (once per environment): set
 `BOOTSTRAP_MIGRATIONS=true` and `BOOTSTRAP_EXCLUDE` to every migration after
 the baseline (today:
-`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql,005_drop_users_role.sql,006_identity_audit_key_slot.sql,007_event_staff_grants.sql,008_drive_job_event_folder_access.sql,009_event_registrations.sql`).
+`002_identity_store.sql,003_song_uploads.sql,004_song_upload_uploader.sql,005_drop_users_role.sql,006_identity_audit_key_slot.sql,007_event_staff_grants.sql,008_drive_job_event_folder_access.sql,009_event_registrations.sql,010_registration_scratch.sql`).
 The runner records `001_baseline.sql` as applied without running it and
 runs the rest. Remove
 both variables after that deploy. A bootstrap without `BOOTSTRAP_EXCLUDE` is

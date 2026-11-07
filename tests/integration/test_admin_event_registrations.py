@@ -7,7 +7,7 @@ from collections.abc import Callable
 import asyncpg
 import httpx
 
-from .content_helpers import insert_event
+from .content_helpers import insert_event, insert_song
 
 
 def _url(event_id: str) -> str:
@@ -167,3 +167,99 @@ async def test_event_delete_removes_its_list(
         "SELECT count(*) FROM event_registrations WHERE event_id = $1", event
     )
     assert left == 0
+
+
+async def _submit(
+    db: asyncpg.Connection, sid: str, event_id: str, song_id: str, user_id: str
+) -> None:
+    await db.execute(
+        "INSERT INTO event_song_submissions (id, event_id, song_id,"
+        " submitted_by_user_id, created_at) VALUES ($1, $2, $3, $4, 1)",
+        sid,
+        event_id,
+        song_id,
+        user_id,
+    )
+
+
+async def _entity_count(client: httpx.AsyncClient, event_id: str, headers: dict) -> int:
+    res = await client.get(f"/v1/events/{event_id}/entities", headers=headers)
+    assert res.status_code == 200
+    return sum(len(d["entities"]) for d in res.json()["data"])
+
+
+async def test_scratch_hides_its_submissions_from_the_entry_list_until_unscratched(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    event = await insert_event(db)
+    other = await insert_event(db, name="Elsewhere")
+    song = await insert_song(db, alice.id, division="Classic")
+    await _submit(db, "sub1", event, song, alice.id)
+    await _submit(db, "sub_other", other, song, alice.id)
+    row = (
+        await client.put(_url(event), json={"entries": ENTRIES}, headers=admin.headers)
+    ).json()["data"][0]
+    assert row["scratched"] is False
+    assert row["hidden_submission_ids"] == []
+    url = f"/v1/admin/event-registrations/{row['id']}"
+    assert await _entity_count(client, event, alice.headers) == 1
+
+    res = await client.patch(
+        url,
+        json={"scratched": True, "hide_submission_ids": ["sub1", "sub_other"]},
+        headers=admin.headers,
+    )
+    assert res.status_code == 200
+    # Another event's submission is ignored.
+    assert res.json()["data"]["scratched"] is True
+    assert res.json()["data"]["hidden_submission_ids"] == ["sub1"]
+    assert await _entity_count(client, event, alice.headers) == 0
+    assert await _entity_count(client, other, alice.headers) == 1
+    # Still submitted: the admin list shows it.
+    subs = await client.get(
+        f"/v1/admin/event-song-submissions?event_id={event}", headers=admin.headers
+    )
+    assert [s["id"] for s in subs.json()["data"]] == ["sub1"]
+    # A re-import that keeps the entry keeps the scratch and the hide.
+    listed = (
+        await client.put(_url(event), json={"entries": ENTRIES}, headers=admin.headers)
+    ).json()["data"][0]
+    assert (listed["scratched"], listed["hidden_submission_ids"]) == (True, ["sub1"])
+
+    res = await client.patch(url, json={"scratched": False}, headers=admin.headers)
+    assert (
+        res.json()["data"]["scratched"],
+        res.json()["data"]["hidden_submission_ids"],
+    ) == (
+        False,
+        [],
+    )
+    assert await _entity_count(client, event, alice.headers) == 1
+
+
+async def test_hide_needs_a_scratch_and_dropping_the_entry_unhides(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    event = await insert_event(db)
+    song = await insert_song(db, alice.id, division="Classic")
+    await _submit(db, "sub1", event, song, alice.id)
+    row = (
+        await client.put(_url(event), json={"entries": ENTRIES}, headers=admin.headers)
+    ).json()["data"][0]
+    url = f"/v1/admin/event-registrations/{row['id']}"
+    res = await client.patch(
+        url, json={"hide_submission_ids": ["sub1"]}, headers=admin.headers
+    )
+    assert res.status_code == 400
+    await client.patch(
+        url,
+        json={"scratched": True, "hide_submission_ids": ["sub1"]},
+        headers=admin.headers,
+    )
+    assert await _entity_count(client, event, alice.headers) == 0
+    await client.put(_url(event), json={"entries": ENTRIES[1:]}, headers=admin.headers)
+    assert await _entity_count(client, event, alice.headers) == 1

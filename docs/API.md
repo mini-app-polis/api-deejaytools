@@ -408,6 +408,8 @@ same entity in the same division collapse into `song_count`.
 Entities are grouped by song entity (managed partnership → partner →
 solo owner). A division comes from the submission's per-event override when set,
 otherwise from the song; submissions with neither fall into `"Unspecified"`.
+Submissions hidden by a scratched registration entry
+(`event_song_submissions.hidden_by_registration_id`) are left out.
 
 **Path params:** `id` — event UUID
 
@@ -2854,6 +2856,8 @@ An event's registration list, as an admin imported it from the event's own regis
       "linked_label": null,
       "handled": false,
       "note": null,
+      "scratched": false,
+      "hidden_submission_ids": [],
       "created_at": 1710000000000,
       "updated_at": 1710000000000
     }
@@ -2862,7 +2866,7 @@ An event's registration list, as an admin imported it from the event's own regis
 }
 ```
 
-In `position` order; empty when no list was imported. `division` is the registration's own name for it, not one of `GET /v1/divisions`. `dancer_2` is null for a single name (a team, say).
+In `position` order; empty when no list was imported. `division` is the registration's own name for it, not one of `GET /v1/divisions`. `dancer_2` is null for a single name (a team, say). `scratched` marks an entry that signed up but will no longer compete; `hidden_submission_ids` are the event's submissions it hides from `GET /v1/events/:id/entities` (sorted).
 
 **Errors:**
 
@@ -2891,7 +2895,7 @@ const putRegistrationsBody = z.object({
 });
 ```
 
-Replaces the event's list with `entries`, in order. An entry whose division and dancers match one already on the list (case, accents and spacing ignored) keeps its `id`, `linked_label`, `handled` and `note`; the others are new, and entries no longer sent are removed. An empty `dancer_2` is stored as null; an empty `entries` clears the list.
+Replaces the event's list with `entries`, in order. An entry whose division and dancers match one already on the list (case, accents and spacing ignored) keeps its `id`, `linked_label`, `handled`, `scratched`, `note` and the submissions it hides; the others are new, and entries no longer sent are removed. An empty `dancer_2` is stored as null; an empty `entries` clears the list.
 
 **Response:** the new list, as `GET` returns it.
 
@@ -2918,10 +2922,12 @@ const patchRegistrationBody = z.object({
   linked_label: z.string().trim().max(200).nullable().optional(),
   handled: z.boolean().optional(),
   note: z.string().trim().max(1000).nullable().optional(),
+  scratched: z.boolean().optional(),
+  hide_submission_ids: z.array(z.string().trim().min(1)).max(50).optional(),
 });
 ```
 
-Sets the admin's marks; fields not sent are left as they are. `linked_label` is a submission's `partnership_label` the admin linked the entry to by hand; `handled` marks it as needing no submission here. Null or empty clears `linked_label` and `note`.
+Sets the admin's marks; fields not sent are left as they are. `scratched` marks an entry that signed up but will no longer compete: its songs stay submitted to the event (Drive folder, check-in), and `hide_submission_ids` (the submissions the web app matched to it) are left out of the event's public entry list, replacing any it hid before; ids of another event's submissions are ignored. Unscratching unhides them all. Sending `hide_submission_ids` for an entry that is not, and does not become, scratched is a 400. `linked_label` is a submission's `partnership_label` the admin linked the entry to by hand; `handled` marks it as needing no submission here. Null or empty clears `linked_label` and `note`.
 
 **Response:** the entry, as in the list.
 
@@ -2930,6 +2936,7 @@ Sets the admin's marks; fields not sent are left as they are. `linked_label` is 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
 | 400 | `VALIDATION_ERROR` | … | Invalid body |
+| 400 | `BAD_REQUEST` | hide_submission_ids needs a scratched entry | `hide_submission_ids` on an entry that is not scratched |
 | 404 | `NOT_FOUND` | Registration not found | Unknown id |
 | 500 | `INTERNAL` | … | Write failed |
 

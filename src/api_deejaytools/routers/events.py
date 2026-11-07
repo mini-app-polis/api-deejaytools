@@ -298,8 +298,9 @@ def _division_order(division: str) -> int:
     summary="Entities entered in an event",
     description=(
         "Entities with at least one song submitted to the event, grouped by "
-        "division, with how many songs each has there. Carries no song "
-        "identity. Requires deejaytools.entities.read."
+        "division, with how many songs each has there. Songs hidden by a "
+        "scratched registration are left out. Carries no song identity. "
+        "Requires deejaytools.entities.read."
     ),
     responses=NOT_FOUND,
 )
@@ -339,7 +340,11 @@ async def event_entities(
                     ManagedPartnership,
                     ManagedPartnership.id == Song.managed_partnership_id,
                 )
-                .where(EventSongSubmission.event_id == id)
+                .where(
+                    EventSongSubmission.event_id == id,
+                    # A scratched registration's songs stay submitted, unlisted.
+                    EventSongSubmission.hidden_by_registration_id.is_(None),
+                )
             )
         ).all()
     except SQLAlchemyError as exc:
