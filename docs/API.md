@@ -2827,6 +2827,114 @@ The partner list for a staff upload on behalf.
 
 ---
 
+## `routers/admin_event_registrations.py` — event registration lists
+
+An event's registration list, as an admin imported it from the event's own registration export, so the admin page can show who has not submitted music yet. Optional per event: most events have none. The API stores the list and the admin's marks; matching it against the event's submissions is the web app's job.
+
+### GET /v1/admin/events/:id/registrations
+
+**Auth:** `deejaytools.registrations.read`
+
+**Path params:** `id` — event id
+
+**Query params / Request body:** none
+
+**Response:**
+
+```json
+{
+  "data": [
+    {
+      "id": "…",
+      "event_id": "evt_…",
+      "position": 0,
+      "division": "Classic (NASDE)",
+      "dancer_1": "Ada Lovelace",
+      "dancer_2": "Bob Jones",
+      "linked_label": null,
+      "handled": false,
+      "note": null,
+      "created_at": 1710000000000,
+      "updated_at": 1710000000000
+    }
+  ],
+  "meta": { "version": "…", "count": 1, "total": 1 }
+}
+```
+
+In `position` order; empty when no list was imported. `division` is the registration's own name for it, not one of `GET /v1/divisions`. `dancer_2` is null for a single name (a team, say).
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 500 | `INTERNAL` | … | Query failed |
+
+---
+
+### PUT /v1/admin/events/:id/registrations
+
+**Auth:** `deejaytools.registrations.write`
+
+**Path params:** `id` — event id
+
+**Request body:**
+
+```typescript
+const putRegistrationsBody = z.object({
+  entries: z.array(z.object({
+    division: z.string().trim().min(1).max(200),
+    dancer_1: z.string().trim().min(1).max(200),
+    dancer_2: z.string().trim().max(200).optional(),
+  })).max(2000),
+});
+```
+
+Replaces the event's list with `entries`, in order. An entry whose division and dancers match one already on the list (case, accents and spacing ignored) keeps its `id`, `linked_label`, `handled` and `note`; the others are new, and entries no longer sent are removed. An empty `dancer_2` is stored as null; an empty `entries` clears the list.
+
+**Response:** the new list, as `GET` returns it.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` | … | Invalid body |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 500 | `INTERNAL` | … | Write failed |
+
+---
+
+### PATCH /v1/admin/event-registrations/:id
+
+**Auth:** `deejaytools.registrations.write`
+
+**Path params:** `id` — registration entry id
+
+**Request body:**
+
+```typescript
+const patchRegistrationBody = z.object({
+  linked_label: z.string().trim().max(200).nullable().optional(),
+  handled: z.boolean().optional(),
+  note: z.string().trim().max(1000).nullable().optional(),
+});
+```
+
+Sets the admin's marks; fields not sent are left as they are. `linked_label` is a submission's `partnership_label` the admin linked the entry to by hand; `handled` marks it as needing no submission here. Null or empty clears `linked_label` and `note`.
+
+**Response:** the entry, as in the list.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` | … | Invalid body |
+| 404 | `NOT_FOUND` | Registration not found | Unknown id |
+| 500 | `INTERNAL` | … | Write failed |
+
+---
+
 ## `routers/admin_users.py` — `/v1/admin/users`
 
 ### GET /v1/admin/users
