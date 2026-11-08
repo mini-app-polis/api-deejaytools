@@ -2,7 +2,7 @@
 name = "api-deejaytools"
 dynamic = ["version"]
 description = "FastAPI service behind deejaytools.com — events, floor-trial sessions and queues, check-ins, songs and their Drive files."
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
   "fastapi>=0.110,<1.0",
   "uvicorn[standard]>=0.27,<1.0",
@@ -58,7 +58,7 @@ ignore = ["E501"]
 quote-style = "double"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 strict = false
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]

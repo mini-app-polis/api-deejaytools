@@ -11,7 +11,7 @@ called at least once. CI runs it in the `test` job of
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), after pytest,
 and it gates like everything else.
 
-Prerequisites: Python 3.11, [uv](https://docs.astral.sh/uv/), Node 22 or
+Prerequisites: Python 3.14, [uv](https://docs.astral.sh/uv/), Node 22 or
 later (pnpm through corepack, pinned by `conformance/package.json`), and a
 local Postgres 16 reachable as `postgres:postgres@localhost:5432`. No Doppler:
 everything the service needs here is set on the command line.

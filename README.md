@@ -90,7 +90,7 @@ scheduler every `TICK_INTERVAL_MS`, or once per `GET /internal/tick`.
 
 ## Running locally
 
-Prerequisites: Python 3.11, [uv](https://docs.astral.sh/uv/), Postgres 16,
+Prerequisites: Python 3.14, [uv](https://docs.astral.sh/uv/), Postgres 16,
 and the [Doppler CLI](https://docs.doppler.com/docs/install-cli). Secrets come
 from this repo's own Doppler `dev` config — nothing reads a `.env` file, and local
 runs never use `prd`. `DEEJAYTOOLS_DATABASE_URL` is not in Doppler: set it in
