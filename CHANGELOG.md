@@ -1,3 +1,17 @@
+# [1.29.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.28.1...v1.29.0) (2026-11-08)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 8.10.0 ([2829ce0](https://github.com/mini-app-polis/api-deejaytools/commit/2829ce0ca201498fee5d4059645c7c11a7f11181))
+* **deps:** bump miniapppolis-common-utils to 8.10.1 ([7dd6e2b](https://github.com/mini-app-polis/api-deejaytools/commit/7dd6e2b55620aca43fefa43f7e312237aa782d0a))
+* **deps:** bump miniapppolis-common-utils to 8.9.0 ([07e1d34](https://github.com/mini-app-polis/api-deejaytools/commit/07e1d346454502fa974c1a02691ce51534cccc8e))
+
+
+### Features
+
+* run on Python 3.14 ([bad0e86](https://github.com/mini-app-polis/api-deejaytools/commit/bad0e863f24b31294801e4ec2e9ff6e4cbde3e5b))
+
 ## [1.28.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.28.0...v1.28.1) (2026-11-07)
 
 
