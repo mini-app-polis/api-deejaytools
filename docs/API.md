@@ -583,6 +583,34 @@ A staff grant on the wire:
 
 ---
 
+### GET /v1/events/:id/drive-folder/divisions
+
+The division folders inside the event's shared Drive folder, so each division's music can be opened, and downloaded, in Google Drive.
+
+**Auth:** `deejaytools.queue.read` on the event, as `GET /v1/events/:id/drive-folder`
+
+**Path params:** `id` — event id
+
+**Query params / Request body:** none
+
+**Response:** The folders directly inside the event folder (`<root>/<season>/Events/<event name>/`, one per division), by name, read from Drive on each call. Empty until a share has recorded the event folder.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `name` | string | The folder's name: the division |
+| `folder_id` | string | Drive folder id |
+| `url` | string | `https://drive.google.com/drive/folders/<folder_id>` |
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 502 | `INTERNAL` | Google Drive did not answer | The Drive listing failed |
+
+---
+
 ### PUT /v1/events/:id/staff/:user_id/:role
 
 **Auth:** `deejaytools.staff.write` on the event. Granting `event-manager` needs the scope through a role (admin).
@@ -2920,6 +2948,29 @@ const query = z.object({
 | 400 | `VALIDATION_ERROR` | … | `q` missing, repeated, or shorter than 2 characters once trimmed |
 | 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
 | 404 | `NOT_FOUND` | Event not found | Unknown id |
+
+---
+
+### GET /v1/events/:id/people/by-email
+
+Find one person by their exact email, so whoever may grant the event's staff roles can add someone new to the event ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
+
+**Auth:** `deejaytools.staff.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its event manager)
+
+**Path params:** `id` — event id
+
+**Query params:** `email` — the person's whole email address, 3–320 characters; case and surrounding spaces are ignored
+
+**Response:** The one person whose account has exactly that email, connected to the event or not: `{ user_id, display_name, email_masked }`, as `GET /v1/events/:id/people` lists people (`display_name` empty when the account has no name). Nothing is listed or partly matched.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` | … | Missing, short, or not an email address |
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 404 | `NOT_FOUND` | No account with that email | No account has that email |
 
 ---
 

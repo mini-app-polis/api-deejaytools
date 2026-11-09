@@ -10,14 +10,19 @@ which keeps the event-manager role an admin's to give (``auth``'s
 ``authorize_staff_change``).
 
 ``/v1/events/{id}/drive-folder`` is the event's shared Drive folder, for the
-people it is shared with: the event's DJs and event managers (and admins).
+people it is shared with: the event's DJs and event managers (and admins);
+``/v1/events/{id}/drive-folder/divisions`` lists its division folders, so
+each division's music can be opened, and downloaded, in Drive.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, Path, Request
+from fastapi.responses import JSONResponse
+from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,13 +41,17 @@ from ..errors import (
     ErrorCode,
     ErrorResponse,
     api_error,
+    error_body,
     success,
     success_list,
 )
 from ..event_connections import email_for_caller
 from ..models import DriveJob, Event, User
+from ..services import drive
 from ..services.drive_jobs import SHARE_EVENT_FOLDER
 from ..staff import grant_event_role, list_event_staff, revoke_event_role
+
+logger = get_logger()
 
 router = APIRouter(prefix="/v1/events", tags=["event-staff"])
 
@@ -196,13 +205,94 @@ async def get_drive_folder(
 ) -> dict[str, Any]:
     """The event's Drive folder, from its newest completed share."""
     await _require_event(session, id)
-    # A rename moves the folder and queues a new share, so the newest
-    # completed share holds the current folder.
-    folder_id = (
+    folder_id = await _shared_folder_id(session, id)
+    return success(
+        {
+            "folder_id": folder_id,
+            "url": DRIVE_FOLDER_URL.format(folder_id=folder_id) if folder_id else None,
+        }
+    )
+
+
+class DriveDivisionData(BaseModel):
+    """One division folder inside the event's Drive folder."""
+
+    name: str = Field(..., description="The folder's name: the division.")
+    folder_id: str = Field(..., description="Drive folder id.")
+    url: str = Field(..., description="The folder in Google Drive.")
+
+
+class DriveDivisionListResponse(Envelope[list[DriveDivisionData]]):
+    """The event folder's division folders, by name."""
+
+    data: list[DriveDivisionData] = Field(..., description="The division folders.")
+
+
+@router.get(
+    "/{id}/drive-folder/divisions",
+    response_model=DriveDivisionListResponse,
+    summary="The division folders in an event's Drive folder",
+    description=(
+        "The folders directly inside the event's shared Drive folder, one per "
+        "division, by name, each with its Drive URL; empty until a share has "
+        "recorded the folder. Read from Drive on each call. Requires "
+        "deejaytools.queue.read on the event: its DJs, event managers and "
+        "admins."
+    ),
+    responses={
+        **AUTH,
+        404: {"model": ErrorResponse, "description": "No such event."},
+        502: {"model": ErrorResponse, "description": "Google Drive did not answer."},
+    },
+)
+async def list_drive_divisions(
+    id: EventId,
+    # The same readers as the folder itself (get_drive_folder).
+    caller: Caller = Depends(require_event_scope("deejaytools.queue.read", THIS_EVENT)),
+    session: AsyncSession = Depends(get_db_session),
+) -> Any:
+    """List the division folders in the event's Drive folder."""
+    await _require_event(session, id)
+    folder_id = await _shared_folder_id(session, id)
+    if folder_id is None:
+        return success_list([])
+    try:
+        folders = await drive.list_subfolders(folder_id)
+    except Exception as exc:
+        sentry_sdk.capture_exception(exc)
+        logger.error(
+            with_log_prefix(
+                LOG_FAILURE,
+                f"drive_divisions_failed event={id} user={caller.user_id}: {exc!r}",
+            )
+        )
+        return JSONResponse(
+            status_code=502,
+            content=error_body(ErrorCode.INTERNAL, "Google Drive did not answer"),
+        )
+    return success_list(
+        [
+            {
+                "name": f.name,
+                "folder_id": f.folder_id,
+                "url": DRIVE_FOLDER_URL.format(folder_id=f.folder_id),
+            }
+            for f in folders
+        ]
+    )
+
+
+async def _shared_folder_id(session: AsyncSession, event_id: str) -> str | None:
+    """The event's Drive folder, as its newest completed share recorded it.
+
+    A rename moves the folder and queues a new share, so the newest
+    completed share holds the current folder.
+    """
+    found: str | None = (
         await session.execute(
             select(DriveJob.file_id)
             .where(
-                DriveJob.event_id == id,
+                DriveJob.event_id == event_id,
                 DriveJob.kind == SHARE_EVENT_FOLDER,
                 DriveJob.status == "done",
                 DriveJob.file_id.is_not(None),
@@ -211,12 +301,7 @@ async def get_drive_folder(
             .limit(1)
         )
     ).scalar_one_or_none()
-    return success(
-        {
-            "folder_id": folder_id,
-            "url": DRIVE_FOLDER_URL.format(folder_id=folder_id) if folder_id else None,
-        }
-    )
+    return found
 
 
 @router.put(

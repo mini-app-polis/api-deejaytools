@@ -471,6 +471,28 @@ async def remove_reader(file_id: str, email: str) -> int:
 
 
 @dataclass(frozen=True)
+class Subfolder:
+    """A folder directly inside another, with the name Drive has."""
+
+    folder_id: str
+    name: str
+
+
+async def list_subfolders(folder_id: str) -> list[Subfolder]:
+    """The untrashed folders directly inside ``folder_id``, by name.
+
+    Only lists; nothing is created. The service account sees only folders it
+    created (``drive.file``), which every folder below the root is. Drive
+    errors propagate.
+    """
+    facade, _root = _drive()
+    children = await asyncio.to_thread(facade.get_all_subfolders, folder_id)
+    return sorted(
+        (Subfolder(c.id, c.name) for c in children), key=lambda f: f.name.casefold()
+    )
+
+
+@dataclass(frozen=True)
 class EventFolder:
     """A folder ``<root>/<season>/Events/<name>/``, with the names Drive has."""
 
