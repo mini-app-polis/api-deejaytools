@@ -117,7 +117,7 @@ the new service **fails closed**: unset secret, endpoint refuses.
 | `deejaytools.queue.manage` | `POST /v1/queue/promote`, `/complete`, `/incomplete`, `/move-down`, `/withdraw` (event-scoped: the event of the body's queue entry) |
 | `deejaytools.runs.read` | `GET /v1/runs` (event-scoped when `event_id`, or else `session_id`'s session, names an event; without either filter, through a role only) |
 | `deejaytools.library.read` | `GET /v1/admin/songs` (every user's songs) |
-| `deejaytools.entries.read` | `GET /v1/admin/event-song-submissions` (every submission for an event), `GET /v1/events/:id/song-submissions` (event-scoped, the same list for the event in the path), `GET /v1/events/:id/people` (event-scoped: the event's own people, found by name) |
+| `deejaytools.entries.read` | `GET /v1/admin/event-song-submissions` (every submission for an event), `GET /v1/events/:id/song-submissions` (event-scoped, the same list for the event in the path), `GET /v1/events/:id/registrations` (event-scoped: the event's registration list, admin notes withheld), `GET /v1/events/:id/people` (event-scoped: the event's own people, found by name) |
 | `deejaytools.users.read` | `GET /v1/admin/users`, `GET /v1/admin/users/:id/partners`, `GET /v1/admin/users/:id/event-song-submissions` |
 | `deejaytools.users.write` | `PATCH /v1/admin/users/:id/role` |
 | `deejaytools.drivejobs.read` | `GET /v1/admin/drive-jobs`, `GET /v1/admin/drive-jobs/summary` |

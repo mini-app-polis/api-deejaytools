@@ -2752,6 +2752,28 @@ The same list for an event's staff, outside `/v1/admin` ([ADR-0012](./decisions/
 
 ---
 
+### GET /v1/events/:id/registrations
+
+The event's registration list for its staff, outside `/v1/admin` ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)), so the event page can show how many registered entries per division are still missing music.
+
+**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+
+**Path params:** `id` — event id
+
+**Query params / Request body:** none
+
+**Response:** As `GET /v1/admin/events/:id/registrations`, except that `note` is `null` for every caller but an admin. Empty when no list was imported.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 500 | `INTERNAL` | … | Query failed |
+
+---
+
 ### GET /v1/events/:id/people
 
 The staff portals' person picker ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).

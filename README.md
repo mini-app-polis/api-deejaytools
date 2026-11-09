@@ -45,7 +45,7 @@ grant from a per-event staff role (ADR-0012) on that event only.
 | `GET /v1/events/{id}/staff` | `deejaytools.staff.read` on the event |
 | `PUT`/`DELETE /v1/events/{id}/staff/{user_id}/{role}` | `deejaytools.staff.write` on the event |
 | `GET /v1/events/{id}/drive-folder` | `deejaytools.queue.read` on the event |
-| `GET /v1/events/{id}/song-submissions`, `GET /v1/events/{id}/people` | `deejaytools.entries.read` on the event |
+| `GET /v1/events/{id}/song-submissions`, `GET /v1/events/{id}/registrations`, `GET /v1/events/{id}/people` | `deejaytools.entries.read` on the event |
 | `GET /v1/events/{id}/people/{user_id}/partners` | `deejaytools.delegation.act` on the event |
 | `GET /v1/sessions`, `GET /v1/sessions/{id}` | public; a valid synced caller also gets their check-in fields |
 | `POST /v1/sessions`, `PATCH`/`DELETE /v1/sessions/{id}`, `PUT /v1/sessions/{id}/divisions`, `PATCH /v1/sessions/{id}/status` | `deejaytools.sessions.write` on the session's event |
