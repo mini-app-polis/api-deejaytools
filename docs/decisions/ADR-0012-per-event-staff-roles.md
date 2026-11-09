@@ -38,8 +38,8 @@ their behaviour are unchanged.
 
 | Role | Purpose | Scopes, on the granted event |
 |------|---------|------------------------------|
-| Coordinator | Sees what has been entered | `deejaytools.entries.read` |
-| DJ | Runs the floor trials and plays the music | `deejaytools.entries.read`, `deejaytools.queue.read`, `deejaytools.queue.manage`, `deejaytools.runs.read`, `deejaytools.sessions.write`, `deejaytools.delegation.act`, plus read access to the event's Drive folder |
+| Coordinator | Sees what has been entered, and keeps the event's registration list | `deejaytools.entries.read`, `deejaytools.registrations.write` |
+| DJ | Runs the floor trials and plays the music | `deejaytools.entries.read`, `deejaytools.registrations.write`, `deejaytools.queue.read`, `deejaytools.queue.manage`, `deejaytools.runs.read`, `deejaytools.sessions.write`, `deejaytools.delegation.act`, plus read access to the event's Drive folder |
 | Event manager | Admin, limited to the events granted | everything the DJ has (Drive folder access included), plus `deejaytools.events.write`, `deejaytools.staff.read` and `deejaytools.staff.write` |
 
 The role definitions live in data, not code. Each is an `identity_roles` row
@@ -59,6 +59,14 @@ them global.
   `deejaytools.library.read` (every user's songs) stays admin-only.
   Staff also find the event's own people by name, with their email masked,
   through `GET /v1/events/:id/people`.
+- `deejaytools.registrations.write` (every staff role, migration 011): the
+  event's registration list, so its staff see who is still missing music and
+  keep the list current — import it, add or remove one entry, and link,
+  mark handled or scratch an entry, through
+  `PUT`/`POST /v1/events/:id/registrations` and
+  `PATCH`/`DELETE /v1/events/:id/registrations/:entry_id`. Reading the list
+  (`GET /v1/events/:id/registrations`) takes `deejaytools.entries.read`. An
+  entry's `note` stays the admin's: staff neither see nor set it.
 - `deejaytools.queue.read` and `deejaytools.queue.manage`: the queue views
   and the promote, complete, incomplete, move-down and withdraw actions, for
   sessions of the event. A body or path that names a session or queue entry

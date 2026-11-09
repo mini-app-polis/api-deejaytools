@@ -184,6 +184,18 @@ def map_registration(
     }
 
 
+def without_notes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``rows`` with every admin ``note`` null, for callers other than an admin."""
+    return [{**row, "note": None} for row in rows]
+
+
+def _entry(
+    row: EventRegistration, hidden: dict[str, list[str]], show_note: bool
+) -> dict[str, Any]:
+    entry = map_registration(row, hidden.get(row.id))
+    return entry if show_note else {**entry, "note": None}
+
+
 def _internal() -> JSONResponse:
     return JSONResponse(
         status_code=500, content=error_body(ErrorCode.INTERNAL, "Internal server error")
@@ -307,6 +319,23 @@ async def put_registrations(
 ) -> Any:
     """Replace an event's registration list, keeping marks on unchanged entries."""
     await _require_event(session, id)
+    return await replace_registrations(session, id, body, caller)
+
+
+async def replace_registrations(
+    session: AsyncSession,
+    id: str,
+    body: PutRegistrationsBody,
+    caller: Caller,
+    *,
+    show_note: bool = True,
+) -> Any:
+    """Replace ``id``'s list with ``body.entries``, keeping marks on unchanged entries.
+
+    The import behind both the admin route and the event-staff route; the
+    event is known to exist and authorization is the caller's. With
+    ``show_note`` false the answer carries every ``note`` as null.
+    """
     now = now_ms()
     try:
         existing = (
@@ -359,7 +388,8 @@ async def put_registrations(
                 delete(EventRegistration).where(EventRegistration.id.in_(gone))
             )
         await session.commit()
-        return success_list(await registration_rows(session, id))
+        rows = await registration_rows(session, id)
+        return success_list(rows if show_note else without_notes(rows))
     except SQLAlchemyError as exc:
         await session.rollback()
         sentry_sdk.capture_exception(exc)
@@ -399,6 +429,23 @@ async def patch_registration(
     row = await session.get(EventRegistration, id)
     if row is None:
         raise api_error(404, ErrorCode.NOT_FOUND, "Registration not found")
+    return await mark_registration(session, row, body, caller)
+
+
+async def mark_registration(
+    session: AsyncSession,
+    row: EventRegistration,
+    body: PatchRegistrationBody,
+    caller: Caller,
+    *,
+    show_note: bool = True,
+) -> Any:
+    """Set the marks ``body`` sends on ``row``; fields not sent are left as they are.
+
+    Behind both the admin route and the event-staff route; authorization is
+    the caller's. With ``show_note`` false the answer's ``note`` is null.
+    """
+    id = row.id
     sent = body.model_fields_set
     scratched = (
         body.scratched
@@ -425,7 +472,7 @@ async def patch_registration(
         "scratched",
         "hide_submission_ids",
     }:
-        return success(map_registration(row, (await _hidden_by(session, [id])).get(id)))
+        return success(_entry(row, await _hidden_by(session, [id]), show_note))
     row.updated_at = now_ms()
     try:
         if not scratched or body.hide_submission_ids is not None:
@@ -455,4 +502,4 @@ async def patch_registration(
         )
         return _internal()
     await session.refresh(row)
-    return success(map_registration(row, (await _hidden_by(session, [id])).get(id)))
+    return success(_entry(row, await _hidden_by(session, [id]), show_note))

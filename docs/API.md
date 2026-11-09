@@ -2774,6 +2774,102 @@ The event's registration list for its staff, outside `/v1/admin` ([ADR-0012](./d
 
 ---
 
+### PUT /v1/events/:id/registrations
+
+Import the event's registration list, for its staff ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
+
+**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+
+**Path params:** `id` — event id
+
+**Request body:** As `PUT /v1/admin/events/:id/registrations`.
+
+**Response:** As `PUT /v1/admin/events/:id/registrations`, except that `note` is `null` for every caller but an admin. Marks on entries already there, the admin's notes included, are kept.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` | … | Invalid body |
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 500 | `INTERNAL` | … | Write failed |
+
+---
+
+### POST /v1/events/:id/registrations
+
+Add one entry at the end of the event's registration list, unmarked: someone who registered after the list was imported, or one the import missed.
+
+**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+
+**Path params:** `id` — event id
+
+**Request body:**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `division` | string | yes | 1–200 characters, trimmed; the registration's own name for it |
+| `dancer_1` | string | yes | 1–200 characters, trimmed; first dancer or team name |
+| `dancer_2` | string | no | Up to 200 characters; omit or empty for none |
+
+**Response:** `201`, the new entry as `GET /v1/admin/events/:id/registrations` lists it.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` | … | Invalid body |
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 500 | `INTERNAL` | … | Write failed |
+
+---
+
+### PATCH /v1/events/:id/registrations/:entry_id
+
+Mark one entry on the event's list: as `PATCH /v1/admin/event-registrations/:id`.
+
+**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+
+**Path params:** `id` — event id; `entry_id` — entry id
+
+**Request body:** As `PATCH /v1/admin/event-registrations/:id`. Only an admin may send `note`.
+
+**Response:** The entry, with `note` `null` for every caller but an admin.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` / `BAD_REQUEST` | … | Invalid body; `hide_submission_ids` on an entry not scratched |
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 403 | `FORBIDDEN` | Only an admin can set the note | `note` sent by anyone but an admin |
+| 404 | `NOT_FOUND` | Registration not found | Unknown entry, or one on another event's list |
+| 500 | `INTERNAL` | … | Write failed |
+
+---
+
+### DELETE /v1/events/:id/registrations/:entry_id
+
+Remove one entry from the event's list. Submissions it hid from the event's public entry list are unhidden.
+
+**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+
+**Path params:** `id` — event id; `entry_id` — entry id
+
+**Response:** `{ "deleted": true }`
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Registration not found | Unknown entry, or one on another event's list |
+| 500 | `INTERNAL` | … | Write failed |
+
+---
+
 ### GET /v1/events/:id/people
 
 The staff portals' person picker ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).

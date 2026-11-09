@@ -215,7 +215,11 @@ async def _import_one(client: httpx.AsyncClient, admin: Any, event_id: str) -> N
         f"/v1/admin/events/{event_id}/registrations",
         json={
             "entries": [
-                {"division": "Classic", "dancer_1": "Ada Lovelace", "dancer_2": "Bob Jones"}
+                {
+                    "division": "Classic",
+                    "dancer_1": "Ada Lovelace",
+                    "dancer_2": "Bob Jones",
+                }
             ]
         },
         headers=admin.headers,
@@ -262,3 +266,136 @@ async def test_registrations_for_an_unknown_event_is_404(
     admin = await person("admin", admin=True)
     res = await client.get(_registrations_url("nope"), headers=admin.headers)
     assert res.status_code == 404
+
+
+async def test_a_coordinator_manages_their_events_registration_list(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    coordinator = await person("carol")
+    event_a, event_b = await _two_events(client, db, admin, alice)
+    await _grant(client, admin, event_a, coordinator.id, "coordinator")
+    url = _registrations_url(event_a)
+
+    # Import: the admin's note survives, but the coordinator never sees it.
+    await _import_one(client, admin, event_a)
+    res = await client.put(
+        url,
+        json={
+            "entries": [
+                {
+                    "division": "Classic",
+                    "dancer_1": "Ada Lovelace",
+                    "dancer_2": "Bob Jones",
+                },
+                {
+                    "division": "Masters",
+                    "dancer_1": "Cara Smith",
+                    "dancer_2": "Dan Brown",
+                },
+            ]
+        },
+        headers=coordinator.headers,
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]
+    assert [(e["dancer_1"], e["note"]) for e in data] == [
+        ("Ada Lovelace", None),
+        ("Cara Smith", None),
+    ]
+    ada, cara = data[0]["id"], data[1]["id"]
+    kept = await client.get(url, headers=admin.headers)
+    assert kept.json()["data"][0]["note"] == "called her Tuesday"
+
+    # Add one at the end.
+    res = await client.post(
+        url,
+        json={"division": "Teams", "dancer_1": "Future Wow", "dancer_2": ""},
+        headers=coordinator.headers,
+    )
+    assert res.status_code == 201, res.text
+    added = res.json()["data"]
+    assert (added["position"], added["dancer_1"], added["dancer_2"]) == (
+        2,
+        "Future Wow",
+        None,
+    )
+
+    # Mark: handled and linked, but not the admin's note.
+    res = await client.patch(
+        f"{url}/{cara}", json={"handled": True}, headers=coordinator.headers
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["data"]["handled"] is True
+    res = await client.patch(
+        f"{url}/{ada}", json={"note": "mine now"}, headers=coordinator.headers
+    )
+    assert res.status_code == 403
+
+    # Remove.
+    res = await client.delete(f"{url}/{added['id']}", headers=coordinator.headers)
+    assert res.status_code == 200, res.text
+    assert res.json()["data"] == {"deleted": True}
+    listed = await client.get(url, headers=coordinator.headers)
+    assert [e["id"] for e in listed.json()["data"]] == [ada, cara]
+
+    # Another event's list, and another event's entry through this event, are out of reach.
+    other = _registrations_url(event_b)
+    assert (
+        await client.post(
+            other,
+            json={"division": "Classic", "dancer_1": "X"},
+            headers=coordinator.headers,
+        )
+    ).status_code == 403
+    assert (
+        await client.put(other, json={"entries": []}, headers=coordinator.headers)
+    ).status_code == 403
+    await _import_one(client, admin, event_b)
+    b_entry = (await client.get(other, headers=admin.headers)).json()["data"][0]["id"]
+    assert (
+        await client.delete(f"{url}/{b_entry}", headers=coordinator.headers)
+    ).status_code == 404
+    assert (
+        await client.patch(
+            f"{url}/{b_entry}", json={"handled": True}, headers=coordinator.headers
+        )
+    ).status_code == 404
+
+    # A dancer may not write it.
+    assert (
+        await client.post(
+            url, json={"division": "Classic", "dancer_1": "X"}, headers=alice.headers
+        )
+    ).status_code == 403
+
+
+async def test_removing_a_scratched_entry_unhides_its_submissions(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    event_a, _ = await _two_events(client, db, admin, alice)
+    url = _registrations_url(event_a)
+    res = await client.post(
+        url,
+        json={"division": "Classic", "dancer_1": "Alice", "dancer_2": "Bob"},
+        headers=admin.headers,
+    )
+    entry = res.json()["data"]["id"]
+    res = await client.patch(
+        f"{url}/{entry}",
+        json={"scratched": True, "hide_submission_ids": ["s_a1"]},
+        headers=admin.headers,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["data"]["hidden_submission_ids"] == ["s_a1"]
+
+    assert (
+        await client.delete(f"{url}/{entry}", headers=admin.headers)
+    ).status_code == 200
+    hidden_by = await db.fetchval(
+        "SELECT hidden_by_registration_id FROM event_song_submissions WHERE id = 's_a1'"
+    )
+    assert hidden_by is None
