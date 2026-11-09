@@ -1,3 +1,16 @@
+# [1.30.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.29.2...v1.30.0) (2026-11-09)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.1.0 ([8deb88f](https://github.com/mini-app-polis/api-deejaytools/commit/8deb88f1386fa095fdcc13466085bd1f3f5e5264))
+
+
+### Features
+
+* **events:** let event staff import, add, mark and remove entries on their event's registration list ([10a2006](https://github.com/mini-app-polis/api-deejaytools/commit/10a2006ecc77dfdfa2fa420e89e1b5032e67e4d2))
+* **events:** let event staff read their event's registration list ([cf8e204](https://github.com/mini-app-polis/api-deejaytools/commit/cf8e20432003ddbb88fa1eb38d0c90ae1746e96a))
+
 ## [1.29.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.29.1...v1.29.2) (2026-11-09)
 
 
