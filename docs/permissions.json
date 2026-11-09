@@ -1,0 +1,447 @@
+{
+  "about": "Who may call each scope-guarded route, as tests/integration/test_permission_matrix.py observes it over HTTP. Callers: no-roles, dancer, the event's coordinator, dj and event-manager, other-event-staff (all three roles on another event), admin. Regenerate after a deliberate change: UPDATE_PERMISSIONS=1.",
+  "routes": {
+    "DELETE /v1/admin/checkins/test": [
+      "admin"
+    ],
+    "DELETE /v1/checkins/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "DELETE /v1/event-song-submissions/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "DELETE /v1/events/{id}": [
+      "event-manager",
+      "admin"
+    ],
+    "DELETE /v1/events/{id}/registrations/{entry_id}": [
+      "coordinator",
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "DELETE /v1/events/{id}/staff/{user_id}/{role}": [
+      "event-manager",
+      "admin"
+    ],
+    "DELETE /v1/managed-partnerships/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "DELETE /v1/partners/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "DELETE /v1/sessions/{id}": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "DELETE /v1/songs/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "DELETE /v1/teams/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/admin/checkins/test": [
+      "admin"
+    ],
+    "GET /v1/admin/drive-jobs": [
+      "admin"
+    ],
+    "GET /v1/admin/drive-jobs/summary": [
+      "admin"
+    ],
+    "GET /v1/admin/event-song-submissions": [
+      "admin"
+    ],
+    "GET /v1/admin/events/{id}/registrations": [
+      "admin"
+    ],
+    "GET /v1/admin/songs": [
+      "admin"
+    ],
+    "GET /v1/admin/users": [
+      "admin"
+    ],
+    "GET /v1/admin/users/{id}/event-song-submissions": [
+      "admin"
+    ],
+    "GET /v1/admin/users/{id}/partners": [
+      "admin"
+    ],
+    "GET /v1/checkins/mine": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/event-song-submissions": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/events/{id}/drive-folder": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/events/{id}/drive-folder/divisions": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/events/{id}/entities": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/events/{id}/people": [
+      "coordinator",
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/events/{id}/people/by-email": [
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/events/{id}/people/{user_id}/partners": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/events/{id}/registrations": [
+      "coordinator",
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/events/{id}/song-submissions": [
+      "coordinator",
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/events/{id}/staff": [
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/managed-partnerships": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/partners": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/partners/leading-pairs": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/partners/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/partners/{id}/associations": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/queue/{session_id}/active/staff": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/queue/{session_id}/non-priority": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/queue/{session_id}/priority": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/runs": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "GET /v1/songs": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/songs/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "GET /v1/teams": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "PATCH /v1/admin/event-registrations/{id}": [
+      "admin"
+    ],
+    "PATCH /v1/admin/users/{id}/role": [
+      "admin"
+    ],
+    "PATCH /v1/auth/me": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "PATCH /v1/events/{id}": [
+      "event-manager",
+      "admin"
+    ],
+    "PATCH /v1/events/{id}/registrations/{entry_id}": [
+      "coordinator",
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "PATCH /v1/managed-partnerships/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "PATCH /v1/partners/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "PATCH /v1/sessions/{id}": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "PATCH /v1/sessions/{id}/status": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "PATCH /v1/songs/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "PATCH /v1/teams/{id}": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "POST /v1/admin/checkins": [
+      "admin"
+    ],
+    "POST /v1/admin/drive-jobs/backfill-renames": [
+      "admin"
+    ],
+    "POST /v1/admin/drive-jobs/{id}/retry": [
+      "admin"
+    ],
+    "POST /v1/checkins": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "POST /v1/event-song-submissions": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "POST /v1/events": [
+      "admin"
+    ],
+    "POST /v1/events/{id}/registrations": [
+      "coordinator",
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "POST /v1/managed-partnerships": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "POST /v1/pairs/find-or-create": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "POST /v1/partners": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "POST /v1/queue/complete": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "POST /v1/queue/incomplete": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "POST /v1/queue/move-down": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "POST /v1/queue/promote": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "POST /v1/queue/withdraw": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "POST /v1/sessions": [
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "POST /v1/songs": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "POST /v1/songs/upload/chunk": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "POST /v1/teams": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "PUT /v1/admin/events/{id}/registrations": [
+      "admin"
+    ],
+    "PUT /v1/events/{id}/registrations": [
+      "coordinator",
+      "dj",
+      "event-manager",
+      "admin"
+    ],
+    "PUT /v1/events/{id}/staff/{user_id}/{role}": [
+      "event-manager",
+      "admin"
+    ],
+    "PUT /v1/sessions/{id}/divisions": [
+      "dj",
+      "event-manager",
+      "admin"
+    ]
+  }
+}
