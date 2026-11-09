@@ -1,3 +1,15 @@
+# [1.31.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.30.0...v1.31.0) (2026-11-09)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.3.0 ([b81e288](https://github.com/mini-app-polis/api-deejaytools/commit/b81e288b7f569477e1c73ce0a2d3ab4e65f98aa5))
+
+
+### Features
+
+* **events:** list an event's Drive division folders, and find a person by exact email to add to its staff ([432f45a](https://github.com/mini-app-polis/api-deejaytools/commit/432f45a6d06c405069abab3bb384b33db79fe5a4))
+
 # [1.30.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.29.2...v1.30.0) (2026-11-09)
 
 
