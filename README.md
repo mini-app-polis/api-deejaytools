@@ -129,6 +129,19 @@ uv run mypy src/
 PGURL=postgres://postgres:postgres@localhost:5432 bash scripts/check_baseline.sh
 ```
 
+Who may call each scope-guarded route is pinned in
+[docs/permissions.json](docs/permissions.json):
+`tests/integration/test_permission_matrix.py` calls every such route as
+someone with no roles, a dancer, an event's coordinator, DJ and event
+manager, staff of another event, and an admin, and fails when what happens
+differs from the table or from the identity store. After a deliberate
+permission change, regenerate the table and commit it with the change:
+
+```bash
+UPDATE_PERMISSIONS=1 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/deejaytools_test \
+  uv run pytest tests/integration/test_permission_matrix.py
+```
+
 ## Database and migrations
 
 [docs/SCHEMA.md](docs/SCHEMA.md) describes the schema these files build.
