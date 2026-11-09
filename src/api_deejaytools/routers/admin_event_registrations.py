@@ -218,7 +218,10 @@ async def _hidden_by(
     return out
 
 
-async def _list(session: AsyncSession, event_id: str) -> list[dict[str, Any]]:
+async def registration_rows(
+    session: AsyncSession, event_id: str
+) -> list[dict[str, Any]]:
+    """An event's registration entries on the wire, in imported order."""
     rows = (
         (
             await session.execute(
@@ -267,7 +270,7 @@ async def list_registrations(
     """List an event's registrations."""
     await _require_event(session, id)
     try:
-        return success_list(await _list(session, id))
+        return success_list(await registration_rows(session, id))
     except SQLAlchemyError as exc:
         sentry_sdk.capture_exception(exc)
         logger.error(
@@ -356,7 +359,7 @@ async def put_registrations(
                 delete(EventRegistration).where(EventRegistration.id.in_(gone))
             )
         await session.commit()
-        return success_list(await _list(session, id))
+        return success_list(await registration_rows(session, id))
     except SQLAlchemyError as exc:
         await session.rollback()
         sentry_sdk.capture_exception(exc)

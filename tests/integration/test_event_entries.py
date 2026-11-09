@@ -204,3 +204,61 @@ async def test_requires_a_token(client: httpx.AsyncClient) -> None:
     res = await client.get(_url("evt_any"))
     assert res.status_code == 401
     assert res.json()["error"]["code"] == "UNAUTHORIZED"
+
+
+def _registrations_url(event_id: str) -> str:
+    return f"/v1/events/{event_id}/registrations"
+
+
+async def _import_one(client: httpx.AsyncClient, admin: Any, event_id: str) -> None:
+    res = await client.put(
+        f"/v1/admin/events/{event_id}/registrations",
+        json={
+            "entries": [
+                {"division": "Classic", "dancer_1": "Ada Lovelace", "dancer_2": "Bob Jones"}
+            ]
+        },
+        headers=admin.headers,
+    )
+    assert res.status_code == 200, res.text
+    entry_id: str = res.json()["data"][0]["id"]
+    res = await client.patch(
+        f"/v1/admin/event-registrations/{entry_id}",
+        json={"note": "called her Tuesday"},
+        headers=admin.headers,
+    )
+    assert res.status_code == 200, res.text
+
+
+async def test_staff_see_their_events_registrations_without_admin_notes(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    dj = await person("dave")
+    event_a, event_b = await _two_events(client, db, admin, alice)
+    await _import_one(client, admin, event_a)
+    await _import_one(client, admin, event_b)
+    await _grant(client, admin, event_a, dj.id, "dj")
+
+    res = await client.get(_registrations_url(event_a), headers=dj.headers)
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]
+    assert [(e["dancer_1"], e["note"]) for e in data] == [("Ada Lovelace", None)]
+
+    res = await client.get(_registrations_url(event_a), headers=admin.headers)
+    assert res.json()["data"][0]["note"] == "called her Tuesday"
+
+    res = await client.get(_registrations_url(event_b), headers=dj.headers)
+    assert res.status_code == 403
+    res = await client.get(_registrations_url(event_a), headers=alice.headers)
+    assert res.status_code == 403
+    assert (await client.get(_registrations_url(event_a))).status_code == 401
+
+
+async def test_registrations_for_an_unknown_event_is_404(
+    client: httpx.AsyncClient, person: Callable
+) -> None:
+    admin = await person("admin", admin=True)
+    res = await client.get(_registrations_url("nope"), headers=admin.headers)
+    assert res.status_code == 404
