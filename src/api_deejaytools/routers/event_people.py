@@ -17,6 +17,12 @@ Only people connected to the event can be found, never every user:
 The match is on the person's name only, never their email, and the email
 goes out masked (``mask_email``).
 
+``/v1/events/{id}/people/by-email``: anyone with a deejaytools account, by
+their exact email, for whoever may put people on the event's staff
+(event-scoped ``deejaytools.staff.write``), so an event manager can add a DJ
+or coordinator who is new to the event. The whole email must match; nothing
+is listed, and a miss says only that no account has it.
+
 ``/v1/events/{id}/people/{user_id}/partners``: one such person's partners
 (kind ``partner``), for a staff upload on their behalf. Event-scoped
 ``deejaytools.delegation.act``, the scope the upload itself needs, and only
@@ -35,7 +41,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Caller, EventRef, is_admin, require_event_scope
 from ..database import get_db_session
-from ..errors import Envelope, ErrorCode, ErrorResponse, api_error, success_list
+from ..errors import (
+    Envelope,
+    ErrorCode,
+    ErrorResponse,
+    api_error,
+    success,
+    success_list,
+)
 from ..event_connections import connected_user_ids, mask_email
 from ..models import (
     Event,
@@ -78,10 +91,84 @@ class EventPersonData(BaseModel):
     )
 
 
+class EventPersonResponse(Envelope[EventPersonData]):
+    """One person."""
+
+    data: EventPersonData = Field(..., description="The person.")
+
+
+class EmailQuery(ZodModel):
+    """Query of ``GET /v1/events/{id}/people/by-email``."""
+
+    email: Annotated[QueryStr, trimmed(min_length=3, max_length=320)] = Field(
+        ..., description="The person's whole email address, case-insensitive."
+    )
+
+
 class EventPeopleResponse(Envelope[list[EventPersonData]]):
     """The people found, by name."""
 
     data: list[EventPersonData] = Field(..., description="The people.")
+
+
+@router.get(
+    "/{id}/people/by-email",
+    response_model=EventPersonResponse,
+    summary="Find a person by their exact email, to add to an event's staff",
+    description=(
+        "The one person whose deejaytools account has exactly this email "
+        "(case and surrounding spaces ignored), whether or not they are "
+        "connected to the event, with the email masked. Nothing is listed or "
+        "partly matched. Requires deejaytools.staff.write on the event."
+    ),
+    responses={
+        400: {"model": ErrorResponse, "description": "Missing or invalid email."},
+        401: {"model": ErrorResponse, "description": "Missing or invalid token."},
+        403: {"model": ErrorResponse, "description": "Lacks the scope on this event."},
+        404: {
+            "model": ErrorResponse,
+            "description": "No such event, or no account with that email.",
+        },
+    },
+)
+async def find_person_by_email(
+    id: Annotated[str, Path(description="Event id.")],
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.staff.write", THIS_EVENT)
+    ),
+    query: EmailQuery = Depends(zod_query(EmailQuery)),
+    session: AsyncSession = Depends(get_db_session),
+) -> Any:
+    """Find the person whose account has exactly this email."""
+    if await session.get(Event, id) is None:
+        raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
+    wanted = query.email.strip().lower()
+    if "@" not in wanted:
+        raise api_error(400, ErrorCode.VALIDATION_ERROR, "Enter a whole email address")
+    full_name = func.concat_ws(" ", User.first_name, User.last_name)
+    # Unlike the name search, the match is not on a name, which may be blank.
+    name = func.coalesce(
+        func.nullif(func.btrim(User.display_name), ""),
+        func.nullif(func.btrim(full_name), ""),
+        "",
+    )
+    row = (
+        await session.execute(
+            select(User.id, name.label("display_name"), User.email)
+            .where(func.lower(func.btrim(User.email)) == wanted)
+            .order_by(User.id)
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        raise api_error(404, ErrorCode.NOT_FOUND, "No account with that email")
+    return success(
+        {
+            "user_id": row.id,
+            "display_name": row.display_name,
+            "email_masked": mask_email(row.email),
+        }
+    )
 
 
 @router.get(

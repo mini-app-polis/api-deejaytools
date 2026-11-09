@@ -369,3 +369,51 @@ async def test_requires_a_token(client: httpx.AsyncClient) -> None:
     res = await client.get(_url("evt_any"), params={"q": "al"})
     assert res.status_code == 401
     assert res.json()["error"]["code"] == "UNAUTHORIZED"
+
+
+async def test_an_event_manager_finds_anyone_by_their_exact_email(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    manager = await person("mona")
+    dj = await person("dave")
+    stranger = await person("sam")
+    event = await _event(client, admin, "Fling")
+    await _grant(client, admin, event, manager.id, "event-manager")
+    await _grant(client, admin, event, dj.id, "dj")
+    email = await db.fetchval("SELECT email FROM users WHERE id = $1", stranger.id)
+    url = f"/v1/events/{event}/people/by-email"
+
+    # Someone new to the event, by their whole email, case and spaces aside.
+    res = await client.get(
+        url, params={"email": f"  {email.upper()} "}, headers=manager.headers
+    )
+    assert res.status_code == 200, res.text
+    found = res.json()["data"]
+    assert found["user_id"] == stranger.id
+    assert found["display_name"] == "Sam"
+    assert "•••" in found["email_masked"]
+
+    # Nothing partly matches.
+    res = await client.get(url, params={"email": email[:-3]}, headers=manager.headers)
+    assert res.status_code == 404
+    assert res.json()["error"]["message"] == "No account with that email"
+    res = await client.get(url, params={"email": "sam"}, headers=manager.headers)
+    assert res.status_code == 400
+
+    # Found, they can be granted a role on the event.
+    res = await client.put(
+        f"/v1/events/{event}/staff/{stranger.id}/coordinator", headers=manager.headers
+    )
+    assert res.status_code == 200, res.text
+
+    # Only whoever may grant staff on the event looks people up this way.
+    assert (
+        await client.get(url, params={"email": email}, headers=dj.headers)
+    ).status_code == 403
+    assert (
+        await client.get(url, params={"email": email}, headers=stranger.headers)
+    ).status_code == 403
+    assert (
+        await client.get(url, params={"email": email}, headers=admin.headers)
+    ).status_code == 200

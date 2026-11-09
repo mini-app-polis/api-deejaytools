@@ -91,7 +91,10 @@ them global.
   event. Creating an event (`POST /v1/events`) names no existing event, so
   it stays admin-only, and an event manager cannot create events.
 - `deejaytools.staff.write` (new): grant and revoke coordinator and DJ on
-  the event. Only an admin grants or revokes event manager.
+  the event. Only an admin grants or revokes event manager. To add someone
+  new to the event, whom the name search cannot find, the holder looks them
+  up by their exact email (`GET /v1/events/:id/people/by-email`): one
+  account or none, never a list, with the email masked.
 
 ### Staff see emails masked
 

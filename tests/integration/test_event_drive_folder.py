@@ -149,3 +149,76 @@ async def test_an_unknown_event_is_404(
 
     assert res.status_code == 404, res.text
     assert res.json()["error"]["code"] == "NOT_FOUND"
+
+
+async def test_a_dj_lists_the_events_division_folders(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    monkeypatch: Any,
+) -> None:
+    from api_deejaytools.services import drive
+
+    admin = await person("root", admin=True)
+    dj = await person("dj")
+    coordinator = await person("coord")
+    event = await _event(client, admin, "Fling")
+    await _grant(client, admin, event, dj.id, "dj")
+    await _grant(client, admin, event, coordinator.id, "coordinator")
+    url = f"{_url(event)}/divisions"
+
+    # Before a share has recorded the folder there is nothing to list.
+    res = await client.get(url, headers=dj.headers)
+    assert res.status_code == 200, res.text
+    assert res.json()["data"] == []
+
+    await _share_job(db, "j_done", event, file_id="folder_event")
+    listed: list[str] = []
+
+    async def fake_list(folder_id: str) -> list[drive.Subfolder]:
+        listed.append(folder_id)
+        return [
+            drive.Subfolder("f_classic", "Classic"),
+            drive.Subfolder("f_masters", "Masters"),
+        ]
+
+    monkeypatch.setattr(drive, "list_subfolders", fake_list)
+    res = await client.get(url, headers=dj.headers)
+    assert res.status_code == 200, res.text
+    assert res.json()["data"] == [
+        {
+            "name": "Classic",
+            "folder_id": "f_classic",
+            "url": "https://drive.google.com/drive/folders/f_classic",
+        },
+        {
+            "name": "Masters",
+            "folder_id": "f_masters",
+            "url": "https://drive.google.com/drive/folders/f_masters",
+        },
+    ]
+    assert listed == ["folder_event"]
+
+    # The folder's readers only: not its coordinator.
+    assert (await client.get(url, headers=coordinator.headers)).status_code == 403
+
+
+async def test_a_drive_failure_answers_502(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    monkeypatch: Any,
+) -> None:
+    from api_deejaytools.services import drive
+
+    admin = await person("root", admin=True)
+    event = await _event(client, admin, "Fling")
+    await _share_job(db, "j_done", event, file_id="folder_event")
+
+    async def broken(folder_id: str) -> list[drive.Subfolder]:
+        raise RuntimeError("drive down")
+
+    monkeypatch.setattr(drive, "list_subfolders", broken)
+    res = await client.get(f"{_url(event)}/divisions", headers=admin.headers)
+    assert res.status_code == 502
+    assert res.json()["error"]["code"] == "INTERNAL"
