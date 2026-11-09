@@ -1,3 +1,13 @@
+## [1.29.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.29.1...v1.29.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.0.1 ([60adee6](https://github.com/mini-app-polis/api-deejaytools/commit/60adee6235b68730c9380d561dfc87833f3ae4f0))
+* **deps:** bump miniapppolis-common-utils to 9.0.2 ([ff64818](https://github.com/mini-app-polis/api-deejaytools/commit/ff6481879989d0b1017d356b759b51b5131ee64b))
+* **deps:** bump pytest-asyncio from 1.4.1 to 1.4.1.post1 ([9970051](https://github.com/mini-app-polis/api-deejaytools/commit/9970051b00c8747ddf1083487fe186f3ef79c12b))
+* **deps:** bump the minor-and-patch group with 8 updates ([5cff19b](https://github.com/mini-app-polis/api-deejaytools/commit/5cff19bc3ae0888006eb282c8327c5e756a33043))
+
 ## [1.29.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.29.0...v1.29.1) (2026-11-08)
 
 
