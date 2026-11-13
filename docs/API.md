@@ -125,6 +125,7 @@ In this table, the third column is the **trigger** (when the error fires), not a
 | 400 | `VALIDATION_ERROR` | Body or query validation failed |
 | 400 | `MALFORMED_JSON` | A JSON body that does not parse. The old API answered 500 `INTERNAL`; this is deliberate, and it is not sent to Sentry or the Discord fault report |
 | 429 | `too_many_requests` | Rate limit exceeded. Please slow down. |
+| 499 | `CLIENT_CLOSED_REQUEST` | The client disconnected before its request body was read (a slow upload given up on). The client is gone, so nobody reads it; it is logged, and not sent to Sentry or the Discord fault report |
 | 503 | `request_timeout` | Handler exceeded deadline |
 
 Unless noted, assume these apply to every scoped endpoint below.

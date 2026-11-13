@@ -23,7 +23,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from . import __version__, cache_bus
 from .cache import drop_local
 from .config import get_settings
-from .errors import install_error_handlers
+from .errors import ignore_client_disconnects, install_error_handlers
 from .middleware import BodyLimitMiddleware, DeadlineMiddleware, RateLimitMiddleware
 from .routers import (
     admin_checkins,
@@ -90,6 +90,9 @@ async def lifespan(_app: FastAPI):
         integrations=[FastApiIntegration()],
         traces_sample_rate=1.0,
     )
+    if sentry_on:
+        # A client that went away mid-request is not an error (errors.py).
+        ignore_client_disconnects()
     logger.info(
         with_log_prefix(
             LOG_START,
