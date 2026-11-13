@@ -1,3 +1,10 @@
+# [1.32.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.31.4...v1.32.0) (2026-11-13)
+
+
+### Features
+
+* **registrations:** add-only import for an event's registration list ([ca210d9](https://github.com/mini-app-polis/api-deejaytools/commit/ca210d913de2d8f2c9c4691fa60bfd3c09e3d61a))
+
 ## [1.31.4](https://github.com/mini-app-polis/api-deejaytools/compare/v1.31.3...v1.31.4) (2026-11-13)
 
 
