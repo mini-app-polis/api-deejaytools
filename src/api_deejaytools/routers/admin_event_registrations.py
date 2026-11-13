@@ -22,6 +22,7 @@ from __future__ import annotations
 import unicodedata
 import uuid
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from typing import Annotated, Any, ClassVar
 
 import sentry_sdk
@@ -83,6 +84,31 @@ class RegistrationItem(ZodModel):
     dancer_2: OptionalText200 | None = Field(
         None, description="Second dancer; omit or empty for none."
     )
+
+
+def item_key(item: RegistrationItem) -> tuple[str | None, str]:
+    """``item``'s stored ``dancer_2`` (empty is null) and its ``entry_key``."""
+    dancer_2 = js_trim(item.dancer_2 or "") or None
+    return dancer_2, entry_key(item.division, item.dancer_1, dancer_2)
+
+
+def entries_to_add(
+    existing_keys: Iterable[str], items: Sequence[RegistrationItem]
+) -> tuple[list[tuple[RegistrationItem, str | None, str]], int]:
+    """The ``items`` an add-only import appends, in order, and how many it skips.
+
+    An item is skipped when its key is already on the list or earlier in
+    ``items``. Each one added comes with its stored ``dancer_2`` and its key.
+    """
+    seen = set(existing_keys)
+    added: list[tuple[RegistrationItem, str | None, str]] = []
+    for item in items:
+        dancer_2, key = item_key(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        added.append((item, dancer_2, key))
+    return added, len(items) - len(added)
 
 
 class PutRegistrationsBody(ZodModel):
@@ -356,8 +382,7 @@ async def replace_registrations(
 
         kept: set[str] = set()
         for position, item in enumerate(body.entries):
-            dancer_2 = js_trim(item.dancer_2 or "") or None
-            key = entry_key(item.division, item.dancer_1, dancer_2)
+            dancer_2, key = item_key(item)
             matches = by_key.get(key)
             if matches:
                 row = matches.pop(0)
@@ -400,6 +425,55 @@ async def replace_registrations(
             )
         )
         return _internal()
+
+
+async def append_registrations(
+    session: AsyncSession, id: str, body: PutRegistrationsBody, caller: Caller
+) -> Any:
+    """Append to ``id``'s list the entries of ``body`` not already on it.
+
+    Entries already there, their marks and their order are left as they are;
+    the new ones follow them in the order sent. The event is known to exist
+    and authorization is the caller's. Answers the added and skipped counts.
+    """
+    now = now_ms()
+    try:
+        existing = (
+            await session.execute(
+                select(EventRegistration.entry_key, EventRegistration.position).where(
+                    EventRegistration.event_id == id
+                )
+            )
+        ).all()
+        add, skipped = entries_to_add([key for key, _ in existing], body.entries)
+        start = max((position for _, position in existing), default=-1) + 1
+        for offset, (item, dancer_2, key) in enumerate(add):
+            session.add(
+                EventRegistration(
+                    id=str(uuid.uuid4()),
+                    event_id=id,
+                    position=start + offset,
+                    division=item.division,
+                    dancer_1=item.dancer_1,
+                    dancer_2=dancer_2,
+                    entry_key=key,
+                    handled=False,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        await session.commit()
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        sentry_sdk.capture_exception(exc)
+        logger.error(
+            with_log_prefix(
+                LOG_FAILURE,
+                f"registration_append_failed event={id} user={caller.user_id}: {exc!r}",
+            )
+        )
+        return _internal()
+    return success({"added": len(add), "skipped": skipped})
 
 
 @router.patch(

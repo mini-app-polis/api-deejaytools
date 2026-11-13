@@ -399,3 +399,128 @@ async def test_removing_a_scratched_entry_unhides_its_submissions(
         "SELECT hidden_by_registration_id FROM event_song_submissions WHERE id = 's_a1'"
     )
     assert hidden_by is None
+
+
+def _entry(division: str, dancer_1: str, dancer_2: str = "") -> dict[str, str]:
+    return {"division": division, "dancer_1": dancer_1, "dancer_2": dancer_2}
+
+
+async def test_append_adds_only_new_entries_after_the_list_and_keeps_marks(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    coordinator = await person("carol")
+    event_a, _ = await _two_events(client, db, admin, alice)
+    await _grant(client, admin, event_a, coordinator.id, "coordinator")
+    url = _registrations_url(event_a)
+
+    # Ada (with the admin's note) at 0, then Cara scratched and handled.
+    await _import_one(client, admin, event_a)
+    res = await client.post(
+        url, json=_entry("Masters", "Cara Smith"), headers=admin.headers
+    )
+    cara = res.json()["data"]["id"]
+    res = await client.patch(
+        f"{url}/{cara}",
+        json={
+            "handled": True,
+            "linked_label": "Cara Smith",
+            "scratched": True,
+            "hide_submission_ids": ["s_a1"],
+        },
+        headers=admin.headers,
+    )
+    assert res.status_code == 200, res.text
+    before = (await client.get(url, headers=admin.headers)).json()["data"]
+
+    res = await client.post(
+        f"{url}/append",
+        json={
+            "entries": [
+                _entry("Teams", "Future Wow"),
+                _entry("classic", " ada  LOVELACE ", "Bob Jónes"),
+                _entry("Novice", "Eve", "Finn"),
+                _entry("masters", "cara smith"),
+                _entry("Teams", "future wow"),
+            ]
+        },
+        headers=coordinator.headers,
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["data"] == {"added": 2, "skipped": 3}
+    assert body["meta"]["count"] == 1
+
+    after = (await client.get(url, headers=admin.headers)).json()["data"]
+    assert after[:2] == before
+    assert [
+        (e["position"], e["division"], e["dancer_1"], e["dancer_2"]) for e in after[2:]
+    ] == [(2, "Teams", "Future Wow", None), (3, "Novice", "Eve", "Finn")]
+    assert all(
+        not e["handled"] and not e["scratched"] and e["linked_label"] is None
+        for e in after[2:]
+    )
+
+    # Again: everything is there now.
+    res = await client.post(
+        f"{url}/append",
+        json={"entries": [_entry("Novice", "eve", "finn")]},
+        headers=admin.headers,
+    )
+    assert res.json()["data"] == {"added": 0, "skipped": 1}
+    res = await client.post(
+        f"{url}/append", json={"entries": []}, headers=admin.headers
+    )
+    assert res.json()["data"] == {"added": 0, "skipped": 0}
+    assert len((await client.get(url, headers=admin.headers)).json()["data"]) == 4
+
+
+async def test_append_to_an_empty_list_starts_at_position_0(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    event_a, _ = await _two_events(client, db, admin, alice)
+    url = _registrations_url(event_a)
+    res = await client.post(
+        f"{url}/append",
+        json={"entries": [_entry("Classic", "Ada", "Bob"), _entry("Classic", "Cara")]},
+        headers=admin.headers,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["data"] == {"added": 2, "skipped": 0}
+    listed = (await client.get(url, headers=admin.headers)).json()["data"]
+    assert [(e["position"], e["dancer_1"]) for e in listed] == [(0, "Ada"), (1, "Cara")]
+
+
+async def test_append_authorization_and_validation(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    dj = await person("dave")
+    event_a, event_b = await _two_events(client, db, admin, alice)
+    await _grant(client, admin, event_a, dj.id, "dj")
+    body = {"entries": [_entry("Classic", "Ada")]}
+
+    assert (
+        await client.post(f"{_registrations_url(event_a)}/append", json=body)
+    ).status_code == 401
+    for caller, event_id in ((alice, event_a), (dj, event_b)):
+        res = await client.post(
+            f"{_registrations_url(event_id)}/append", json=body, headers=caller.headers
+        )
+        assert res.status_code == 403, res.text
+    res = await client.post(
+        f"{_registrations_url('nope')}/append", json=body, headers=admin.headers
+    )
+    assert res.status_code == 404
+    res = await client.post(
+        f"{_registrations_url(event_a)}/append",
+        json={"entries": [{"division": "Classic", "dancer_1": "  "}]},
+        headers=dj.headers,
+    )
+    assert res.status_code == 400
+    assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert await db.fetchval("SELECT count(*) FROM event_registrations") == 0

@@ -347,6 +347,12 @@
       "event-manager",
       "admin"
     ],
+    "POST /v1/events/{id}/registrations/append": [
+      "coordinator",
+      "dj",
+      "event-manager",
+      "admin"
+    ],
     "POST /v1/managed-partnerships": [
       "dancer",
       "coordinator",
