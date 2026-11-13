@@ -17,6 +17,7 @@ saved. api-deejaytools only.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import re
 import shutil
@@ -70,6 +71,14 @@ logger = get_logger()
 router = APIRouter(prefix="/v1/songs", tags=["songs"])
 
 CHUNK_TMP_BASE = Path("/tmp/dj-upload-chunks")
+CHUNK_DONE_BASE = Path("/tmp/dj-upload-done")
+"""One file per finished upload, naming its song: what a resent chunk is
+answered from. Swept after ``CHUNK_TTL_SECONDS``, as staging is."""
+ASSEMBLING_SUFFIX = ".assembling"
+"""An upload's staging directory is renamed to this while its final chunk is
+assembled, so only one request assembles it."""
+ASSEMBLY_WAIT_SECONDS = 30.0
+"""How long a resent chunk waits for an assembly already under way."""
 MAX_CHUNK_BYTES = 10 * 1024 * 1024
 MAX_ASSEMBLED_BYTES = 110 * 1024 * 1024
 CHUNK_TTL_SECONDS = 2 * 60 * 60
@@ -104,22 +113,77 @@ class ChunkResponse(Envelope[ChunkReceived]):
 
 
 def _sweep_stale_dirs() -> None:
-    """Remove upload directories untouched for two hours. Never raises."""
-    try:
-        entries = list(CHUNK_TMP_BASE.iterdir())
-    except OSError:
-        return
+    """Remove upload directories and finished-upload records untouched for
+    two hours. Never raises."""
     cutoff = time.time() - CHUNK_TTL_SECONDS
-    for entry in entries:
+    for base in (CHUNK_TMP_BASE, CHUNK_DONE_BASE):
         try:
-            if entry.stat().st_mtime < cutoff:
-                shutil.rmtree(entry, ignore_errors=True)
+            entries = list(base.iterdir())
         except OSError:
             continue
+        for entry in entries:
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    if entry.is_dir():
+                        shutil.rmtree(entry, ignore_errors=True)
+                    else:
+                        entry.unlink(missing_ok=True)
+            except OSError:
+                continue
 
 
 def _remove(directory: Path) -> None:
     shutil.rmtree(directory, ignore_errors=True)
+
+
+def _read_done(marker: Path) -> dict[str, Any] | None:
+    """The finished upload ``marker`` records, or None."""
+    try:
+        return json.loads(marker.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _write_done(marker: Path, done: dict[str, Any]) -> None:
+    """Record a finished upload. Never raises: a resend then gets the
+    ordinary answer for a chunk that was not staged."""
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps(done))
+    except OSError as exc:
+        logger.error(with_log_prefix(LOG_FAILURE, f"upload_done_write_failed: {exc!r}"))
+
+
+async def _wait_for_assembly(assembling: Path) -> bool:
+    """Wait while another request assembles this upload; True if it still is."""
+    deadline = time.monotonic() + ASSEMBLY_WAIT_SECONDS
+    while await asyncio.to_thread(assembling.exists):
+        if time.monotonic() >= deadline:
+            return True
+        await asyncio.sleep(0.1)
+    return False
+
+
+async def _finished_answer(
+    db: AsyncSession, done: dict[str, Any]
+) -> dict[str, Any] | None:
+    """The final chunk's answer again, for a finished upload; None when its
+    song is gone (its build failed and removed it)."""
+    song = await db.get(Song, done["song_id"])
+    if song is None:
+        return None
+    answer: dict[str, Any] = {
+        "received": True,
+        "complete": True,
+        "song": map_song(song),
+    }
+    if done.get("submission_id") is not None:
+        rows = await fetch_user_submission_rows(
+            db, done["user_id"], submission_id=done["submission_id"]
+        )
+        if rows:
+            answer["submission"] = map_submission_row(rows[0])
+    return answer
 
 
 def _text(form: Any, key: str) -> str | None:
@@ -199,7 +263,25 @@ async def upload_chunk(
     caller: Caller = Depends(require_scope("deejaytools.songs.write")),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
-    """Stage one chunk; on the final one, create the song and start its build."""
+    """Stage one chunk; on the final one, create the song and start its build.
+
+    Resending a chunk is safe: a staged chunk is overwritten, and any chunk
+    of an upload already finished answers as it did the first time, without
+    a second song.
+    """
+    claimed: list[Path] = []
+    try:
+        return await _upload_chunk(request, caller, db, claimed)
+    finally:
+        # The assembling directory goes once the final chunk is answered,
+        # after the finished-upload record is written.
+        for directory in claimed:
+            await asyncio.to_thread(_remove, directory)
+
+
+async def _upload_chunk(
+    request: Request, caller: Caller, db: AsyncSession, claimed: list[Path]
+) -> dict[str, Any]:
     asyncio.get_running_loop().run_in_executor(None, _sweep_stale_dirs)
 
     form = await request.form(max_part_size=MAX_CHUNK_BYTES * 2)
@@ -276,6 +358,24 @@ async def upload_chunk(
     if index != total - 1 and len(chunk_bytes) * (total - 1) + 1 > MAX_ASSEMBLED_BYTES:
         _remove(upload_dir)
         raise bad_request("File exceeds 100 MB limit")
+
+    # A resent chunk of an upload whose final chunk is being assembled waits
+    # for it; of a finished one, it is answered as before, and not staged.
+    assembling = upload_dir.with_name(upload_dir.name + ASSEMBLING_SUFFIX)
+    done_marker = CHUNK_DONE_BASE / upload_dir.name
+    if await _wait_for_assembly(assembling):
+        raise api_error(
+            409,
+            "UPLOAD_IN_PROGRESS",
+            "This upload's final chunk is still being processed. Please retry.",
+        )
+    done = await asyncio.to_thread(_read_done, done_marker)
+    if done is not None:
+        if index != total - 1:
+            return success({"received": True, "complete": False})
+        replay = await _finished_answer(db, done)
+        if replay is not None:
+            return success(replay)
 
     def write_chunk() -> str | None:
         """Stage the chunk, or say why not: the staging area is bounded per
@@ -400,6 +500,35 @@ async def upload_chunk(
             _remove(upload_dir)
             raise api_error(409, "ENTITY_SLOT_TAKEN", slot_taken_message(division))
 
+    # Claimed by renaming: of two requests with the final chunk, one assembles.
+    try:
+        await asyncio.to_thread(upload_dir.rename, assembling)
+    except FileNotFoundError:
+        if await _wait_for_assembly(assembling):
+            raise api_error(
+                409,
+                "UPLOAD_IN_PROGRESS",
+                "This upload's final chunk is still being processed. Please retry.",
+            ) from None
+        done = await asyncio.to_thread(_read_done, done_marker)
+        replay = await _finished_answer(db, done) if done is not None else None
+        if replay is not None:
+            return success(replay)
+        raise api_error(
+            409,
+            "CHUNK_MISSING",
+            f"Expected {total} chunks but only received 0. Please retry the upload.",
+        ) from None
+    except OSError as exc:
+        logger.error(
+            with_log_prefix(
+                LOG_FAILURE,
+                f"chunk_claim_failed user={caller.user_id} upload={upload_id}: {exc!r}",
+            )
+        )
+        raise api_error(500, "CHUNK_ERROR", "Failed to read uploaded chunks") from exc
+    claimed.append(assembling)
+    upload_dir = assembling
     try:
         names = sorted(
             p.name for p in await asyncio.to_thread(lambda: list(upload_dir.iterdir()))
@@ -421,9 +550,7 @@ async def upload_chunk(
         )
 
     def assemble() -> bytes:
-        data = b"".join((upload_dir / name).read_bytes() for name in names)
-        _remove(upload_dir)
-        return data
+        return b"".join((upload_dir / name).read_bytes() for name in names)
 
     assembled = await asyncio.to_thread(assemble)
     if len(assembled) > MAX_ASSEMBLED_BYTES:
@@ -525,6 +652,15 @@ async def upload_chunk(
             )
         )
     await db.commit()
+    await asyncio.to_thread(
+        _write_done,
+        done_marker,
+        {
+            "song_id": song.id,
+            "submission_id": submission_id,
+            "user_id": effective_user_id,
+        },
+    )
 
     song_builds.start_build(song.id)
     # Partner names are null in this answer whatever the partner.

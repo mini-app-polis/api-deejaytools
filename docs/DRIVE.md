@@ -97,12 +97,18 @@ submissions share one year folder.
 
 ### Chunk staging
 
-1. Every request first sweeps `/tmp/dj-upload-chunks/*`, deleting directories
+1. Every request first sweeps `/tmp/dj-upload-chunks/*` and `/tmp/dj-upload-done/*`, deleting entries
    whose mtime is older than **2 hours**. Fire-and-forget; never fails the request.
 2. Fields are validated (order and messages in API.md's error table), then the chunk
    is written to `/tmp/dj-upload-chunks/<callerUserId>_<upload_id>/chunk_<index, zero-padded to 6>`.
    The directory is keyed by the **caller**, even for an admin uploading
-   `on_behalf_of_user_id`. Re-sending an index overwrites it.
+   `on_behalf_of_user_id`. Re-sending an index overwrites it. A chunk of an
+   upload whose final chunk is being assembled waits for it (up to 30 s, then
+   `409 UPLOAD_IN_PROGRESS`); a chunk of an upload already finished is not
+   staged, and is answered from its record in
+   `/tmp/dj-upload-done/<callerUserId>_<upload_id>` (the song and submission
+   it made, swept after 2 hours like staging): the final chunk with the same
+   song, any other with `{ received: true, complete: false }`.
 
    The staging area is bounded: a caller may have at most **3** uploads staged
    at once (the first chunk of a fourth answers `429 TOO_MANY_UPLOADS`), and a
@@ -123,9 +129,12 @@ except the `500 CHUNK_ERROR` return when the directory can't be listed.
 
 1. **Ownership checks:** portal fields vs partner fields, effective user,
    team / entity name, partner or managed partnership ownership (errors in API.md).
-2. **Assembly:** directory entries are sorted by name and counted. Count ≠
-   `total_chunks` → `409 CHUNK_MISSING`. Otherwise the files are concatenated
-   and the directory is removed.
+2. **Assembly:** the directory is claimed by renaming it to
+   `<callerUserId>_<upload_id>.assembling`, so only one request assembles it
+   (a second one waits, as a resend does). Its entries are sorted by name and
+   counted. Count ≠ `total_chunks` → `409 CHUNK_MISSING`. Otherwise the files
+   are concatenated. The directory is removed once the request is answered,
+   after the song is committed and the finished upload recorded.
 3. **Size:** assembled length > 110 MiB → `400 File exceeds 100 MB limit`
    (the message understates the real limit).
 4. **Format:** magic-byte detection (`detectAudioFormat`), checked in this order:

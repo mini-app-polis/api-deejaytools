@@ -32,13 +32,23 @@ from mini_app_polis import activity
 from mini_app_polis.api.contract.envelope import Envelope as Envelope
 from mini_app_polis.api.contract.envelope import ErrorEnvelope
 from mini_app_polis.environment import is_production
-from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
+from mini_app_polis.logger import (
+    LOG_FAILURE,
+    LOG_WARNING,
+    get_logger,
+    with_log_prefix,
+)
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import ClientDisconnect
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = get_logger()
 
 API_VERSION = "v1"
+
+#: The status a request gets when its client went away before its body was
+#: read (nginx's "client closed request"): the client's doing, not a fault.
+CLIENT_CLOSED_REQUEST_STATUS = 499
 
 
 class ErrorCode:
@@ -51,6 +61,7 @@ class ErrorCode:
     BAD_REQUEST = "BAD_REQUEST"
     VALIDATION_ERROR = "VALIDATION_ERROR"
     MALFORMED_JSON = "MALFORMED_JSON"
+    CLIENT_CLOSED_REQUEST = "CLIENT_CLOSED_REQUEST"
     INTERNAL = "INTERNAL"
     EMAIL_BELONGS_TO_ANOTHER_ACCOUNT = "EMAIL_BELONGS_TO_ANOTHER_ACCOUNT"
 
@@ -189,12 +200,31 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_middleware(UnhandledErrorMiddleware)
 
 
+def _drop_event(_event: Any, _exc_info: Any) -> None:
+    return None
+
+
+def ignore_client_disconnects() -> None:
+    """Keep Sentry from reporting a client that disconnected mid-request.
+
+    The error middleware answers one with 499 and reports nothing; this also
+    drops one Sentry would otherwise catch on its own (one raised after the
+    response started). Call once, after Sentry is initialized.
+    """
+    sentry_sdk.get_global_scope().add_error_processor(_drop_event, ClientDisconnect)
+
+
 class UnhandledErrorMiddleware:
     """Answer an unhandled exception with 500 INTERNAL in the error envelope.
 
     Reported to Sentry and logged. A generic message in
     production, the exception's own message elsewhere. If the response had
     already started there is nothing to answer with, and it re-raises.
+
+    A client that disconnected before its body was read (``ClientDisconnect``,
+    from ``request.form()`` on a slow upload) is not a fault: it is answered
+    499 ``CLIENT_CLOSED_REQUEST`` and logged, with no Sentry event and no
+    fault detail, so the Discord fault report outside it stays quiet.
 
     The 500 it answers is what the Discord fault report outside it sees, so
     it records the exception's type and Sentry event id on the scope for
@@ -219,6 +249,24 @@ class UnhandledErrorMiddleware:
 
         try:
             await self.app(scope, receive, tracking_send)
+        except ClientDisconnect:
+            if started:
+                raise
+            logger.warning(
+                with_log_prefix(
+                    LOG_WARNING,
+                    f"client disconnected on {scope['method']} {scope['path']}: "
+                    f"{CLIENT_CLOSED_REQUEST_STATUS}",
+                )
+            )
+            response = JSONResponse(
+                status_code=CLIENT_CLOSED_REQUEST_STATUS,
+                content=error_body(
+                    ErrorCode.CLIENT_CLOSED_REQUEST,
+                    "The client closed the request before it was read",
+                ),
+            )
+            await response(scope, receive, send)
         except Exception as exc:
             if started:
                 raise

@@ -279,6 +279,197 @@ async def test_missing_chunk_is_409(
     }
 
 
+# --- retried chunks -----------------------------------------------------------------
+
+
+def _thirds(data: bytes = MP3) -> list[bytes]:
+    third = len(data) // 3 + 1
+    return [data[i : i + third] for i in range(0, len(data), third)]
+
+
+async def test_a_chunk_sent_twice_is_staged_once(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    fake_drive: FakeDrive,
+) -> None:
+    alice = await person("alice")
+    upload_id = str(uuid.uuid4())
+    parts = _thirds()
+    for index in (0, 1, 1, 0):
+        res = await _send(client, alice, upload_id, index, 3, parts[index])
+        assert res.json()["data"] == {"received": True, "complete": False}
+    last = await _send(client, alice, upload_id, 2, 3, parts[2])
+    assert last.json()["data"]["complete"] is True
+    await song_builds.wait_for_builds()
+
+    [upload] = fake_drive.uploads
+    assert AUDIO in upload["data"]
+    assert await db.fetchval("SELECT count(*) FROM songs") == 1
+
+
+async def test_a_final_chunk_resent_after_a_timeout_answers_the_same_song(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    fake_drive: FakeDrive,
+) -> None:
+    """The song was made but the answer never reached the client, which
+    sends the final chunk (and a straggling earlier one) again."""
+    alice = await person("alice")
+    upload_id = str(uuid.uuid4())
+    parts = _thirds()
+    for index in (0, 1):
+        await _send(client, alice, upload_id, index, 3, parts[index])
+    first = await _send(client, alice, upload_id, 2, 3, parts[2])
+    again = await _send(client, alice, upload_id, 2, 3, parts[2])
+    late = await _send(client, alice, upload_id, 1, 3, parts[1])
+
+    assert again.status_code == 200, again.text
+    assert again.json()["data"]["complete"] is True
+    assert again.json()["data"]["song"]["id"] == first.json()["data"]["song"]["id"]
+    assert late.json()["data"] == {"received": True, "complete": False}
+    await song_builds.wait_for_builds()
+    assert await db.fetchval("SELECT count(*) FROM songs") == 1
+    assert len(fake_drive.uploads) == 1
+
+
+async def test_a_single_chunk_upload_resent_makes_one_song(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    fake_drive: FakeDrive,
+) -> None:
+    alice = await person("alice")
+    upload_id = str(uuid.uuid4())
+    first = await _send(client, alice, upload_id, 0, 1, MP3)
+    again = await _send(client, alice, upload_id, 0, 1, MP3)
+    assert again.json()["data"]["song"]["id"] == first.json()["data"]["song"]["id"]
+    await song_builds.wait_for_builds()
+    assert await db.fetchval("SELECT count(*) FROM songs") == 1
+
+
+async def test_a_resent_submit_to_event_chunk_answers_the_same_submission(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    fake_drive: FakeDrive,
+) -> None:
+    admin = await person("admin", admin=True)
+    jane = await person("jane")
+    event = await client.post(
+        "/v1/events",
+        json={"name": "Open", "start_date": "2026-05-01", "end_date": "2026-05-02"},
+        headers=admin.headers,
+    )
+    extra = {
+        "on_behalf_of_user_id": jane.id,
+        "event_id": event.json()["data"]["id"],
+        "submit_to_event": "true",
+    }
+    upload_id = str(uuid.uuid4())
+    first = await _send(client, admin, upload_id, 0, 1, MP3, **extra)
+    again = await _send(client, admin, upload_id, 0, 1, MP3, **extra)
+    assert first.status_code == 200, first.text
+    # The same song and submission, as they stand now (the build may have
+    # filled the song's Drive fields since).
+    for key in ("song", "submission"):
+        assert again.json()["data"][key]["id"] == first.json()["data"][key]["id"]
+    await song_builds.wait_for_builds()
+    assert await db.fetchval("SELECT count(*) FROM event_song_submissions") == 1
+
+
+async def test_a_chunk_resent_after_the_client_dropped_mid_body(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    fake_drive: FakeDrive,
+) -> None:
+    """A partial attempt stages nothing: the resend completes the upload."""
+    from api_deejaytools.main import app
+
+    alice = await person("alice")
+    upload_id = str(uuid.uuid4())
+    parts = _thirds()
+    await _send(client, alice, upload_id, 0, 3, parts[0])
+
+    boundary = "b0undary"
+    head = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="upload_id"\r\n\r\n'
+        f"{upload_id}\r\n--{boundary}\r\n"
+    ).encode()
+    messages: list[dict[str, Any]] = [
+        {"type": "http.request", "body": head, "more_body": True},
+    ]
+
+    async def receive() -> dict[str, Any]:
+        return messages.pop(0) if messages else {"type": "http.disconnect"}
+
+    sent: list[dict[str, Any]] = []
+
+    async def send(message: dict[str, Any]) -> None:
+        sent.append(message)
+
+    await app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": UPLOAD_URL,
+            "raw_path": UPLOAD_URL.encode(),
+            "query_string": b"",
+            "root_path": "",
+            "headers": [
+                (b"host", b"test"),
+                (b"authorization", alice.headers["Authorization"].encode()),
+                (
+                    b"content-type",
+                    f"multipart/form-data; boundary={boundary}".encode(),
+                ),
+                (b"content-length", b"100000"),
+            ],
+            "client": ("127.0.0.1", 1234),
+            "server": ("test", 80),
+        },
+        receive,
+        send,
+    )
+    assert [m["status"] for m in sent if m["type"] == "http.response.start"] == [499]
+
+    await _send(client, alice, upload_id, 1, 3, parts[1])
+    last = await _send(client, alice, upload_id, 2, 3, parts[2])
+    assert last.json()["data"]["complete"] is True
+    await song_builds.wait_for_builds()
+    [upload] = fake_drive.uploads
+    assert AUDIO in upload["data"]
+    assert await db.fetchval("SELECT count(*) FROM songs") == 1
+
+
+async def test_a_final_chunk_resent_while_the_first_assembles_waits_for_it(
+    client: httpx.AsyncClient,
+    person: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_drive: FakeDrive,
+) -> None:
+    from api_deejaytools.routers import song_uploads
+
+    monkeypatch.setattr(song_uploads, "ASSEMBLY_WAIT_SECONDS", 0.3)
+    alice = await person("alice")
+    upload_id = str(uuid.uuid4())
+    staged = song_uploads.CHUNK_TMP_BASE / f"{alice.id}_{upload_id}"
+    assembling = staged.with_name(staged.name + song_uploads.ASSEMBLING_SUFFIX)
+    assembling.mkdir(parents=True)
+    try:
+        res = await _send(client, alice, upload_id, 0, 1, MP3)
+    finally:
+        assembling.rmdir()
+    assert res.status_code == 409
+    assert res.json()["error"]["code"] == "UPLOAD_IN_PROGRESS"
+    assert not staged.exists()
+
+
 async def test_oversized_chunk(client: httpx.AsyncClient, person: Callable) -> None:
     alice = await person("alice")
     res = await _send(

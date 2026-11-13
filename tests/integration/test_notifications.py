@@ -19,9 +19,11 @@ import respx
 from mini_app_polis import activity, discord
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api_deejaytools import errors
 from api_deejaytools.config import get_settings
 from api_deejaytools.database import get_sessionmaker
 from api_deejaytools.errors import ErrorCode, api_error
+from api_deejaytools.main import app
 from api_deejaytools.models import Song
 from api_deejaytools.routers import auth as auth_router
 from api_deejaytools.routers import teams
@@ -807,6 +809,62 @@ async def test_unhandled_exception_posts_its_type_not_its_text(
     assert fault["description"] == "`PATCH /v1/teams/t1`\n```RuntimeError```"
     assert "secret" not in str(fault)
     assert fault["footer"]["text"] == f"{jane.id} · api-deejaytools · production"
+
+
+async def test_a_client_gone_mid_upload_is_499_not_a_fault(
+    client: httpx.AsyncClient,
+    person: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    discord_posts: Posts,
+) -> None:
+    """A phone that drops off mid-chunk: Starlette raises ClientDisconnect
+    inside request.form(). Answered 499, with no Sentry event and no fault."""
+    jane = await person("jane")
+    sentry = Sentry()
+    monkeypatch.setattr(errors, "sentry_sdk", sentry)
+    boundary = "b0undary"
+    head = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="upload_id"\r\n\r\n'
+        f"{uuid.uuid4()}\r\n--{boundary}\r\n"
+    ).encode()
+    messages = [
+        {"type": "http.request", "body": head, "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+
+    async def receive() -> dict[str, Any]:
+        return messages.pop(0) if messages else {"type": "http.disconnect"}
+
+    sent: list[dict[str, Any]] = []
+
+    async def send(message: dict[str, Any]) -> None:
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/v1/songs/upload/chunk",
+        "raw_path": b"/v1/songs/upload/chunk",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"test"),
+            (b"authorization", jane.headers["Authorization"].encode()),
+            (b"content-type", f"multipart/form-data; boundary={boundary}".encode()),
+            (b"content-length", b"1000000"),
+        ],
+        "client": ("127.0.0.1", 1234),
+        "server": ("test", 80),
+    }
+    await app(scope, receive, send)
+
+    (start,) = [m for m in sent if m["type"] == "http.response.start"]
+    assert start["status"] == 499
+    assert sentry.captured == []
+    assert await discord_posts.channel(discord.CHANNEL_ERRORS) == []
 
 
 async def test_sync_fault_names_the_verified_subject_not_the_body_email(

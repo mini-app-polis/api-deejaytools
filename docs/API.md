@@ -87,7 +87,7 @@ Applied in [`src/api_deejaytools/middleware.py`](../src/api_deejaytools/middlewa
 
 **Exempt from rate limiting and the deadline:** `/health`, `/version`, `/internal/tick` (unversioned).
 
-CORS: origins from `DEEJAYTOOLS_CORS_ORIGINS` (comma-separated), default `http://localhost:5173`. Allowed headers: `Authorization`, `Content-Type`.
+CORS: origins from `DEEJAYTOOLS_CORS_ORIGINS` (comma-separated), default `http://localhost:5173`. Allowed headers: `Authorization`, `Content-Type`, and Sentry's trace headers `sentry-trace` and `baggage`.
 
 ### Frontend polling intervals
 
@@ -125,6 +125,7 @@ In this table, the third column is the **trigger** (when the error fires), not a
 | 400 | `VALIDATION_ERROR` | Body or query validation failed |
 | 400 | `MALFORMED_JSON` | A JSON body that does not parse. The old API answered 500 `INTERNAL`; this is deliberate, and it is not sent to Sentry or the Discord fault report |
 | 429 | `too_many_requests` | Rate limit exceeded. Please slow down. |
+| 499 | `CLIENT_CLOSED_REQUEST` | The client disconnected before its request body was read (a slow upload given up on). The client is gone, so nobody reads it; it is logged, and not sent to Sentry or the Discord fault report |
 | 503 | `request_timeout` | Handler exceeded deadline |
 
 Unless noted, assume these apply to every scoped endpoint below.
@@ -2211,6 +2212,8 @@ it.
 }
 ```
 
+**Retries:** resending a chunk with the same `upload_id` and `chunk_index` is safe. A staged chunk is overwritten. Once the final chunk has made the song, for the 2-hour staging TTL, the final chunk resent answers the final-chunk response again with the same song (and submission), as it stands now, and saves nothing; an earlier chunk resent answers the non-final response and is not staged. A request the client dropped mid-body stages nothing and is answered `499 CLIENT_CLOSED_REQUEST`.
+
 `submission` is there only with `submit_to_event`: the submission as `POST /v1/event-song-submissions` answers it. Its Drive copy follows once the song's build has a file.
 
 In this response `processed_filename`, `season_year`, `drive_file_id` and `drive_folder_id` are always null, and the partner name fields are null. They are filled in when the background build finishes; poll `GET /v1/songs/:id` (it 404s if the build failed and the unreferenced row was removed).
@@ -2232,6 +2235,7 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 403 | `FORBIDDEN` | Admin access required | `on_behalf_of_user_id` without `deejaytools.delegation.act` through a role or on `event_id`'s event (a DJ without `event_id` included), or for a person not connected to that event |
 | 400 | `BAD_REQUEST` | Chunk exceeds 10 MB limit | Chunk > 10 MiB |
 | 400 | `BAD_REQUEST` | File exceeds 100 MB limit | A chunk other than the last whose size × (`total_chunks` − 1), plus the last chunk's byte at least, is over 110 MiB: chunks before the last are all one size, so the file would be. Refused before the chunk is staged; anything already staged for the upload is removed |
+| 409 | `UPLOAD_IN_PROGRESS` | This upload's final chunk is still being processed. Please retry. | A chunk resent while another request is still assembling the upload's final chunk, after waiting up to 30 s for it. Retry it: once that finishes, the resend gets the finished answer |
 | 429 | `TOO_MANY_UPLOADS` | You have 3 uploads in progress. Finish or wait for one before starting another. | First chunk of a new upload while the caller already has 3 uploads staged (counted per caller, also when uploading on behalf) |
 | 400 | `BAD_REQUEST` | File exceeds 100 MB limit | Any chunk that takes the upload's staged chunks past 110 MiB; the staged chunks are removed |
 | 400 | `BAD_REQUEST` | Portal uploads cannot specify partner_id or managed_partnership_id | Final chunk: `entity_type` with a partner field |
