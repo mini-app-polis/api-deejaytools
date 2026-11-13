@@ -1,3 +1,13 @@
+## [1.32.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.32.0...v1.32.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.10.2 ([1f23b2a](https://github.com/mini-app-polis/api-deejaytools/commit/1f23b2af4e7b9123e217309fbcce3ece56153b03))
+* **deps:** bump miniapppolis-common-utils to 9.10.3 ([6f10c75](https://github.com/mini-app-polis/api-deejaytools/commit/6f10c75578511077291637edf0ee59938ef80cfa))
+* **deps:** bump miniapppolis-common-utils to 9.10.4 ([4088875](https://github.com/mini-app-polis/api-deejaytools/commit/4088875555bbcd233c077789601276ec170db73e))
+* **deps:** patch vulnerable dependencies (opentelemetry-api) ([166e33c](https://github.com/mini-app-polis/api-deejaytools/commit/166e33c65a35455a8553b870e13f8a33a7209400))
+
 # [1.32.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.31.4...v1.32.0) (2026-11-13)
 
 
