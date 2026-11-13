@@ -2,7 +2,8 @@
 an event's entries and registration list, for its staff (ADR-0012).
 
 Reading the registration list takes event-scoped ``deejaytools.entries.read``;
-importing it, adding or removing one entry, and marking an entry take
+importing it (replacing it, or adding only the entries not on it yet), adding
+or removing one entry, and marking an entry take
 event-scoped ``deejaytools.registrations.write``, which every staff role
 carries on its event. Only an admin sees or sets an entry's ``note``.
 
@@ -53,6 +54,7 @@ from .admin_event_registrations import (
     RegistrationListResponse,
     RegistrationResponse,
     Text200,
+    append_registrations,
     entry_key,
     map_registration,
     mark_registration,
@@ -164,6 +166,25 @@ class AddRegistrationBody(ZodModel):
     )
 
 
+class AppendedData(BaseModel):
+    """What an add-only import did."""
+
+    added: int = Field(..., description="Entries appended to the list.")
+    skipped: int = Field(
+        ...,
+        description=(
+            "Entries sent but not added: already on the list, or repeating "
+            "one earlier in the request."
+        ),
+    )
+
+
+class AppendedResponse(Envelope[AppendedData]):
+    """An add-only import's counts."""
+
+    data: AppendedData = Field(..., description="The counts.")
+
+
 class RemovedData(BaseModel):
     """Confirmation that an entry was removed."""
 
@@ -229,6 +250,38 @@ async def import_event_registrations(
     return await replace_registrations(
         session, id, body, caller, show_note=is_admin(caller)
     )
+
+
+@router.post(
+    "/{id}/registrations/append",
+    response_model=AppendedResponse,
+    summary="Add the entries not yet on an event's registration list",
+    description=(
+        "An add-only import: of entries, appends those whose division and "
+        "dancers match none already on the list (case, accents and spacing "
+        "ignored), in the order sent, after the entries already there. "
+        "Entries already there, their marks and their order are left as they "
+        "are; a repeat within entries counts once. Answers how many were "
+        "added and skipped. Requires deejaytools.registrations.write on the "
+        "event."
+    ),
+    responses={
+        **WRITE_RESPONSES,
+        400: {"model": ErrorResponse, "description": "Invalid body."},
+        404: {"model": ErrorResponse, "description": "No such event."},
+    },
+)
+async def append_event_registrations(
+    id: Annotated[str, Path(description="Event id.")],
+    caller: Caller = Depends(
+        require_event_scope("deejaytools.registrations.write", THIS_EVENT)
+    ),
+    body: PutRegistrationsBody = Depends(zod_body(PutRegistrationsBody)),
+    session: AsyncSession = Depends(get_db_session),
+) -> Any:
+    """Append the entries not yet on the event's list."""
+    await _require_event(session, id)
+    return await append_registrations(session, id, body, caller)
 
 
 @router.post(

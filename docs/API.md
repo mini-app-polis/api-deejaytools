@@ -2829,6 +2829,43 @@ Import the event's registration list, for its staff ([ADR-0012](./decisions/ADR-
 
 ---
 
+### POST /v1/events/:id/registrations/append
+
+Add-only import of the event's registration list, for its staff ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)): appends the entries not on the list yet, and never removes or changes the entries already there.
+
+**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+
+**Path params:** `id` — event id
+
+**Request body:** As `PUT /v1/admin/events/:id/registrations`.
+
+An entry whose division and dancers match one already on the list (case, accents and spacing ignored, as the replace import matches them) is skipped, and so is one repeating an entry earlier in `entries`. The rest are appended, unmarked, in the order sent, after the entries already there. Entries already on the list keep their `id`, position and marks (`linked_label`, `handled`, `scratched`, `note` and the submissions they hide). An empty `dancer_2` is stored as null; an empty `entries` adds nothing.
+
+**Response:**
+
+```json
+{
+  "data": { "added": 3, "skipped": 2 },
+  "meta": { "version": "…", "count": 1, "total": 1 }
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `added` | number | Entries appended |
+| `skipped` | number | Entries sent but not added: already on the list, or repeating one earlier in `entries` |
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` | … | Invalid body |
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 500 | `INTERNAL` | … | Write failed |
+
+---
+
 ### POST /v1/events/:id/registrations
 
 Add one entry at the end of the event's registration list, unmarked: someone who registered after the list was imported, or one the import missed.
