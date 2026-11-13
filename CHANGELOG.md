@@ -1,3 +1,14 @@
+## [1.31.4](https://github.com/mini-app-polis/api-deejaytools/compare/v1.31.3...v1.31.4) (2026-11-13)
+
+
+### Bug Fixes
+
+* **cors:** allow the sentry-trace and baggage request headers ([3607b79](https://github.com/mini-app-polis/api-deejaytools/commit/3607b79c73c7ad4df042afb2da38159a220663aa))
+* **deps:** bump miniapppolis-common-utils to 9.10.0 ([5e9d01b](https://github.com/mini-app-polis/api-deejaytools/commit/5e9d01b7e8dada38685b3ec317984aaab95479d3))
+* **deps:** bump miniapppolis-common-utils to 9.10.1 ([ef157c8](https://github.com/mini-app-polis/api-deejaytools/commit/ef157c81bc6ec7126fb1cf435242f56960259d2c))
+* **errors:** answer a client disconnect with 499, not a 500 fault ([94295e4](https://github.com/mini-app-polis/api-deejaytools/commit/94295e48aa5f14e557034ef66d39e626d967610b))
+* **song-uploads:** make a resent chunk idempotent, the final one included ([7b025a5](https://github.com/mini-app-polis/api-deejaytools/commit/7b025a5a9d3c0243deed3f86e52811837b104317))
+
 ## [1.31.3](https://github.com/mini-app-polis/api-deejaytools/compare/v1.31.2...v1.31.3) (2026-11-12)
 
 
