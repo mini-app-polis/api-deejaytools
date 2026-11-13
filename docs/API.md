@@ -87,7 +87,7 @@ Applied in [`src/api_deejaytools/middleware.py`](../src/api_deejaytools/middlewa
 
 **Exempt from rate limiting and the deadline:** `/health`, `/version`, `/internal/tick` (unversioned).
 
-CORS: origins from `DEEJAYTOOLS_CORS_ORIGINS` (comma-separated), default `http://localhost:5173`. Allowed headers: `Authorization`, `Content-Type`.
+CORS: origins from `DEEJAYTOOLS_CORS_ORIGINS` (comma-separated), default `http://localhost:5173`. Allowed headers: `Authorization`, `Content-Type`, and Sentry's trace headers `sentry-trace` and `baggage`.
 
 ### Frontend polling intervals
 

@@ -31,6 +31,22 @@ async def test_cors_preflight_answers_an_allowed_origin() -> None:
     assert res.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
+async def test_cors_preflight_allows_sentry_trace_headers() -> None:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        res = await c.options(
+            "/v1/songs/upload/chunk",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,sentry-trace,baggage",
+            },
+        )
+    assert res.status_code == 200
+    allowed = res.headers["access-control-allow-headers"].lower().split(", ")
+    assert {"authorization", "content-type", "sentry-trace", "baggage"} <= set(allowed)
+
+
 async def test_head_health_and_routing_edges() -> None:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:

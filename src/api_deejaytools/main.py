@@ -141,11 +141,12 @@ def _build_app() -> FastAPI:
 
     # Origins from DEEJAYTOOLS_CORS_ORIGINS, these
     # methods and headers, no credentials (the web app sends a bearer token).
+    # sentry-trace and baggage carry the browser's Sentry trace into the API.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.DEEJAYTOOLS_CORS_ORIGINS,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "sentry-trace", "baggage"],
     )
 
     # Discord: the request's committed changes to activity, a 5xx or an
