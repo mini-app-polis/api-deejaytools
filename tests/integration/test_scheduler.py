@@ -11,7 +11,13 @@ import pytest
 
 from api_deejaytools import main
 from api_deejaytools.config import Settings, get_settings
-from api_deejaytools.services import drive_jobs, scheduler, session_tick, song_builds
+from api_deejaytools.services import (
+    drive_jobs,
+    feedback_delivery,
+    scheduler,
+    session_tick,
+    song_builds,
+)
 
 # --- fakes ----------------------------------------------------------------------
 
@@ -79,7 +85,7 @@ class Sentry:
 
 @pytest.fixture
 def steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Replace the five steps with recorders; each can be told to raise. The
+    """Replace the six steps with recorders; each can be told to raise. The
     event folder sweep is due on the first pass."""
     state: dict[str, Any] = {"calls": [], "raise": set(), "maker": FakeMaker()}
 
@@ -99,6 +105,7 @@ def steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     monkeypatch.setattr(session_tick, "tick_session_statuses", step("statuses"))
     monkeypatch.setattr(session_tick, "fill_running_sessions", step("fill"))
+    monkeypatch.setattr(feedback_delivery, "process_pending_feedback", step("feedback"))
     monkeypatch.setattr(song_builds, "process_song_uploads", step("builds"))
     monkeypatch.setattr(drive_jobs, "process_drive_jobs", step("drive"))
     monkeypatch.setattr(drive_jobs, "sweep_event_folders", step("sweep"))
@@ -122,9 +129,10 @@ async def test_tick_runs_sessions_then_drive_each_in_its_own_session(
     assert steps["calls"] == [
         ("statuses", 0),
         ("fill", 1),
-        ("builds", 2),
-        ("drive", 3),
-        ("sweep", 4),
+        ("feedback", 2),
+        ("builds", 3),
+        ("drive", 4),
+        ("sweep", 5),
     ]
     assert all(s.closed for s in steps["maker"].made)
 
@@ -133,7 +141,13 @@ async def test_session_failure_does_not_stop_drive_work(steps: dict[str, Any]) -
     steps["raise"].add("statuses")
     await scheduler.run_tick()
     # The session steps share one try block.
-    assert [c[0] for c in steps["calls"]] == ["statuses", "builds", "drive", "sweep"]
+    assert [c[0] for c in steps["calls"]] == [
+        "statuses",
+        "feedback",
+        "builds",
+        "drive",
+        "sweep",
+    ]
     errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
     assert len(errors) == 1 and "tick_failed" in errors[0]
     assert "drive_jobs_tick_failed" not in errors[0]
@@ -149,6 +163,7 @@ async def test_drive_failure_is_logged_and_reported(steps: dict[str, Any]) -> No
     assert [c[0] for c in steps["calls"]] == [
         "statuses",
         "fill",
+        "feedback",
         "builds",
         "drive",
         "sweep",
@@ -166,6 +181,7 @@ async def test_build_failure_is_isolated_and_reported(steps: dict[str, Any]) -> 
     assert [c[0] for c in steps["calls"]] == [
         "statuses",
         "fill",
+        "feedback",
         "builds",
         "drive",
         "sweep",
@@ -177,12 +193,33 @@ async def test_build_failure_is_isolated_and_reported(steps: dict[str, Any]) -> 
     assert tags == {"level": "error", "subsystem": "song_builds"}
 
 
-async def test_both_halves_failing_never_raises(steps: dict[str, Any]) -> None:
-    steps["raise"].update({"fill", "builds", "drive", "sweep"})
+async def test_feedback_failure_is_isolated_and_reported(
+    steps: dict[str, Any],
+) -> None:
+    steps["raise"].add("feedback")
     await scheduler.run_tick()
     assert [c[0] for c in steps["calls"]] == [
         "statuses",
         "fill",
+        "feedback",
+        "builds",
+        "drive",
+        "sweep",
+    ]
+    errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
+    assert len(errors) == 1 and "feedback_tick_failed" in errors[0]
+    ((exc, tags),) = steps["sentry"].captured
+    assert str(exc) == "feedback broke"
+    assert tags == {"level": "error", "subsystem": "feedback"}
+
+
+async def test_both_halves_failing_never_raises(steps: dict[str, Any]) -> None:
+    steps["raise"].update({"fill", "feedback", "builds", "drive", "sweep"})
+    await scheduler.run_tick()
+    assert [c[0] for c in steps["calls"]] == [
+        "statuses",
+        "fill",
+        "feedback",
         "builds",
         "drive",
         "sweep",
@@ -248,11 +285,14 @@ async def test_drive_work_waits_when_drive_is_not_configured(
     monkeypatch.setattr(scheduler, "_drive_skip_logged", False)
     await scheduler.run_tick()
     await scheduler.run_tick()
+    # Feedback email does not need Drive, so it still runs.
     assert [name for name, _ in steps["calls"]] == [
         "statuses",
         "fill",
+        "feedback",
         "statuses",
         "fill",
+        "feedback",
     ]
     warnings = [m for level, m in steps["logs"].lines if level == "warning"]
     assert len(warnings) == 1 and "drive_work_skipped" in warnings[0]  # once

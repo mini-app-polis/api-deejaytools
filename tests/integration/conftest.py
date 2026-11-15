@@ -246,18 +246,27 @@ def _fresh_drive_clients() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _fresh_rate_limit_window() -> None:
-    """Each test starts with an empty rate-limit window.
+async def _fresh_rate_limit_window(database: str) -> None:
+    """Each test starts with empty rate-limit windows.
 
     Every test request comes from one client address, so a full run passes
-    300 /v1 requests a minute and later tests would get 429s.
+    300 /v1 requests a minute and later tests would get 429s. The app keeps
+    its windows in Postgres (ADR-0014); a layer a test builds may keep them
+    in memory.
     """
-    from api_deejaytools.middleware import RateLimitMiddleware
+    from api_deejaytools.middleware import MemoryWindows, RateLimitMiddleware
 
+    conn = await asyncpg.connect(database)
+    try:
+        await conn.execute("DELETE FROM rate_limit_windows")
+    finally:
+        await conn.close()
     layer = app.middleware_stack
     while layer is not None:
-        if isinstance(layer, RateLimitMiddleware):
-            layer.windows.clear()
+        if isinstance(layer, RateLimitMiddleware) and isinstance(
+            layer.store, MemoryWindows
+        ):
+            layer.store.clear()
         layer = getattr(layer, "app", None)
 
 

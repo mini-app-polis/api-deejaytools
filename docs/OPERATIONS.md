@@ -98,7 +98,10 @@ address, is in [ADR-0013](decisions/ADR-0013-event-capacity-target.md).
 `RateLimitMiddleware` in `src/api_deejaytools/middleware.py` allows
 `RATE_LIMIT` requests a minute on `/v1/*` per caller, and a lower limit of
 its own on the paths in `PATH_RATE_LIMITS` (`POST /v1/feedback`), counted
-per caller as well. Each worker keeps its own windows. The key for a
+per caller as well. The windows are kept in Postgres (`rate_limit_windows`,
+`PostgresWindows`), shared by every worker and replica, so each limit is the
+whole service's ([ADR-0014](decisions/ADR-0014-rate-limit-windows-in-postgres.md)).
+If the database cannot be reached, requests are let through. The key for a
 request is:
 
 1. **A signed-in request** (an `Authorization: Bearer` token that verifies
@@ -297,10 +300,11 @@ logged, and the first drop of an episode is reported to Sentry.
   routine is the routine name, else the song's display name (the filename).
 - **Feedback**, one per piece of site feedback accepted (`POST /v1/feedback`):
   its type and subject, whether it had a screenshot, and whether it was
-  emailed. Never the message, the sender's name or their email — those go
-  by email only. Without a Brevo key or the feedback addresses the post
-  says the message was not kept: it is the only sign the feedback arrived. A Brevo refusal is a
-  `fault · 502` in `errors` instead, and no feedback post.
+  emailed. Never the message, the sender's name or their email — those are
+  kept in `site_feedback` and go by email only. Without a Brevo key or the
+  feedback addresses the post says it was saved, not emailed. When Brevo
+  refuses it, the post says the email will be retried, and `errors` gets a
+  `feedback · email` fault once per run of failures.
 
   > **feedback · bug**
   > Queue froze

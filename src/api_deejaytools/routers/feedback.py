@@ -1,27 +1,31 @@
 """``/v1/feedback`` (docs/API.md).
 
-Public (API-008; listed in ``auth``): anyone can send site feedback. With a
+Public (API-008; listed in ``auth``): anyone can send site feedback. Each
+submission is saved to ``site_feedback`` before anything else, with the
+sender's verified user id when they send a token that verifies. With a
 Brevo key and both feedback addresses configured (``FEEDBACK_FROM_EMAIL``,
-``FEEDBACK_TO_EMAIL``) it is emailed, with an optional PNG or JPEG screenshot
-attached; without them it is accepted and only logged.
+``FEEDBACK_TO_EMAIL``) it is then emailed, with an optional PNG or JPEG
+screenshot attached; a refused email is retried by the scheduler
+(services/feedback_delivery.py), so it never loses the feedback.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+import uuid
 from typing import Annotated, Any, ClassVar, Literal
 
-import httpx
-import sentry_sdk
-from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
-from mini_app_polis.logger import LOG_FAILURE, LOG_WARNING, get_logger, with_log_prefix
+from fastapi import APIRouter, Depends, Request
+from mini_app_polis.logger import LOG_WARNING, get_logger, with_log_prefix
 from pydantic import AfterValidator, BeforeValidator, Field, model_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import get_settings
-from ..errors import Envelope, ErrorResponse, error_body, success
-from ..services import notifications
+from ..auth import optional_subject
+from ..clock import now_ms
+from ..database import get_db_session
+from ..errors import Envelope, ErrorResponse, success
+from ..models import SiteFeedback
+from ..services import feedback_delivery, notifications
 from ..validation import Email, ZodModel
 from ..zod_types import documents_zod_body, parse_zod_body
 
@@ -29,15 +33,8 @@ logger = get_logger()
 
 router = APIRouter(prefix="/v1/feedback", tags=["feedback"])
 
-#: How long the Brevo call may take before feedback answers 502.
-BREVO_TIMEOUT_SECONDS = 10.0
-
-BREVO_URL = "https://api.brevo.com/v3/smtp/email"
-SENDER_NAME = "DeejayTools Feedback"
-
 DATA_URL_PREFIX = re.compile(r"^data:image/(png|jpeg);base64,", re.IGNORECASE)
 SCREENSHOT_MAX = 3 * 1024 * 1024
-RULE = "═" * 31
 
 
 def _js_length(value: str) -> int:
@@ -109,126 +106,68 @@ class FeedbackResponse(Envelope[None]):
     data: None = Field(None, description="Always null.")
 
 
-def _iso_now() -> str:
-    """``new Date().toISOString()``: UTC, milliseconds, a Z suffix."""
-    now = datetime.now(UTC)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
-
-
-def _email_body(body: FeedbackBody, submitted_at: str) -> str:
-    text = (
-        f"\n{RULE}\nFEEDBACK DETAILS\n{RULE}\n"
-        f"Type:    {body.type}\n"
-        f"Subject: {body.subject}\n"
-        f"\n{body.message}\n"
-        f"\n{RULE}\nCONTACT\n{RULE}\n"
-        f"Name:  {body.contactName if body.contactName is not None else 'Not provided'}\n"  # noqa: E501
-        f"Email: {body.contactEmail if body.contactEmail is not None else 'Not provided'}\n"  # noqa: E501
-        f"\n{RULE}\nMETADATA\n{RULE}\n"
-        f"Submitted: {submitted_at}\n"
-        f"{RULE}\n"
-    )
-    # The template starts and ends with a newline that trim() drops.
-    return text[1:-1]
-
-
 @router.post(
     "",
     status_code=201,
     response_model=FeedbackResponse,
     summary="Send site feedback",
     description=(
-        "Intentionally public. Emails the feedback through Brevo when a key and "
-        "both feedback addresses are configured, with the screenshot attached; "
-        "accepted without email otherwise."
+        "Intentionally public. Saves the feedback, with the sender's user id "
+        "when a valid token is sent, then emails it through Brevo when a key and "
+        "both feedback addresses are configured, with the screenshot attached. "
+        "Accepted once saved: an email Brevo refuses is retried later."
     ),
     responses={
         400: {"model": ErrorResponse, "description": "Invalid body or screenshot."},
-        502: {"model": ErrorResponse, "description": "Brevo refused the email."},
     },
 )
 @documents_zod_body(FeedbackBody)
-async def send_feedback(request: Request) -> Any:
+async def send_feedback(
+    request: Request, db: Annotated[AsyncSession, Depends(get_db_session)]
+) -> Any:
     """Send site feedback. Intentionally public."""
     body = await parse_zod_body(request, FeedbackBody)
-    screenshot = body.screenshot or None
-    screenshot_base64 = (
-        screenshot.split(",")[1] if screenshot and "," in screenshot else None
+    # Read, never required: no token or a bad one is simply anonymous. The
+    # rate limit has already verified it, and this reuses that outcome.
+    subject = await optional_subject(request.headers.get("authorization"))
+    now = now_ms()
+    row = SiteFeedback(
+        id=str(uuid.uuid4()),
+        type=body.type,
+        subject=body.subject,
+        message=body.message,
+        contact_name=body.contactName,
+        contact_email=body.contactEmail,
+        screenshot=body.screenshot or None,
+        user_id=subject.subject if subject is not None else None,
+        status="pending",
+        attempts=0,
+        next_attempt_at=now + feedback_delivery.FIRST_RETRY_GRACE_MS,
+        created_at=now,
+        updated_at=now,
     )
-    email_body = _email_body(body, _iso_now())
+    db.add(row)
+    await db.commit()
 
-    settings = get_settings()
-    brevo_key = settings.brevo_api_key
-    addresses = settings.feedback_addresses
-    emailed = bool(brevo_key and addresses)
-    if brevo_key and addresses:
-        sender, recipient = addresses
-        payload: dict[str, Any] = {
-            "sender": {"name": SENDER_NAME, "email": sender},
-            "to": [{"email": recipient}],
-            "subject": f"[DeejayTools Feedback] {body.type}: {body.subject}",
-            "textContent": email_body,
-        }
-        if screenshot and screenshot_base64:
-            is_jpeg = screenshot.startswith("data:image/jpeg")
-            payload["attachment"] = [
-                {
-                    "content": screenshot_base64,
-                    "name": "screenshot.jpg" if is_jpeg else "screenshot.png",
-                }
-            ]
-
-        # A bounded call: the deadline middleware answers the client but does
-        # not cancel the handler, so an unbounded call could hold it forever.
-        failure: str | None = None
-        try:
-            async with httpx.AsyncClient(timeout=BREVO_TIMEOUT_SECONDS) as client:
-                res = await client.post(
-                    BREVO_URL,
-                    headers={"api-key": brevo_key, "Content-Type": "application/json"},
-                    json=payload,
-                )
-        except httpx.HTTPError as exc:
-            failure = f"feedback brevo_unreachable: {exc!r}"
-            sentry_sdk.capture_exception(exc)
-        else:
-            if not res.is_success:
-                failure = (
-                    f"feedback brevo_error status={res.status_code} body={res.text!r}"
-                )
-                sentry_sdk.capture_message(
-                    f"Brevo refused feedback email: {res.status_code}", level="error"
-                )
-        if failure is not None:
-            logger.error(with_log_prefix(LOG_FAILURE, failure))
-            return JSONResponse(
-                status_code=502,
-                content=error_body(
-                    "EMAIL_FAILED", "Failed to send email. Please try again."
-                ),
-            )
-    elif not brevo_key:
+    delivery: notifications.FeedbackDelivery
+    if not feedback_delivery.configured():
         logger.warning(
             with_log_prefix(
                 LOG_WARNING,
-                "feedback BREVO_API_KEY not set; skipping transactional email",
+                "feedback BREVO_API_KEY, FEEDBACK_FROM_EMAIL or FEEDBACK_TO_EMAIL "
+                f"not set; kept id={row.id} without emailing it",
             )
         )
+        delivery = "unconfigured"
+    elif await feedback_delivery.deliver(db, row):
+        delivery = "emailed"
     else:
-        logger.warning(
-            with_log_prefix(
-                LOG_WARNING,
-                "feedback FEEDBACK_FROM_EMAIL or FEEDBACK_TO_EMAIL not set; "
-                "skipping transactional email",
-            )
-        )
+        delivery = "retrying"
 
-    # After the email, so a Brevo refusal (502, already a fault in errors)
-    # is not also announced as feedback received.
     notifications.announce_feedback(
         body.type,
         body.subject,
-        emailed=emailed,
-        screenshot=bool(screenshot),
+        delivery=delivery,
+        screenshot=bool(body.screenshot),
     )
     return success(None)

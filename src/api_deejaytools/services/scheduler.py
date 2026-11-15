@@ -1,7 +1,8 @@
 """The in-process scheduler.
 
 One pass (``run_tick``) advances session statuses, auto-fills the active queue
-of every running floor trial, then drains one batch of the Drive job queue,
+of every running floor trial, retries site feedback whose email failed
+(``feedback_delivery``), then drains one batch of the Drive job queue,
 and at most once per ``EVENT_FOLDER_SWEEP_INTERVAL_SECONDS`` trashes the
 emptied folders of deleted events (``drive_jobs.sweep_event_folders``).
 The background loop runs a pass at startup and then every ``TICK_INTERVAL_MS``
@@ -14,7 +15,8 @@ background loop; tests drive ``run_tick`` directly. Only one scheduler may
 run against the database (ADR-0007 point 5); this loop is that scheduler.
 
 Several replicas are safe: session status updates are idempotent, the queue
-fill locks each session row, and Drive jobs are claimed with SKIP LOCKED.
+fill locks each session row, and Drive jobs and feedback retries are claimed
+with SKIP LOCKED.
 """
 
 from __future__ import annotations
@@ -36,7 +38,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..config import Settings, get_settings
 from ..database import get_sessionmaker
-from . import drive, drive_jobs, notifications, session_tick, song_builds
+from . import (
+    drive,
+    drive_jobs,
+    feedback_delivery,
+    notifications,
+    session_tick,
+    song_builds,
+)
 
 logger = get_logger()
 
@@ -94,8 +103,8 @@ def _session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def run_tick() -> None:
-    """One scheduler pass: session work, song builds, Drive jobs, then, when
-    due, the event folder sweep. Never raises.
+    """One scheduler pass: session work, feedback email retries, song builds,
+    Drive jobs, then, when due, the event folder sweep. Never raises.
 
     The parts fail independently, in separate try blocks: a persistent
     session-side failure must not stop the Drive queue draining, nor the
@@ -123,6 +132,22 @@ async def run_tick() -> None:
         )
     else:
         notifications.clear_fault("scheduler.sessions")
+
+    try:
+        # Before the Drive check: feedback email does not need Drive.
+        async with maker() as db:
+            await feedback_delivery.process_pending_feedback(db)
+    except Exception as exc:  # noqa: BLE001 - logged and reported
+        logger.error(with_log_prefix(LOG_FAILURE, f"feedback_tick_failed: {exc!r}"))
+        with sentry_sdk.new_scope() as scope:
+            scope.set_level("error")
+            scope.set_tag("subsystem", "feedback")
+            event_id = sentry_sdk.capture_exception(exc)
+        notifications.report_fault_once(
+            "scheduler.feedback", "scheduler · feedback email", exc, event_id=event_id
+        )
+    else:
+        notifications.clear_fault("scheduler.feedback")
 
     if not drive.drive_configured():
         # Without Drive credentials every build and Drive job would fail and

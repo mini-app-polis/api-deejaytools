@@ -24,7 +24,12 @@ from . import __version__, cache_bus
 from .cache import drop_local
 from .config import get_settings
 from .errors import ignore_client_disconnects, install_error_handlers
-from .middleware import BodyLimitMiddleware, DeadlineMiddleware, RateLimitMiddleware
+from .middleware import (
+    BodyLimitMiddleware,
+    DeadlineMiddleware,
+    PostgresWindows,
+    RateLimitMiddleware,
+)
 from .routers import (
     admin_checkins,
     admin_drive_jobs,
@@ -136,7 +141,8 @@ def _build_app() -> FastAPI:
     # deadline, the rate limit (both /v1/* only), the body limit, then CORS
     # around all of them so its headers reach every answer.
     app.add_middleware(DeadlineMiddleware)
-    app.add_middleware(RateLimitMiddleware)
+    # Windows in Postgres, so the limits hold across workers (ADR-0014).
+    app.add_middleware(RateLimitMiddleware, store=PostgresWindows())
     app.add_middleware(BodyLimitMiddleware)
 
     # Origins from DEEJAYTOOLS_CORS_ORIGINS, these

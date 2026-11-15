@@ -9,13 +9,15 @@
 The rate limit's caller is the verified user for a signed-in request and the
 client address for an anonymous one; an anonymous request to a public cached
 read (``PUBLIC_READS``) is not counted (docs/OPERATIONS.md, "Rate limit").
+Its windows are kept in Postgres (``PostgresWindows``), shared by every
+worker and replica (ADR-0014).
 
 Pure ASGI middleware rather than ``BaseHTTPMiddleware``: the body limit has
 to see the stream before the app does, and the deadline has to answer while
 the handler is still running.
 
-State is process-local (one window table, one set of background handlers):
-each worker process keeps its own.
+The deadline's background handlers are process-local: each worker keeps its
+own.
 """
 
 from __future__ import annotations
@@ -32,10 +34,13 @@ from typing import Any
 
 from identity.types import VerifiedSubject
 from mini_app_polis import activity
-from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
+from mini_app_polis.logger import LOG_FAILURE, LOG_WARNING, get_logger, with_log_prefix
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .auth import verified_credential
+from .database import get_engine
 from .errors import error_body
 
 logger = get_logger()
@@ -217,6 +222,106 @@ def client_address(scope: Scope) -> str:
     return peer
 
 
+class WindowStore:
+    """Where the rate limit's fixed windows are counted."""
+
+    async def take(self, key: str, limit: int, window: float, now: float) -> int | None:
+        """Count one request against ``key``; None if allowed, else the
+        seconds until its window ends."""
+        raise NotImplementedError
+
+
+class MemoryWindows(WindowStore):
+    """Windows in this process's memory: one process's view only.
+
+    For a single process (tests, a local run). Under several uvicorn workers
+    each keeps its own, so each limit would be that many times higher.
+    """
+
+    def __init__(self) -> None:
+        self.windows: dict[str, list[float]] = {}  # key → [window_start, count]
+        self._last_prune: float | None = None
+
+    async def take(self, key: str, limit: int, window: float, now: float) -> int | None:
+        self._prune(window, now)
+        entry = self.windows.get(key)
+        if entry is None or now - entry[0] >= window:
+            self.windows[key] = [now, 1]
+        elif entry[1] >= limit:
+            return math.ceil(entry[0] + window - now)
+        else:
+            entry[1] += 1
+        return None
+
+    def clear(self) -> None:
+        self.windows.clear()
+
+    def _prune(self, window: float, now: float) -> None:
+        """Drop expired windows, at most once a window, so memory stays bounded."""
+        if self._last_prune is not None and now - self._last_prune < max(window, 10.0):
+            return
+        self._last_prune = now
+        for key in [
+            k for k, (start, _) in self.windows.items() if now - start >= window
+        ]:
+            del self.windows[key]
+
+
+class PostgresWindows(WindowStore):
+    """Windows in ``rate_limit_windows`` (migration 013), shared by every
+    worker and replica (ADR-0014).
+
+    One statement per count: an upsert that starts a new window when the
+    old one has ended and otherwise adds one, returning the window. Every
+    request in a window is counted, refused ones too, so the answer is
+    ``count <= limit``; a fixed window refuses the same requests either way.
+    ``now`` is wall-clock epoch seconds, the same in every process.
+
+    If the database cannot be reached the request is let through: a limit
+    is not worth an outage, and the request would most likely fail on the
+    database anyway. Expired windows are deleted at most once a window per
+    process.
+    """
+
+    _TAKE = text(
+        """
+        INSERT INTO rate_limit_windows AS w (key, window_start, count)
+        VALUES (:key, :now, 1)
+        ON CONFLICT (key) DO UPDATE SET
+          window_start = CASE WHEN :now - w.window_start >= :window
+                              THEN :now ELSE w.window_start END,
+          count = CASE WHEN :now - w.window_start >= :window
+                       THEN 1 ELSE w.count + 1 END
+        RETURNING window_start, count
+        """
+    )
+    _PRUNE = text("DELETE FROM rate_limit_windows WHERE window_start <= :before")
+
+    def __init__(self, engine: Callable[[], AsyncEngine] | None = None) -> None:
+        self._engine = engine if engine is not None else get_engine
+        self._last_prune: float | None = None
+
+    async def take(self, key: str, limit: int, window: float, now: float) -> int | None:
+        try:
+            async with self._engine().begin() as conn:
+                if self._last_prune is None or now - self._last_prune >= window:
+                    self._last_prune = now
+                    await conn.execute(self._PRUNE, {"before": now - window})
+                start, count = (
+                    await conn.execute(
+                        self._TAKE, {"key": key, "now": now, "window": window}
+                    )
+                ).one()
+        except Exception as exc:  # noqa: BLE001 - fail open, logged
+            logger.warning(
+                with_log_prefix(LOG_WARNING, f"rate_limit_store_unavailable: {exc!r}")
+            )
+            return None
+        if count <= limit:
+            return None
+        return max(1, math.ceil(start + window - now))
+
+
 class RateLimitMiddleware:
     """Fixed window per caller on /v1/*: 300 requests a minute, and for the
     paths in ``path_limits`` a lower limit of their own.
@@ -227,6 +332,10 @@ class RateLimitMiddleware:
     request to a public cached read is not counted. ``verify`` is
     ``auth.verified_credential``: the route reuses its outcome rather than
     verifying the credential a second time.
+
+    ``store`` holds the windows. The app passes ``PostgresWindows`` so the
+    limits hold across workers and replicas (ADR-0014); the default,
+    ``MemoryWindows``, is one process's view, for tests.
     """
 
     def __init__(
@@ -234,11 +343,12 @@ class RateLimitMiddleware:
         app: ASGIApp,
         limit: int = RATE_LIMIT,
         window_seconds: float = RATE_WINDOW_SECONDS,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.time,
         path_limits: dict[str, int] | None = None,
         verify: Callable[
             [str | None], AbstractAsyncContextManager[VerifiedSubject | None]
         ] = verified_credential,
+        store: WindowStore | None = None,
     ) -> None:
         self.app = app
         self.limit = limit
@@ -246,8 +356,7 @@ class RateLimitMiddleware:
         self.window = window_seconds
         self.clock = clock
         self.verify = verify
-        self.windows: dict[str, list[float]] = {}  # key → [window_start, count]
-        self._last_prune = clock()
+        self.store = store if store is not None else MemoryWindows()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if not _versioned(scope):
@@ -262,11 +371,12 @@ class RateLimitMiddleware:
             else:
                 key = f"address {client_address(scope)}"
             now = self.clock()
-            self._prune(now)
-            retry_after = self._take(key, self.limit, now)
+            retry_after = await self.store.take(key, self.limit, self.window, now)
             path_limit = self.path_limits.get(scope["path"])
             if retry_after is None and path_limit is not None:
-                retry_after = self._take(f"{scope['path']} {key}", path_limit, now)
+                retry_after = await self.store.take(
+                    f"{scope['path']} {key}", path_limit, self.window, now
+                )
             if retry_after is not None:
                 await _send_json(
                     send,
@@ -278,28 +388,6 @@ class RateLimitMiddleware:
                 )
                 return
             await self.app(scope, receive, send)
-
-    def _take(self, key: str, limit: int, now: float) -> int | None:
-        """Count one request against ``key``; None if allowed, else the
-        seconds until its window ends."""
-        entry = self.windows.get(key)
-        if entry is None or now - entry[0] >= self.window:
-            self.windows[key] = [now, 1]
-        elif entry[1] >= limit:
-            return math.ceil(entry[0] + self.window - now)
-        else:
-            entry[1] += 1
-        return None
-
-    def _prune(self, now: float) -> None:
-        """Drop expired windows, at most once a window, so memory stays bounded."""
-        if now - self._last_prune < max(self.window, 10.0):
-            return
-        self._last_prune = now
-        for key in [
-            k for k, (start, _) in self.windows.items() if now - start >= self.window
-        ]:
-            del self.windows[key]
 
 
 class DeadlineMiddleware:

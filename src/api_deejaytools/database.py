@@ -58,6 +58,12 @@ def _get_sessionmaker(database_url: str) -> async_sessionmaker[AsyncSession]:
     )
 
 
+def get_engine() -> AsyncEngine:
+    """The process engine, for raw statements outside a session (the rate
+    limit's windows)."""
+    return _get_engine(get_settings().DEEJAYTOOLS_DATABASE_URL)
+
+
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     """The process sessionmaker, for work outside a request (the scheduler)."""
     return _get_sessionmaker(get_settings().DEEJAYTOOLS_DATABASE_URL)
