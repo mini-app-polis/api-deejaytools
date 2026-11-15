@@ -1,3 +1,11 @@
+## [1.33.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.33.0...v1.33.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.12.0 ([05d97c8](https://github.com/mini-app-polis/api-deejaytools/commit/05d97c8107cabb8ef13ac9f8d7d3b04f1ab5af77))
+* **deps:** bump miniapppolis-common-utils to 9.13.0 ([38e3d5f](https://github.com/mini-app-polis/api-deejaytools/commit/38e3d5f74d065c2d2079a03448b0d7b68ee2362f))
+
 # [1.33.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.32.1...v1.33.0) (2026-11-15)
 
 
