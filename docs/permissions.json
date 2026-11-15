@@ -250,6 +250,9 @@
     "PATCH /v1/admin/event-registrations/{id}": [
       "admin"
     ],
+    "PATCH /v1/admin/event-song-submissions/{id}": [
+      "admin"
+    ],
     "PATCH /v1/admin/users/{id}/role": [
       "admin"
     ],

@@ -2614,9 +2614,9 @@ const listQuery = z.object({
 ```
 
 - Ordered by `updated_at` descending, then truncated to `limit`.
-- `kind` is `copy` | `rename` | `trash` | `share_event_folder` |
+- `kind` is `copy` | `rename` | `move` | `trash` | `share_event_folder` |
   `unshare_event_folder` | `share_song` ([DRIVE.md](./DRIVE.md#job-kinds)).
-  `submission_id` is set for copy and rename, `file_id` for trash and
+  `submission_id` is set for copy, rename and move, `file_id` for trash and
   `share_song`. `event_id` and `user_id` are set for the two folder kinds,
   and a share's `file_id` is the folder it shared once it ran.
 - `event_name` comes from a left join through the submission, or else through
@@ -2755,6 +2755,42 @@ const listQuery = z.object({
 |--------|------|---------|---------|
 | 400 | `VALIDATION_ERROR` | … | Missing `event_id` |
 | 500 | `INTERNAL` | … | Query failed |
+
+---
+
+### PATCH /v1/admin/event-song-submissions/:id
+
+**Auth:** `deejaytools.entries.write` (the admin role only; no per-event staff role carries it)
+
+**Purpose:** Move one song submission to another division of the same event, in one action: an entry submitted under the wrong division. The submission is changed in place (same id, song, submitter and Drive copy), never deleted and re-added. Its per-event `division` is set to the new one and its `round` to the one sent (none: `prelims_and_finals`); the song's own division is not changed, so its other events and its entries to come keep it. The hide a scratched registration entry put on it (`hidden_by_registration_id`) is dropped. In the same transaction one `move` Drive job is queued: it moves the event copy into the new division's folder, renamed for the new division, leaving nothing in the old folder ([DRIVE.md](./DRIVE.md#where-jobs-are-enqueued)). No registration entry is linked: the web app matches the entry to the new division's registrations by name, as it does any submission. The dancer is not notified.
+
+**Path params:** `id` — the submission
+
+**Query params:** none
+
+**Request body:**
+
+```typescript
+const moveSubmissionBody = z.object({
+  division: z.enum(DIVISIONS),
+  // Classic at The Open only.
+  round: z.enum(["prelims_and_finals", "prelims_only", "finals_only"]).optional(),
+});
+```
+
+**Response:** **200** — the moved submission in `data`, the shape of a `GET /v1/admin/event-song-submissions` item.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 400 | `VALIDATION_ERROR` | … | `division` missing or not one of `/v1/divisions`; bad `round` |
+| 400 | `BAD_REQUEST` | This entry is already in `<division>`. | The new division is the one it is entered under |
+| 400 | `BAD_REQUEST` | Round selection is only available for the Classic division at The Open | A `round` other than `prelims_and_finals` outside Classic at The Open |
+| 404 | `NOT_FOUND` | Event song submission not found | No such submission |
+| 409 | `SUBMISSION_CHECKED_IN` | This entry is checked in to a session in `<old division>`. Complete or withdraw the check-in before moving it. | The song has a check-in with a live queue entry in a session of the event, in the old division, and the session is not `completed` or `cancelled` |
+| 409 | `ENTITY_SLOT_TAKEN` | This entity already has a song submitted for `<division>`. Remove it before adding another. | The entity already has a song in the new division for the event (for Classic at The Open, in an overlapping round), as for `POST /v1/event-song-submissions` |
+| 500 | `INTERNAL` | … | Update failed |
 
 ---
 

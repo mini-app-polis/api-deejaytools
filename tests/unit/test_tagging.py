@@ -897,7 +897,7 @@ def flac_blocks(buf: bytes) -> list[tuple[int, bytes]]:
 
 def flac_vorbis(buf: bytes) -> VCFLACDict:
     """The Vorbis comment block, parsed by mutagen."""
-    (payload,) = [p for t, p in flac_blocks(buf) if t == 4]
+    (payload,) = (p for t, p in flac_blocks(buf) if t == 4)
     return VCFLACDict(payload)
 
 

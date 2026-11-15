@@ -76,6 +76,7 @@ __all__ = [
     "empty_folder_tree",
     "ensure_event_folder",
     "list_event_folders",
+    "move_event_copy",
     "remove_reader",
     "rename_file",
     "sanitize_folder_name",
@@ -429,6 +430,52 @@ async def copy_song_to_event_folder(
     if not file_id:
         raise RuntimeError("Drive copy did not return a file id")
     return EventCopyResult(file_id, destination_id, reused=False)
+
+
+async def move_event_copy(
+    file_id: str,
+    *,
+    filename: str,
+    season_year: str,
+    event_name: str,
+    division: str,
+    subfolder: str | None = None,
+) -> str:
+    """Move an event copy into
+    ``<root>/<season_year>/Events/<event_name>/<division>[/<subfolder>]/``,
+    out of every folder it was in, and rename it ``filename``; the
+    destination folder's id.
+
+    Safe to repeat: the move only adds the destination and removes the other
+    parents, and the rename is skipped when the name is already right. On
+    any error in folder resolution or the move, the whole folder cache is
+    dropped before re-raising, as for a copy.
+    """
+    facade, root = _drive()
+    try:
+        year_id = await _ensure_folder(facade, root, sanitize_folder_name(season_year))
+        events_id = await _ensure_folder(facade, year_id, EVENTS_FOLDER)
+        event_id = await _ensure_folder(
+            facade, events_id, sanitize_folder_name(event_name)
+        )
+        destination_id = await _ensure_folder(
+            facade, event_id, sanitize_folder_name(division)
+        )
+        if subfolder:
+            destination_id = await _ensure_folder(
+                facade, destination_id, sanitize_folder_name(subfolder)
+            )
+        await asyncio.to_thread(
+            facade.move_file,
+            file_id,
+            new_parent_id=destination_id,
+            remove_from_parents=True,
+        )
+    except Exception:
+        clear_drive_folder_cache()
+        raise
+    await rename_file(file_id, filename)
+    return destination_id
 
 
 async def ensure_event_folder(*, season_year: str, event_name: str) -> str:

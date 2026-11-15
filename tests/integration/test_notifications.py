@@ -730,7 +730,7 @@ async def test_feedback_posts_its_type_and_subject_only(
     res = await _feedback(client)
     assert res.status_code == 201
 
-    (post,) = [p for p in discord_posts.sent if p["context"] == "feedback"]
+    (post,) = (p for p in discord_posts.sent if p["context"] == "feedback")
     assert post["channel"] == discord.CHANNEL_ACTIVITY
     assert post["json"]["allowed_mentions"] == {"parse": []}
     (embed,) = await discord_posts.channel(discord.CHANNEL_ACTIVITY)
@@ -861,7 +861,7 @@ async def test_a_client_gone_mid_upload_is_499_not_a_fault(
     }
     await app(scope, receive, send)
 
-    (start,) = [m for m in sent if m["type"] == "http.response.start"]
+    (start,) = (m for m in sent if m["type"] == "http.response.start")
     assert start["status"] == 499
     assert sentry.captured == []
     assert await discord_posts.channel(discord.CHANNEL_ERRORS) == []

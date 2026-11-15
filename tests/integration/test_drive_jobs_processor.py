@@ -107,6 +107,7 @@ class FakeDrive:
     def __init__(self) -> None:
         self.copies: list[tuple[str, dict[str, Any]]] = []
         self.renames: list[tuple[str, str]] = []
+        self.moves: list[tuple[str, dict[str, Any]]] = []
         self.soft_deletes: list[str] = []
         self.copy_error: Exception | None = None
         self.copy_result = EventCopyResult("copy_file_1", "copy_folder_1", reused=False)
@@ -122,6 +123,10 @@ class FakeDrive:
     async def rename_file(self, file_id: str, name: str) -> bool:
         self.renames.append((file_id, name))
         return True
+
+    async def move_event_copy(self, file_id: str, **kw: Any) -> str:
+        self.moves.append((file_id, kw))
+        return "moved_folder_1"
 
     async def soft_delete(self, file_id: str) -> None:
         self.soft_deletes.append(file_id)
@@ -150,6 +155,7 @@ def fake_drive(monkeypatch: pytest.MonkeyPatch) -> FakeDrive:
         drive, "copy_song_to_event_folder", fd.copy_song_to_event_folder
     )
     monkeypatch.setattr(drive, "rename_file", fd.rename_file)
+    monkeypatch.setattr(drive, "move_event_copy", fd.move_event_copy)
     monkeypatch.setattr(drive, "soft_delete", fd.soft_delete)
     return fd
 
@@ -554,6 +560,99 @@ async def test_rename_for_a_gone_submission_is_done(
     assert (await drive_jobs.process_drive_jobs(session))["succeeded"] == 1
     assert fake_drive.renames == []
     assert (await job(db))["status"] == "done"
+
+
+async def test_rename_names_the_submissions_division_not_the_songs(
+    db: asyncpg.Connection, session: AsyncSession, fake_drive: FakeDrive, logs: Logs
+) -> None:
+    await seed_submission(
+        db,
+        already_copied="copy_file_1",
+        processed_filename="Ada_Bob_Classic_2027_Blue_v01.mp3",
+        division="Classic",
+        submission_division="Sophisticated",
+    )
+    await add_job(db, kind="rename")
+    assert (await drive_jobs.process_drive_jobs(session))["succeeded"] == 1
+    assert fake_drive.renames == [
+        ("copy_file_1", "Ada_Bob_Sophisticated_2027_Blue_v01.mp3")
+    ]
+
+
+async def test_move_job_moves_and_renames_the_copy_into_the_new_division(
+    db: asyncpg.Connection, session: AsyncSession, fake_drive: FakeDrive, logs: Logs
+) -> None:
+    await seed_submission(
+        db,
+        already_copied="copy_file_1",
+        processed_filename="Joe_Stephanie_Sophisticated_2026_v01.mp3",
+        division="Sophisticated",
+        submission_division="Masters",
+    )
+    await add_job(db, kind="move")
+    assert (await drive_jobs.process_drive_jobs(session))["succeeded"] == 1
+    assert fake_drive.moves == [
+        (
+            "copy_file_1",
+            {
+                "filename": "Joe_Stephanie_Masters_2026_v01.mp3",
+                "season_year": "2027",
+                "event_name": "Spring Classic",
+                "division": "Masters",
+                "subfolder": None,
+            },
+        )
+    ]
+    assert fake_drive.copies == []
+    assert fake_drive.soft_deletes == []
+    assert (await job(db))["status"] == "done"
+    assert logs.at("info", "drive_move_succeeded")
+
+
+async def test_move_job_puts_a_round_specific_copy_in_its_round_folder(
+    db: asyncpg.Connection, session: AsyncSession, fake_drive: FakeDrive, logs: Logs
+) -> None:
+    await seed_submission(
+        db,
+        already_copied="copy_file_1",
+        division="Showcase",
+        submission_division="Classic",
+        submission_round="finals_only",
+        event_name="The Open 2026",
+    )
+    await add_job(db, kind="move")
+    await drive_jobs.process_drive_jobs(session)
+    assert fake_drive.moves[0][1]["division"] == "Classic"
+    assert fake_drive.moves[0][1]["subfolder"] == "Finals"
+
+
+async def test_move_without_a_copy_is_done_without_drive(
+    db: asyncpg.Connection, session: AsyncSession, fake_drive: FakeDrive, logs: Logs
+) -> None:
+    await seed_submission(db, already_copied=None)
+    await add_job(db, kind="move")
+    assert (await drive_jobs.process_drive_jobs(session))["succeeded"] == 1
+    assert fake_drive.moves == []
+
+
+async def test_move_for_a_gone_submission_is_done(
+    db: asyncpg.Connection, session: AsyncSession, fake_drive: FakeDrive, logs: Logs
+) -> None:
+    await seed_submission(db)
+    await add_job(db, kind="move", submission_id="missing")
+    assert (await drive_jobs.process_drive_jobs(session))["succeeded"] == 1
+    assert fake_drive.moves == []
+
+
+async def test_move_without_submission_id_is_rescheduled(
+    db: asyncpg.Connection, session: AsyncSession, fake_drive: FakeDrive, logs: Logs
+) -> None:
+    await seed_submission(db)
+    await add_job(db, kind="move", submission_id=None)
+    await drive_jobs.process_drive_jobs(session)
+    row = await job(db)
+    assert row["status"] == "pending"
+    assert "move job job_1 has no submission_id" in row["last_error"]
 
 
 async def test_rename_without_submission_id_is_rescheduled_with_row_keys(
@@ -975,3 +1074,47 @@ async def test_fixed_failure_update_error_does_not_strand_the_batch(
     assert (await job(db, "c"))["status"] == "done"
     assert logs.at("error", "drive_job_failure_update_failed")
     assert logs.at("info", "drive_jobs_processed")
+
+
+async def test_fixed_move_leaves_nothing_in_the_old_division_folder(
+    db: asyncpg.Connection,
+    session: AsyncSession,
+    real_drive: FakeDriveService,
+    logs: Logs,
+) -> None:
+    old_folder = real_drive.add_path(
+        "root", "2027", "Events", "Spring Classic", "Sophisticated"
+    )
+    copy = real_drive.add_file(
+        "Joe_Stephanie_Sophisticated_2026_v01.mp3",
+        [old_folder],
+        app_properties={"deejaytools_submission_id": "sub_1"},
+    )
+    await seed_submission(
+        db,
+        already_copied=copy,
+        processed_filename="Joe_Stephanie_Sophisticated_2026_v01.mp3",
+        division="Sophisticated",
+        submission_division="Masters",
+    )
+    await add_job(db, kind="move")
+    assert (await drive_jobs.process_drive_jobs(session))["succeeded"] == 1
+
+    new_folder = real_drive.folder_id(
+        real_drive.add_path("root", "2027", "Events", "Spring Classic"), "Masters"
+    )
+    assert new_folder is not None
+    moved = real_drive.files_by_id[copy]
+    assert moved["parents"] == [new_folder]
+    assert moved["name"] == "Joe_Stephanie_Masters_2026_v01.mp3"
+    assert not [
+        f for f in real_drive.files_by_id.values() if old_folder in f["parents"]
+    ]
+    # Moved, not copied: the copy is the one the submission records.
+    assert real_drive.ops("files.copy") == []
+    assert await copy_id(db) == copy
+
+    # Running it again changes nothing.
+    await add_job(db, job_id="job_2", kind="move")
+    assert (await drive_jobs.process_drive_jobs(session))["succeeded"] == 1
+    assert real_drive.files_by_id[copy]["parents"] == [new_folder]

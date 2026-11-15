@@ -206,7 +206,7 @@ async def test_upload_goes_to_season_and_division_folders(
     assert f["name"] == "Ada_Classic_2027_v01.mp3"
     assert f["parents"] == [folder_id]
     assert f["appProperties"] == {"deejaytools_song_id": "song_1"}
-    (create,) = [c for c in svc.ops("files.create") if "media_body" in c]
+    (create,) = (c for c in svc.ops("files.create") if "media_body" in c)
     assert create["supportsAllDrives"] is True
 
 

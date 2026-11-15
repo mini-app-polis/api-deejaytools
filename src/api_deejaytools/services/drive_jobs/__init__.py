@@ -4,7 +4,7 @@ Enqueueing (``enqueue``: best-effort, after the request's own commit, or in
 the transaction of the change that calls for the job) and processing
 (``processor``): the batch the scheduler runs once per tick
 (``process_drive_jobs``), with the per-kind work in ``copy_jobs`` (``copy``,
-``rename``, ``trash``) and ``share_jobs`` (``share_event_folder``,
+``rename``, ``move``, ``trash``) and ``share_jobs`` (``share_event_folder``,
 ``unshare_event_folder``, ``share_song``).
 
 ``share_song`` gives a song's partner reader access to the song's Drive
@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from .enqueue import (
     DRIVE_FOLDER_ROLES,
+    MOVE,
     SHARE_EVENT_FOLDER,
     SHARE_SONG,
     UNSHARE_EVENT_FOLDER,
@@ -66,6 +67,7 @@ __all__ = [
     "DRIVE_FOLDER_ROLES",
     "LEASE_TIMEOUT_MS",
     "MAX_ATTEMPTS",
+    "MOVE",
     "SHARE_EVENT_FOLDER",
     "SHARE_SONG",
     "UNSHARE_EVENT_FOLDER",

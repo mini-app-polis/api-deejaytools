@@ -72,17 +72,52 @@ def effective_division(
     return js_trim(division or "")
 
 
+_NOT_ALNUM_CASED = re.compile(r"[^a-zA-Z0-9]")
+
+
 def resolve_submission_filename(
     *,
     processed_filename: str | None,
     original_filename: str | None,
     song_id: str,
+    song_division: str | None = None,
+    division: str | None = None,
 ) -> str:
     """Filename for a submission's per-event Drive copy: the processed
-    filename, else the original, else the song id. The same for every event."""
-    return (
-        js_trim(processed_filename or "") or js_trim(original_filename or "") or song_id
-    )
+    filename, else the original, else the song id. The same for every event.
+
+    When the submission is entered under another ``division`` than the
+    song's own, the processed filename's division segment names the
+    submission's (``Ada_Bob_Classic_2027_v01.mp3`` entered in Masters is
+    ``Ada_Bob_Masters_2027_v01.mp3``). A name without that segment is kept.
+    """
+    processed = js_trim(processed_filename or "")
+    if processed:
+        return _with_division(processed, song_division, division)
+    return js_trim(original_filename or "") or song_id
+
+
+def _with_division(
+    filename: str, song_division: str | None, division: str | None
+) -> str:
+    """``filename`` with its first division segment after the leading name
+    swapped from the song's division to ``division``, as the upload names it
+    (docs/DRIVE.md, "Processed filename"); unchanged when either is blank,
+    they are the same, or no segment matches."""
+    old = _NOT_ALNUM_CASED.sub("", song_division or "")
+    new = _NOT_ALNUM_CASED.sub("", division or "")
+    if not old or not new or old == new:
+        return filename
+    stem, dot, extension = filename.rpartition(".")
+    if not dot:
+        stem, extension = filename, ""
+    parts = stem.split("_")
+    for i in range(1, len(parts)):
+        if parts[i] == old:
+            parts[i] = new
+            renamed = "_".join(parts)
+            return f"{renamed}.{extension}" if dot else renamed
+    return filename
 
 
 async def lock_entity_slot(
