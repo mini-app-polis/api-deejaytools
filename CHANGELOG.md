@@ -1,3 +1,15 @@
+# [1.33.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.32.1...v1.33.0) (2026-11-15)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.11.0 ([22e1e0c](https://github.com/mini-app-polis/api-deejaytools/commit/22e1e0c524ee6470e7c2931d511c8c2ab4ca2083))
+
+
+### Features
+
+* **submissions:** let admins move an event entry to another division ([a651027](https://github.com/mini-app-polis/api-deejaytools/commit/a65102786d62423a9787420ea2ebabe580e0432f))
+
 ## [1.32.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.32.0...v1.32.1) (2026-11-13)
 
 
