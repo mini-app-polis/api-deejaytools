@@ -394,7 +394,8 @@ async def move_event_submission(
         )
 
     # A live check-in names the old division: moving the entry under it
-    # would leave the queue running a song in a division it is no longer in.
+    # would leave the queue running the song under a division the entry is
+    # not in.
     # A finished session's queue entries are history and do not block it.
     checked_in = (
         await session.execute(
