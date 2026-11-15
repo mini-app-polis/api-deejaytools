@@ -16,6 +16,7 @@ from api_deejaytools.domain import (
     season_year_from_date_string,
     song_entity_key,
 )
+from api_deejaytools.submissions import resolve_submission_filename
 from api_deejaytools.validation import Email, JsInt, JsNumber, ZodModel
 
 
@@ -121,3 +122,81 @@ def test_zod_model_behaviour() -> None:
     ):
         with pytest.raises(ValidationError):
             Body.model_validate(bad)
+
+
+# --- submission filenames -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("processed", "song_division", "division", "expected"),
+    [
+        # The submission's division replaces the song's in the name.
+        (
+            "Ada_Bob_Sophisticated_2027_Blue_v01.mp3",
+            "Sophisticated",
+            "Masters",
+            "Ada_Bob_Masters_2027_Blue_v01.mp3",
+        ),
+        # Divisions are written as the upload writes them: alphanumerics only.
+        (
+            "Ada_Bob_Classic_2027_v02.mp3",
+            "Classic",
+            "ProAm LeaderAm",
+            "Ada_Bob_ProAmLeaderAm_2027_v02.mp3",
+        ),
+        # A solo name, no extension.
+        ("Ada_Classic_2027_v01", "Classic", "Masters", "Ada_Masters_2027_v01"),
+        # Only the division segment, never the leading name.
+        (
+            "Classic_Bob_Classic_2027_v01.mp3",
+            "Classic",
+            "Masters",
+            "Classic_Bob_Masters_2027_v01.mp3",
+        ),
+        # Same division, no override, or no segment to swap: unchanged.
+        ("Ada_Classic_2027_v01.mp3", "Classic", "Classic", "Ada_Classic_2027_v01.mp3"),
+        ("Ada_Classic_2027_v01.mp3", "Classic", None, "Ada_Classic_2027_v01.mp3"),
+        ("Ada_2027_v01.mp3", None, "Masters", "Ada_2027_v01.mp3"),
+        (
+            "Ada_Showcase_2027_v01.mp3",
+            "Classic",
+            "Masters",
+            "Ada_Showcase_2027_v01.mp3",
+        ),
+    ],
+)
+def test_submission_filename_names_the_entered_division(
+    processed: str, song_division: str | None, division: str | None, expected: str
+) -> None:
+    assert (
+        resolve_submission_filename(
+            processed_filename=processed,
+            original_filename="track.mp3",
+            song_id="song_1",
+            song_division=song_division,
+            division=division,
+        )
+        == expected
+    )
+
+
+def test_submission_filename_falls_back_without_a_division_swap() -> None:
+    # The original filename was never built from a division: kept as it is.
+    assert (
+        resolve_submission_filename(
+            processed_filename=None,
+            original_filename=" Classic_track.mp3 ",
+            song_id="song_1",
+            song_division="Classic",
+            division="Masters",
+        )
+        == "Classic_track.mp3"
+    )
+    assert (
+        resolve_submission_filename(
+            processed_filename=" ",
+            original_filename=None,
+            song_id="song_1",
+        )
+        == "song_1"
+    )

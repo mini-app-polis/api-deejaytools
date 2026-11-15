@@ -1,4 +1,4 @@
-"""The ``copy``, ``rename`` and ``trash`` job runners.
+"""The ``copy``, ``rename``, ``move`` and ``trash`` job runners.
 
 A copy is recorded only into a still-empty ``drive_copy_file_id`` and is
 otherwise soft-deleted (``_record_copy``), so a copy that finishes after its
@@ -67,6 +67,8 @@ def _submission_filename(row: Any) -> str:
         processed_filename=row.processed_filename,
         original_filename=row.original_filename,
         song_id=row.song_id,
+        song_division=row.division,
+        division=row.submission_division,
     )
 
 
@@ -209,6 +211,36 @@ async def _run_rename_job(db: AsyncSession, job: _Job) -> None:
             LOG_SUCCESS,
             f"{event} submission={job.submission_id} "
             f"drive_file_id={row.already_copied} filename={filename}",
+        )
+    )
+
+
+async def _run_move_job(db: AsyncSession, job: _Job) -> None:
+    """Put an existing copy where its submission's division and round now
+    say, under the current naming rule, out of the folder it was in; safe
+    to repeat."""
+    if not job.submission_id:
+        raise _missing_field(job, "submission_id")
+    row = await _fetch_submission_context(db, job.submission_id)
+    # Gone, or no copy yet (a pending copy job reads the new division itself).
+    if row is None or not row.already_copied:
+        return
+    season, division, subfolder = _event_copy_destination(row)
+    filename = _submission_filename(row)
+    folder_id = await drive.move_event_copy(
+        row.already_copied,
+        filename=filename,
+        season_year=season,
+        event_name=row.event_name,
+        division=division,
+        subfolder=subfolder,
+    )
+    logger.info(
+        with_log_prefix(
+            LOG_SUCCESS,
+            f"drive_move_succeeded submission={job.submission_id} "
+            f"drive_file_id={row.already_copied} folder={folder_id} "
+            f"filename={filename}",
         )
     )
 

@@ -6,7 +6,7 @@ put it there, with different failure models:
 | Path | Trigger | Runs | On failure |
 |------|---------|------|------------|
 | **Upload pipeline** | Final chunk of `POST /v1/songs/upload/chunk` | Background task after the response is sent, its bytes staged in `song_uploads`; the scheduler resumes it after a restart ([ADR-0001](decisions/ADR-0001-durable-song-builds.md)) | Retried with backoff, `failed` after 10 attempts; a song nothing references yet is hard-deleted instead, and the user retries the upload |
-| **`drive_jobs` queue** | Event submission created, removed, or cascaded away; song or managed partnership deleted; admin backfill; an event's DJs and event managers granted, revoked or moved to a new folder; a partner set on a built song | Scheduler tick (`run_tick()` → `process_drive_jobs()`) | Rescheduled with backoff; `failed` after 10 attempts; admin retry endpoint |
+| **`drive_jobs` queue** | Event submission created, moved to another division by an admin, removed, or cascaded away; song or managed partnership deleted; admin backfill; an event's DJs and event managers granted, revoked or moved to a new folder; a partner set on a built song | Scheduler tick (`run_tick()` → `process_drive_jobs()`) | Rescheduled with backoff; `failed` after 10 attempts; admin retry endpoint |
 
 The scheduler also trashes the folders of deleted events once they are empty;
 see [Event folder sweep](#event-folder-sweep).
@@ -35,7 +35,7 @@ boot, so an unconfigured deployment fails per upload (build retried, or an
 unreferenced song deleted) and per job (retried, then `failed`).
 
 **Scope:** `https://www.googleapis.com/auth/drive.file`. The service account can
-only see and modify files **it created**. Copy, rename and trash therefore only
+only see and modify files **it created**. Copy, rename, move and trash therefore only
 work on files that came through `upload_song_file` (or copies of them).
 
 Every call passes `supportsAllDrives: true` (and `includeItemsFromAllDrives: true`
@@ -277,8 +277,9 @@ permanently deleted or moved to the Drive trash.
 
 ## `drive_jobs` queue
 
-Per-event copies of submitted songs, renames of those copies, and deprecation of
-copies whose submission went away, the deprecation of a deleted song's own
+Per-event copies of submitted songs, renames of those copies, moves of a copy
+into another division's folder, and deprecation of copies whose submission
+went away, the deprecation of a deleted song's own
 file, the share of a song's file with a partner set after it was built, and the
 share and unshare of an event's folder with its DJs and event managers
 ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md), "The DJ's Drive
@@ -294,6 +295,7 @@ Table: [`drive_jobs`](./SCHEMA.md#drive_jobs). Admin endpoints:
 |--------|-----------|------|
 | `copy` | `submission_id` | Copies the song's Drive file into the event folder and records the copy's id on the submission |
 | `rename` | `submission_id` | Re-applies the current naming rule to an existing copy |
+| `move` | `submission_id` | Moves an existing copy into the folder its submission's division and round now name, out of every other folder, and renames it by the current naming rule |
 | `trash` | `file_id` | Moves a file (an event copy, or a deleted song's own file) into `_deprecated` (`soft_delete`) |
 | `share_event_folder` | `event_id`, `user_id` | Shares the event's folder, `<root>/<season>/Events/<event name>/` (created if missing), with the person's `users.email` as a reader, and records the folder's id in `file_id` |
 | `unshare_event_folder` | `event_id`, `user_id` | Removes the person's reader permission from every folder a share for them on the event recorded |
@@ -305,6 +307,7 @@ Table: [`drive_jobs`](./SCHEMA.md#drive_jobs). Admin endpoints:
 |-------|--------|------|
 | `POST /v1/event-song-submissions` succeeds | `copy` for the new submission | After the insert |
 | `DELETE /v1/event-song-submissions/:id` | `trash` for its `drive_copy_file_id`, if set | After the delete |
+| `PATCH /v1/admin/event-song-submissions/:id` (an admin moves the entry to another division) | `move` for the submission | In the move's transaction |
 | Background build of an upload finishes | `copy` for each of the song's submissions still without a copy | After the song row gets its Drive fields ([step 10](#background-build)) |
 | `DELETE /v1/songs/:id` | `trash` for the song's own file and per copy of each of its submissions | After the transaction commits |
 | `DELETE /v1/managed-partnerships/:id` | `trash` for each of the partnership's live songs' own files and per copy of each of their submissions | After the transaction commits |
@@ -324,12 +327,13 @@ Enqueueing is outside the request's transaction and **best-effort**: an enqueue
 failure is logged (`drive_copy_enqueue_failed` / `drive_trash_enqueue_failed`)
 and reported to Sentry (tags `subsystem=drive_jobs`, `drive_job_kind`; context
 `drive_job` with `stage: "enqueue"` and the ids), and the request still succeeds.
-Nothing retries a lost enqueue. The folder jobs and `share_song` are the
+Nothing retries a lost enqueue. The folder jobs, `share_song` and `move` are the
 exception: they are written in the transaction of the change that calls for
 them, so they are lost only with it.
 
-Nothing else enqueues work: editing a submission, renaming an event, or changing
-a song's division does **not** move or rename existing copies. (A rename does
+Nothing else enqueues work: renaming an event, or changing a song's division,
+does **not** move or rename existing copies; only an admin's move of a
+submission to another division does. (A rename does
 share the event's new folder with its DJs and event managers; the copies made
 before it stay in the old folder, which they keep reading.) Run the rename
 backfill after changing `resolve_submission_filename`.
@@ -417,8 +421,8 @@ rather than a blip.
 
 **Batch vs lease:** a batch of 10 should finish inside the 10-minute lease, or
 jobs still running get reclaimed and may run twice. Every kind tolerates that:
-a copy is tagged with its submission and reused (below), and rename, trash and
-the share kinds are idempotent.
+a copy is tagged with its submission and reused (below), and rename, move, trash
+and the share kinds are idempotent.
 
 ### Per-kind behaviour
 
@@ -436,7 +440,13 @@ propagate as job failures.
 4. Filename = `resolve_submission_filename`: the song's `processed_filename`, else
    `original_filename`, else the song id (each trimmed). Events whose name
    normalises to start with `theopen` have their own branch, which today returns
-   the same value.
+   the same value. When the submission's `division` overrides the song's, the
+   processed filename names the submission's: its first segment after the
+   leading name that is the song's division (as the upload writes it,
+   alphanumerics only) becomes the submission's
+   (`Ada_Bob_Sophisticated_2027_v01.mp3` entered in Masters is
+   `Ada_Bob_Masters_2027_v01.mp3`). A name with no such segment, and the
+   original filename, are kept as they are.
 5. Destination: `<root>/<event season>/Events/<event name>/<division>/[Finals|Prelims/]`,
    where division = submission's `division` if set, else the song's, trimmed,
    else `unknown`; subfolder `Finals` for `finals_only`, `Prelims` for
@@ -457,6 +467,18 @@ propagate as job failures.
 2. Compute the filename as for copy, read the copy's current name, and
    `files.update` it only if different. Logs `drive_rename_succeeded` or
    `drive_rename_noop`. Safe to enqueue any number of times.
+
+**`move`**
+
+1. Load as for copy. Submission gone, or no copy yet → success, nothing done (a
+   pending copy job reads the submission's division when it runs).
+2. Destination and filename as for copy, from the submission's division and
+   round now.
+3. Resolve the destination folder (created if missing), move the copy into it
+   removing every other parent, so nothing is left in the old division's
+   folder, then rename it as `rename` does. On an error in folder resolution
+   or the move the folder cache is cleared. Logs `drive_move_succeeded`. Safe
+   to repeat: a copy already in place is only given that parent again.
 
 **`trash`**
 

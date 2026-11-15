@@ -26,8 +26,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...clock import now_ms
 from ...models import DriveJob
 from .. import notifications
-from .copy_jobs import _run_copy_job, _run_rename_job, _run_trash_job
-from .enqueue import SHARE_EVENT_FOLDER, SHARE_SONG, UNSHARE_EVENT_FOLDER
+from .copy_jobs import (
+    _run_copy_job,
+    _run_move_job,
+    _run_rename_job,
+    _run_trash_job,
+)
+from .enqueue import MOVE, SHARE_EVENT_FOLDER, SHARE_SONG, UNSHARE_EVENT_FOLDER
 from .job import DriveJobRefused, _Job
 from .share_jobs import (
     _run_share_folder_job,
@@ -127,6 +132,8 @@ async def _run_job(db: AsyncSession, job: _Job) -> None:
         await _run_trash_job(job)
     elif job.kind == "rename":
         await _run_rename_job(db, job)
+    elif job.kind == MOVE:
+        await _run_move_job(db, job)
     elif job.kind == SHARE_EVENT_FOLDER:
         await _run_share_folder_job(db, job)
     elif job.kind == UNSHARE_EVENT_FOLDER:

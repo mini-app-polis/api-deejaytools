@@ -121,8 +121,8 @@ class DriveJobData(BaseModel):
     kind: str = Field(
         ...,
         description=(
-            "copy, rename, trash, share_event_folder, unshare_event_folder or "
-            "share_song."
+            "copy, rename, move, trash, share_event_folder, "
+            "unshare_event_folder or share_song."
         ),
     )
     status: str = Field(..., description="pending, running, done or failed.")
@@ -131,7 +131,9 @@ class DriveJobData(BaseModel):
     next_attempt_at: int = Field(..., description="Next attempt due, epoch ms.")
     created_at: int = Field(..., description="Enqueued, epoch ms.")
     updated_at: int = Field(..., description="Last changed, epoch ms.")
-    submission_id: str | None = Field(None, description="Set for copy and rename.")
+    submission_id: str | None = Field(
+        None, description="Set for copy, rename and move."
+    )
     file_id: str | None = Field(
         None,
         description="Set for trash; for a share, the folder it shared, once done.",

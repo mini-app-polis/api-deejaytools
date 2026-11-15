@@ -27,6 +27,7 @@ DriveJobKind = Literal[
     "copy",
     "trash",
     "rename",
+    "move",
     "share_event_folder",
     "unshare_event_folder",
     "share_song",
@@ -34,6 +35,7 @@ DriveJobKind = Literal[
 SHARE_EVENT_FOLDER: DriveJobKind = "share_event_folder"
 UNSHARE_EVENT_FOLDER: DriveJobKind = "unshare_event_folder"
 SHARE_SONG: DriveJobKind = "share_song"
+MOVE: DriveJobKind = "move"
 
 DRIVE_FOLDER_ROLES = ("dj", "event-manager")
 """The staff roles that carry read access to the event's Drive folder."""
