@@ -152,35 +152,34 @@ A song that **is** referenced cannot be deleted. Its build is retried with backo
 
 **Symptom:** User sees success on `/feedback`; API returns **201**; nothing in inbox.
 
-**Cause:** No Brevo key, or no feedback address. The API reads `BREVO_API_KEY`, the fleet's one Brevo key, and the sender and recipient from `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL`. Without the key it logs:
+Every submission is saved to `site_feedback` before it is emailed, so the feedback itself is never lost. Its `status` and `last_error` say what happened:
 
-```
-feedback BREVO_API_KEY not set; skipping transactional email
-```
-
-and without either address:
-
-```
-feedback FEEDBACK_FROM_EMAIL or FEEDBACK_TO_EMAIL not set; skipping transactional email
+```sql
+SELECT id, created_at, type, subject, status, attempts, last_error, user_id
+FROM site_feedback WHERE status <> 'emailed' ORDER BY created_at DESC;
 ```
 
-and still returns success, by design. The Discord `activity` post for that feedback says the message was not kept; it is the only sign the feedback arrived. (Production does not start without both addresses.)
+**Cause 1: email is not configured.** No Brevo key, or no feedback address. The API reads `BREVO_API_KEY`, the fleet's one Brevo key, and the sender and recipient from `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL`. It logs:
+
+```
+feedback BREVO_API_KEY, FEEDBACK_FROM_EMAIL or FEEDBACK_TO_EMAIL not set; kept id=<id> without emailing it
+```
+
+The rows stay `pending` with no attempts, and the Discord `activity` post says the feedback was saved, not emailed. (Production does not start without both addresses.)
+
+**Cause 2: Brevo refused the send** (a bad key, an unverified sender, an outbound IP missing from Brevo's authorised IPs). API log: `feedback_email_failed id=<id> attempts=<n> brevo_error status=<status> body=<body>`; Discord `errors` gets one `feedback · email (kept; will retry)` fault per run of failures, and the `activity` post says the email will be retried. The scheduler retries with backoff, up to 10 tries (about three hours), then marks the row `failed` and posts `feedback · email (gave up; kept in site_feedback)`.
 
 **Fix:**
 
-1. Set whichever is missing in the service's Doppler config: `BREVO_API_KEY` (Brevo → SMTP & API → API Keys), `FEEDBACK_FROM_EMAIL`, `FEEDBACK_TO_EMAIL`.
-2. Redeploy.
+1. Fix the cause: set whichever setting is missing in the service's Doppler config and redeploy, or fix the key, sender or authorised IPs in the Brevo dashboard.
+2. Pending rows are emailed on the next scheduler passes. To retry rows that gave up:
+
+   ```sql
+   UPDATE site_feedback SET status = 'pending', attempts = 0, next_attempt_at = 0
+   WHERE status = 'failed';
+   ```
+
 3. Submit test feedback.
-
----
-
-## `Failed to send email. Please try again.`
-
-**Symptom:** Feedback form error; API **502**, code `EMAIL_FAILED`.
-
-**Cause:** A Brevo key is set but Brevo rejected the send. API log: `feedback brevo_error status=<status> body=<body>`; Discord `errors` gets a `fault · 502`.
-
-**Fix:** Verify the Brevo API key, sender domain verification, and recipient limits in the Brevo dashboard.
 
 ---
 

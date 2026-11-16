@@ -2269,9 +2269,9 @@ Also from global middleware: `413 payload_too_large` for a request body over 11 
 
 ### POST /v1/feedback
 
-**Auth:** public
+**Auth:** public. A bearer token is read, never required: when it verifies, the sender's user id is kept with the feedback; no token or a bad one is anonymous.
 
-**Purpose:** Submit site feedback (optional Brevo email when `BREVO_API_KEY`, `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL` are all set).
+**Purpose:** Submit site feedback. It is saved to `site_feedback` first, then emailed through Brevo when `BREVO_API_KEY`, `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL` are all set.
 
 **Path params / Query params:** none
 
@@ -2314,9 +2314,8 @@ const feedbackBodySchema = z
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
 | 400 | `VALIDATION_ERROR` | … | Invalid body / screenshot format |
-| 502 | `EMAIL_FAILED` | Failed to send email. Please try again. | Brevo refused the email, could not be reached, or did not answer within the call's 10 s timeout |
 
-If `BREVO_API_KEY` or either feedback address is unset, feedback is logged and **201** still returned. Production refuses to start without both addresses.
+Accepted once saved. If Brevo refuses the email, cannot be reached, or does not answer within the call's 10 s timeout, the feedback is still **201**: the row stays `pending` and the scheduler retries it with backoff (`services/feedback_delivery.py`), up to 10 tries, then marks it `failed` and reports a fault. If `BREVO_API_KEY` or either feedback address is unset, feedback is saved, not emailed, and **201** still returned; it is emailed once both are set. Production refuses to start without both addresses.
 
 ---
 

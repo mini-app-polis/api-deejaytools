@@ -404,3 +404,31 @@ class SongUpload(Base):
     # Migration 004: the caller who uploaded it, when not the song's owner
     # ("Upload For"); named in the "song added" notification.
     uploaded_by_user_id: Mapped[str | None] = mapped_column(Text)
+
+
+class SiteFeedback(Base):
+    """A piece of site feedback, kept from the moment it is accepted.
+
+    This service's own table (migration 013). Emailing it is a delivery step
+    the scheduler retries (services/feedback_delivery.py), so a refused
+    email never loses the feedback.
+    """
+
+    __tablename__ = "site_feedback"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    type: Mapped[str] = mapped_column(Text)
+    subject: Mapped[str] = mapped_column(Text)
+    message: Mapped[str] = mapped_column(Text)
+    contact_name: Mapped[str | None] = mapped_column(Text)
+    contact_email: Mapped[str | None] = mapped_column(Text)
+    screenshot: Mapped[str | None] = mapped_column(Text)
+    # The verified Clerk subject when the sender was signed in. Not a FK.
+    user_id: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    next_attempt_at: Mapped[int] = mapped_column(BigInteger)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    emailed_at: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[int] = mapped_column(BigInteger)
+    updated_at: Mapped[int] = mapped_column(BigInteger)

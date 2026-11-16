@@ -56,7 +56,7 @@ a failed request.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 from mini_app_polis import activity, discord
 from mini_app_polis.logger import LOG_WARNING, get_logger, with_log_prefix
@@ -130,6 +130,9 @@ CHANGES_NOT_REPORTED = frozenset(
         # placeholder; a tally here would announce songs that never came
         # to exist. Earlier chunks write nothing but the audit row.
         "/v1/songs/upload/chunk",
+        # Site feedback saves a row; announce_feedback already posts it,
+        # by its type and subject only, so a tally would say it twice.
+        "/v1/feedback",
         # The operator's scheduler pass: session status advances, queue
         # fills and Drive jobs, which the background loop runs every 30 s
         # without a tally. The same work is no more news when an operator
@@ -443,27 +446,31 @@ def announce_song_added(
 # ---------------------------------------------------------------------------
 
 
+FeedbackDelivery = Literal["emailed", "retrying", "unconfigured"]
+"""What became of a piece of feedback's email when it was accepted."""
+
+_DELIVERY_LINES: dict[str, str] = {
+    "emailed": "emailed to the maintainer",
+    "retrying": "saved; the email failed and will be retried",
+    "unconfigured": "saved, not emailed: no Brevo key or feedback address is set",
+}
+
+
 def announce_feedback(
-    kind: str, subject: str, *, emailed: bool, screenshot: bool
+    kind: str, subject: str, *, delivery: FeedbackDelivery, screenshot: bool
 ) -> None:
     """Post "feedback" to activity when someone sends site feedback.
 
     The type and subject only — never the message, the sender's name or
     their email: the route is public, the channel is shared, and the whole
-    message goes by email. Says whether it was emailed, because without a
-    Brevo key or the feedback addresses this post is the only sign the
-    feedback arrived. Fire and
-    forget: the person sending feedback does not wait on Discord.
+    message is kept in ``site_feedback`` and goes by email. Says what became
+    of the email. Fire and forget: the person sending feedback does not
+    wait on Discord.
     """
     lines = [_md(subject)]
     if screenshot:
         lines.append("with a screenshot")
-    lines.append(
-        "emailed to the maintainer"
-        if emailed
-        else "not emailed: no Brevo key or feedback address is set, and the "
-        "message was not kept"
-    )
+    lines.append(_DELIVERY_LINES[delivery])
     activity.dispatch(
         send(
             discord.CHANNEL_ACTIVITY,

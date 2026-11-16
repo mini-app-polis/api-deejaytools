@@ -737,8 +737,7 @@ async def test_feedback_posts_its_type_and_subject_only(
     assert embed["title"] == "feedback · bug"
     assert embed["description"] == (
         "Queue \\*froze\\* @everyone\n"
-        "not emailed: no Brevo key or feedback address is set, and the message "
-        "was not kept"
+        "saved, not emailed: no Brevo key or feedback address is set"
     )
     assert embed["footer"]["text"] == "api-deejaytools · production"
     # The sender and their message go by email, never to the shared channel.
@@ -765,7 +764,7 @@ async def test_emailed_feedback_says_so(
     )
 
 
-async def test_feedback_brevo_refused_is_a_fault_not_feedback(
+async def test_feedback_brevo_refused_is_kept_and_a_fault(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
     discord_posts: Posts,
@@ -776,11 +775,18 @@ async def test_feedback_brevo_refused_is_a_fault_not_feedback(
             return_value=httpx.Response(401, json={"code": "unauthorized"})
         )
         res = await _feedback(client)
-    assert res.status_code == 502
+    # Saved, so accepted: the email is retried by the scheduler.
+    assert res.status_code == 201
 
-    assert await discord_posts.channel(discord.CHANNEL_ACTIVITY) == []
+    (embed,) = await discord_posts.channel(discord.CHANNEL_ACTIVITY)
+    assert embed["description"].endswith(
+        "\nsaved; the email failed and will be retried"
+    )
     (fault,) = await discord_posts.channel(discord.CHANNEL_ERRORS)
-    assert fault["title"] == "fault · 502"
+    assert "feedback · email" in str(fault)
+    # The fault names the reason's type, never the message.
+    for private in ("Jane", "jane@example.test", "3pm"):
+        assert private not in str(fault)
 
 
 # --- faults -----------------------------------------------------------------------

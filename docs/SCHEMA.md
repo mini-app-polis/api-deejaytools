@@ -20,7 +20,7 @@ Time columns in the app's tables are PostgreSQL `bigint` holding **epoch millise
 
 When writing raw SQL or ad-hoc queries, compare against numeric ms (e.g. `WHERE checkin_opens_at <= 1735689600000`) or convert explicitly. Do not pass ISO strings to bigint columns without conversion. Mixing types (`to_timestamp(ms/1000.0)` vs direct bigint compare) is a common source of off-by-timezone or off-by-unit bugs.
 
-Columns using this pattern: `created_at`, `updated_at`, `deleted_at` (where present), `checkin_opens_at`, `floor_trial_starts_at`, `floor_trial_ends_at`, `entered_queue_at`, `completed_at`, `next_attempt_at`, `granted_at` (`event_staff_grants`).
+Columns using this pattern: `created_at`, `updated_at`, `deleted_at` (where present), `checkin_opens_at`, `floor_trial_starts_at`, `floor_trial_ends_at`, `entered_queue_at`, `completed_at`, `next_attempt_at`, `granted_at` (`event_staff_grants`), `emailed_at` (`site_feedback`). `rate_limit_windows.window_start` is the exception: epoch seconds.
 
 ### Primary keys
 
@@ -32,6 +32,7 @@ Every app table's primary key is `text` holding a UUID string (`uuid.uuid4()`), 
 | `event_division_run_limits` | *(none)* | Logical key `(event_id, division_name)` via unique index `uq_event_division_run_limits_pk` |
 | `song_uploads` | `song_id` | The song it stages (`songs.id`) |
 | `event_staff_grants` | `(event_id, user_id, role)` | Composite |
+| `rate_limit_windows` | `key` | The rate-limit caller key |
 
 The `identity_*` tables have their own keys; see [Identity store](#identity-store).
 
@@ -674,6 +675,50 @@ Staging for a song's build ([ADR-0001](decisions/ADR-0001-durable-song-builds.md
 **Foreign keys:** `song_id` → `songs.id` (CASCADE)
 
 **Indexes:** `idx_song_uploads_due` on `(status, next_attempt_at)`
+
+---
+
+### `site_feedback`
+
+Site feedback from `POST /v1/feedback`, saved before it is emailed, so a refused email never loses it. Emailing is a delivery step retried by the scheduler tick (`services/feedback_delivery.py`). The route is public: the message is kept here and in the email, never in logs or Discord.
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `id` | `text` | NO | — | PK; quoted in the email as its reference |
+| `type` | `text` | NO | — | `bug` \| `feature` \| `general` (CHECK) |
+| `subject` | `text` | NO | — | |
+| `message` | `text` | NO | — | |
+| `contact_name` | `text` | YES | — | As the sender gave it |
+| `contact_email` | `text` | YES | — | As the sender gave it |
+| `screenshot` | `text` | YES | — | PNG or JPEG data URL; cleared once emailed |
+| `user_id` | `text` | YES | — | Verified Clerk subject when the sender was signed in. Not a FK |
+| `status` | `text` | NO | `'pending'` | `pending` \| `emailed` \| `failed` (CHECK). `pending` also waits while email is not configured |
+| `attempts` | `integer` | NO | `0` | Failed email attempts so far |
+| `next_attempt_at` | `bigint` | NO | — | Epoch ms; a `pending` row is due for the scheduler once this is `<= now` |
+| `last_error` | `text` | YES | — | Reason for the most recent failed attempt |
+| `emailed_at` | `bigint` | YES | — | Epoch ms |
+| `created_at` | `bigint` | NO | — | Epoch ms |
+| `updated_at` | `bigint` | NO | — | Epoch ms |
+
+**Primary key:** `id`
+
+**Indexes:** `idx_site_feedback_due` on `(status, next_attempt_at)`
+
+---
+
+### `rate_limit_windows`
+
+The rate limit's fixed windows, shared by every worker and replica ([ADR-0014](decisions/ADR-0014-rate-limit-windows-in-postgres.md)). `UNLOGGED`: a window lasts a minute. Written only by `PostgresWindows` in `middleware.py`.
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `key` | `text` | NO | — | PK; the caller (`user <issuer> <subject>` or `address <ip>`), prefixed by the path for a path's own limit |
+| `window_start` | `double precision` | NO | — | Epoch **seconds**, fractional, unlike the app's ms columns |
+| `count` | `integer` | NO | — | Requests counted in the window, refused ones included |
+
+**Primary key:** `key`
+
+**Indexes:** `idx_rate_limit_windows_start` on `(window_start)`
 
 ---
 

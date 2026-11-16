@@ -622,11 +622,11 @@ def caller_name(principal: Principal) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Optional caller, for the public session list
+# Optional caller, for the public session list and site feedback
 # ---------------------------------------------------------------------------
 
 
-async def _optional_subject(authorization: str | None) -> VerifiedSubject | None:
+async def optional_subject(authorization: str | None) -> VerifiedSubject | None:
     """The verified subject of an optional credential, or None for anonymous."""
     if not authorization or not authorization.startswith("Bearer "):
         return None
@@ -661,7 +661,7 @@ async def optional_synced_caller(
     only learns about their own check-ins, and ``runs_events`` only decides
     whether the read may come from the response cache.
     """
-    subject = await _optional_subject(authorization)
+    subject = await optional_subject(authorization)
     if subject is None:
         return None
     row = await session.get(User, subject.subject)
