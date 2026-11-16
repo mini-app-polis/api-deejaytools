@@ -1,3 +1,10 @@
+## [1.33.4](https://github.com/mini-app-polis/api-deejaytools/compare/v1.33.3...v1.33.4) (2026-11-16)
+
+
+### Bug Fixes
+
+* **conformance:** document PostgresWindows.take ([373947d](https://github.com/mini-app-polis/api-deejaytools/commit/373947d0f8cc4ae4d2dc815c1e80d4d895592ff3))
+
 ## [1.33.3](https://github.com/mini-app-polis/api-deejaytools/compare/v1.33.2...v1.33.3) (2026-11-16)
 
 
