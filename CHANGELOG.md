@@ -1,3 +1,12 @@
+## [1.33.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.33.1...v1.33.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.13.1 ([9f81bb7](https://github.com/mini-app-polis/api-deejaytools/commit/9f81bb70ba79d5003fd8ac40366a2e665c8e305d))
+* **deps:** bump the minor-and-patch group with 4 updates ([d4d9718](https://github.com/mini-app-polis/api-deejaytools/commit/d4d9718b6d4269642704910bafb68961de2fec2a))
+* **feedback:** save feedback before emailing it, and hold rate limits across workers ([cd86cac](https://github.com/mini-app-polis/api-deejaytools/commit/cd86caca28046eae6e8decaa8661fb1f53cf9f53))
+
 ## [1.33.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.33.0...v1.33.1) (2026-11-15)
 
 
