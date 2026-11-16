@@ -1,3 +1,10 @@
+## [1.33.3](https://github.com/mini-app-polis/api-deejaytools/compare/v1.33.2...v1.33.3) (2026-11-16)
+
+
+### Bug Fixes
+
+* **conformance:** document MemoryWindows methods, exempt site_feedback from API-006, drop history comment ([dc3e43e](https://github.com/mini-app-polis/api-deejaytools/commit/dc3e43e3223ad07a745deabd0c39dd1156ffd4eb))
+
 ## [1.33.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.33.1...v1.33.2) (2026-11-16)
 
 
