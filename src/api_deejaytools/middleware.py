@@ -243,6 +243,8 @@ class MemoryWindows(WindowStore):
         self._last_prune: float | None = None
 
     async def take(self, key: str, limit: int, window: float, now: float) -> int | None:
+        """Count one request against ``key`` in this process's windows; None
+        if allowed, else the seconds until its window ends."""
         self._prune(window, now)
         entry = self.windows.get(key)
         if entry is None or now - entry[0] >= window:
@@ -254,6 +256,7 @@ class MemoryWindows(WindowStore):
         return None
 
     def clear(self) -> None:
+        """Forget every window, so each limit starts afresh (between tests)."""
         self.windows.clear()
 
     def _prune(self, window: float, now: float) -> None:

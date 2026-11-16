@@ -324,7 +324,7 @@ async def test_it_gives_up_after_the_last_attempt(
     async with get_sessionmaker()() as session:
         assert await feedback_delivery.process_pending_feedback(session) == 0
     (row,) = await _rows(db)
-    # Kept, marked failed, and no longer retried.
+    # Kept, marked failed, and not retried.
     assert row["status"] == "failed"
     assert row["attempts"] == feedback_delivery.MAX_ATTEMPTS
     assert row["message"] == "m"
