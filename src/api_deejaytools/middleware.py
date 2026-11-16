@@ -305,6 +305,9 @@ class PostgresWindows(WindowStore):
         self._last_prune: float | None = None
 
     async def take(self, key: str, limit: int, window: float, now: float) -> int | None:
+        """Count one request against ``key`` in ``rate_limit_windows``; None
+        if allowed (or the database is unreachable), else the seconds until
+        its window ends."""
         try:
             async with self._engine().begin() as conn:
                 if self._last_prune is None or now - self._last_prune >= window:
