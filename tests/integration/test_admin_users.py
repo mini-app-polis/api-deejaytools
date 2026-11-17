@@ -182,7 +182,9 @@ async def test_list_names_each_users_staff_roles_by_event(
     admin = await person("admin", admin=True)
     alice = await person("alice")
     older = await insert_event(db, name="Fling", start_date="2026-05-01")
-    newer = await insert_event(db, name="The Open", start_date="2026-11-26")
+    newer = await insert_event(
+        db, name="The Open", start_date="2026-11-26", end_date="2026-11-29"
+    )
     for event_id, role in (
         (older, "coordinator"),
         (newer, "event-manager"),
