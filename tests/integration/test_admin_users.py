@@ -114,6 +114,7 @@ async def test_list_shape_counts_order_and_derived_role(
         "event_count": 0,
         "managed_partnership_count": 0,
         "team_count": 0,
+        "staff_roles": [],
     }
     assert admin_row["id"] == admin.id
     assert admin_row["role"] == "admin"
@@ -173,6 +174,54 @@ async def test_list_counts_events_managed_partnerships_and_teams(
     assert row["event_count"] == 2
     assert row["managed_partnership_count"] == 2
     assert row["team_count"] == 1
+
+
+async def test_list_names_each_users_staff_roles_by_event(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    older = await insert_event(db, name="Fling", start_date="2026-05-01")
+    newer = await insert_event(db, name="The Open", start_date="2026-11-26")
+    for event_id, role in (
+        (older, "coordinator"),
+        (newer, "event-manager"),
+        (newer, "dj"),
+    ):
+        await db.execute(
+            "INSERT INTO event_staff_grants (event_id, user_id, role, granted_by,"
+            " granted_at) VALUES ($1, $2, $3, $4, 1)",
+            event_id,
+            alice.id,
+            role,
+            admin.id,
+        )
+
+    res = await client.get(URL, headers=admin.headers)
+    assert res.status_code == 200, res.text
+    rows = {u["id"]: u for u in res.json()["data"]}
+    assert rows[admin.id]["staff_roles"] == []
+    # Newest event first, then by role.
+    assert rows[alice.id]["staff_roles"] == [
+        {
+            "event_id": newer,
+            "event_name": "The Open",
+            "event_start_date": "2026-11-26",
+            "role": "dj",
+        },
+        {
+            "event_id": newer,
+            "event_name": "The Open",
+            "event_start_date": "2026-11-26",
+            "role": "event-manager",
+        },
+        {
+            "event_id": older,
+            "event_name": "Fling",
+            "event_start_date": "2026-05-01",
+            "role": "coordinator",
+        },
+    ]
 
 
 async def test_list_search_and_role_filter(
@@ -245,6 +294,7 @@ async def test_grant_writes_the_store_only(
             "event_count": 0,
             "managed_partnership_count": 0,
             "team_count": 0,
+            "staff_roles": [],
         },
         "meta": {"version": "v1", "count": 1, "total": 1},
     }
