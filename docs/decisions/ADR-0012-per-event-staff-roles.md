@@ -39,8 +39,8 @@ their behaviour are unchanged.
 | Role | Purpose | Scopes, on the granted event |
 |------|---------|------------------------------|
 | Coordinator | Sees what has been entered, and keeps the event's registration list | `deejaytools.entries.read`, `deejaytools.registrations.write` |
-| DJ | Runs the floor trials and plays the music | `deejaytools.entries.read`, `deejaytools.registrations.write`, `deejaytools.queue.read`, `deejaytools.queue.manage`, `deejaytools.runs.read`, `deejaytools.sessions.write`, `deejaytools.delegation.act`, plus read access to the event's Drive folder |
-| Event manager | Admin, limited to the events granted | everything the DJ has (Drive folder access included), plus `deejaytools.events.write`, `deejaytools.staff.read` and `deejaytools.staff.write` |
+| DJ | Plays the music and runs the queue | `deejaytools.entries.read`, `deejaytools.queue.read`, `deejaytools.queue.manage`, `deejaytools.runs.read`, `deejaytools.delegation.act`, plus read access to the event's Drive folder |
+| Event manager | Admin, limited to the events granted | everything the DJ has (Drive folder access included), plus `deejaytools.registrations.write`, `deejaytools.sessions.write`, `deejaytools.events.write`, `deejaytools.staff.read` and `deejaytools.staff.write` |
 
 The role definitions live in data, not code. Each is an `identity_roles` row
 (`deejaytools-event-coordinator`, `deejaytools-event-dj`,
@@ -59,7 +59,9 @@ them global.
   `deejaytools.library.read` (every user's songs) stays admin-only.
   Staff also find the event's own people by name, with their email masked,
   through `GET /v1/events/:id/people`.
-- `deejaytools.registrations.write` (every staff role, migration 011): the
+- `deejaytools.registrations.write` (the coordinator and the event manager;
+  migration 011 gave it to every staff role, migration 014 took it from the
+  DJ): the
   event's registration list, so its staff see who is still missing music and
   keep the list current — import it, add or remove one entry, and link,
   mark handled or scratch an entry, through
@@ -74,9 +76,10 @@ them global.
 - `deejaytools.runs.read`: `GET /v1/runs` when `event_id` is given, or
   `session_id` names a session of the event. Without either filter, the
   route needs the global scope.
-- `deejaytools.sessions.write`: create, edit, set status, set divisions,
-  and delete sessions of the event. Create resolves the event from the
-  body's `event_id`.
+- `deejaytools.sessions.write` (the event manager only; migration 014 took
+  it from the DJ, since not every DJ on an event works its floor trials):
+  create, edit, set status, set divisions, and delete sessions of the
+  event. Create resolves the event from the body's `event_id`.
 - `deejaytools.delegation.act`: acting for a dancer at the event, on both
   delegated routes. A check-in (`POST /v1/checkins` with
   `on_behalf_of_user_id`) resolves the event from its session. A song upload
@@ -166,13 +169,14 @@ richer portal.
 
 - **Coordinator portal**: the event's submissions, filterable by division,
   with each song's label and who it belongs to. Read-only.
-- **DJ portal**: the event's sessions (create, edit, status, divisions,
-  delete), the live floor-trial queue with its actions, run history, check
-  in or withdraw a dancer and upload a song on their behalf, the event's
-  submissions, and a link to the event's Drive folder.
-- **Event-manager portal**: everything in the DJ portal, plus editing and
-  deleting the event, and the event's staff list with grant and revoke for
-  coordinator and DJ.
+- **DJ portal**: the event's sessions (to read), the live floor-trial queue
+  with its actions, run history, check in or withdraw a dancer and upload a
+  song on their behalf, the event's submissions and registration list (to
+  read), and a link to the event's Drive folder.
+- **Event-manager portal**: everything in the DJ portal, plus changing the
+  event's sessions (create, edit, status, divisions, delete) and its
+  registration list, editing and deleting the event, and the event's staff
+  list with grant and revoke for coordinator and DJ.
 
 ### Route additions
 

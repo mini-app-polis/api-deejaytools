@@ -338,13 +338,19 @@ ROUTES = [
     Route("active-staff", "deejaytools.queue.read", _queue_read("active/staff")),
     Route("runs-by-event", "deejaytools.runs.read", _runs_by_event),
     Route("runs-by-session", "deejaytools.runs.read", _runs_by_session),
+    Route("checkin-on-behalf", DELEGATION, _checkin_for, _delegated),
+    Route("upload-on-behalf", DELEGATION, _upload_for, _delegated),
+]
+
+#: Changing an event's sessions, status included, is its event manager's
+#: and an admin's, never its DJ's: not every DJ on an event works its floor
+#: trials (migration 014).
+MANAGER_ROUTES = [
     Route("create-session", "deejaytools.sessions.write", _create_session),
     Route("put-divisions", "deejaytools.sessions.write", _put_divisions),
     Route("patch-status", "deejaytools.sessions.write", _patch_status),
     Route("patch-session", "deejaytools.sessions.write", _patch_session),
     Route("delete-session", "deejaytools.sessions.write", _delete_session),
-    Route("checkin-on-behalf", DELEGATION, _checkin_for, _delegated),
-    Route("upload-on-behalf", DELEGATION, _upload_for, _delegated),
 ]
 
 
@@ -402,6 +408,36 @@ async def test_the_event_staff_are_allowed_on_their_event_only(
             "no_matching_scope",
         ),
     }
+
+
+@pytest.mark.parametrize("route", MANAGER_ROUTES, ids=[r.name for r in MANAGER_ROUTES])
+async def test_only_the_event_manager_and_an_admin_change_sessions(
+    route: Route, client: httpx.AsyncClient, db: asyncpg.Connection, world: World
+) -> None:
+    w = world
+    for who in (w.manager, w.admin):
+        res = await route.call(client, db, w, who, w.event_a)
+        assert res.status_code < 300, (route.name, who.id, res.text)
+    res = await route.call(client, db, w, w.admin, w.event_b)
+    assert res.status_code < 300, res.text
+
+    # The event's own DJ is refused, as is anyone on another event.
+    for who, event_id in ((w.dj, w.event_a), (w.manager, w.event_b)):
+        res = await route.call(client, db, w, who, event_id)
+        assert res.status_code == 403, (route.name, who.id, res.text)
+    for event_id in (w.event_a, w.event_b):
+        res = await route.call(client, db, w, w.dancer, event_id)
+        assert res.status_code == 403, (route.name, res.text)
+
+    refused = await db.fetch(
+        "SELECT resource, allowed, reason FROM identity_audit_events"
+        " WHERE scope = $1 AND subject = $2",
+        route.scope,
+        w.dj.id,
+    )
+    assert [(r["resource"], r["allowed"], r["reason"]) for r in refused] == [
+        (f"event:{w.event_a}", False, "no_matching_scope")
+    ]
 
 
 async def test_runs_without_a_filter_need_the_scope_through_a_role(
@@ -472,7 +508,7 @@ async def test_moving_a_session_needs_the_scope_on_both_events(
 ) -> None:
     w = world
     event_c = await _event(client, w.admin, "C")
-    await _grant(client, w.admin, event_c, w.dj.id, "dj")
+    await _grant(client, w.admin, event_c, w.manager.id, "event-manager")
     session_id = await insert_floor_session(db, event_id=w.event_a)
 
     def patch(who: Any, event_id: str | None) -> Awaitable[httpx.Response]:
@@ -483,23 +519,23 @@ async def test_moving_a_session_needs_the_scope_on_both_events(
         )
 
     # To an event they are not staff of, or out of every event: refused.
-    assert (await patch(w.dj, w.event_b)).status_code == 403
-    assert (await patch(w.dj, None)).status_code == 403
+    assert (await patch(w.manager, w.event_b)).status_code == 403
+    assert (await patch(w.manager, None)).status_code == 403
     assert (
         await db.fetchval("SELECT event_id FROM sessions WHERE id = $1", session_id)
         == w.event_a
     )
     # Unchanged event_id is no move.
-    assert (await patch(w.dj, w.event_a)).status_code == 200
-    # To another event they are DJ of: allowed.
-    res = await patch(w.dj, event_c)
+    assert (await patch(w.manager, w.event_a)).status_code == 200
+    # To another event they manage: allowed.
+    res = await patch(w.manager, event_c)
     assert res.status_code == 200, res.text
     assert res.json()["data"]["event_id"] == event_c
 
     decided = await db.fetch(
         "SELECT resource, allowed FROM identity_audit_events WHERE subject = $1"
         " AND scope = 'deejaytools.sessions.write' ORDER BY occurred_at",
-        w.dj.id,
+        w.manager.id,
     )
     assert [(r["resource"], r["allowed"]) for r in decided] == [
         (f"event:{w.event_a}", True),

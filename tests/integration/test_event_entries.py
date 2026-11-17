@@ -499,15 +499,18 @@ async def test_append_authorization_and_validation(
 ) -> None:
     admin = await person("admin", admin=True)
     alice = await person("alice")
+    coordinator = await person("cora")
     dj = await person("dave")
     event_a, event_b = await _two_events(client, db, admin, alice)
+    await _grant(client, admin, event_a, coordinator.id, "coordinator")
     await _grant(client, admin, event_a, dj.id, "dj")
     body = {"entries": [_entry("Classic", "Ada")]}
 
     assert (
         await client.post(f"{_registrations_url(event_a)}/append", json=body)
     ).status_code == 401
-    for caller, event_id in ((alice, event_a), (dj, event_b)):
+    # A DJ reads the registration list but never changes it (migration 014).
+    for caller, event_id in ((alice, event_a), (coordinator, event_b), (dj, event_a)):
         res = await client.post(
             f"{_registrations_url(event_id)}/append", json=body, headers=caller.headers
         )
@@ -519,7 +522,7 @@ async def test_append_authorization_and_validation(
     res = await client.post(
         f"{_registrations_url(event_a)}/append",
         json={"entries": [{"division": "Classic", "dancer_1": "  "}]},
-        headers=dj.headers,
+        headers=coordinator.headers,
     )
     assert res.status_code == 400
     assert res.json()["error"]["code"] == "VALIDATION_ERROR"

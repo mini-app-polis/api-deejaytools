@@ -188,14 +188,14 @@ async def test_event_staff_roles_seed_matches_adr_0012(database: str) -> None:
         by_role.setdefault(r["role_name"], set()).add(r["scope"])
     dj = {
         "deejaytools.entries.read",
-        "deejaytools.registrations.write",
         "deejaytools.queue.read",
         "deejaytools.queue.manage",
         "deejaytools.runs.read",
-        "deejaytools.sessions.write",
         "deejaytools.delegation.act",
     }
-    # Migration 011: every staff role manages its event's registration list.
+    # Migration 011: the coordinator and event manager manage the event's
+    # registration list. Migration 014: the DJ changes neither it nor the
+    # event's sessions; the event manager does both.
     assert by_role == {
         "deejaytools-event-coordinator": {
             "deejaytools.entries.read",
@@ -204,6 +204,8 @@ async def test_event_staff_roles_seed_matches_adr_0012(database: str) -> None:
         "deejaytools-event-dj": dj,
         "deejaytools-event-manager": dj
         | {
+            "deejaytools.registrations.write",
+            "deejaytools.sessions.write",
             "deejaytools.events.write",
             "deejaytools.staff.read",
             "deejaytools.staff.write",

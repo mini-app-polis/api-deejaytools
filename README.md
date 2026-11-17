@@ -182,6 +182,10 @@ UPDATE_PERMISSIONS=1 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:
 - `migrations/012_admin_entries_write.sql` gives the admin role
   `deejaytools.entries.write`, which moving an event entry to another
   division takes.
+- `migrations/014_dj_no_session_or_registration_writes.sql` takes
+  `deejaytools.sessions.write` and `deejaytools.registrations.write` from the
+  DJ role, and from DJs already on an event's staff unless another role they
+  hold on that event still carries it.
 - `scripts/apply_migrations.py` applies pending files on every deploy,
   tracked in `schema_migrations`, before the app starts.
 - `scripts/backfill_principals.py` runs next, on every deploy: it writes this
