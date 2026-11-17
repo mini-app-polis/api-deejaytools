@@ -1,3 +1,10 @@
+# [1.37.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.36.0...v1.37.0) (2026-11-17)
+
+
+### Features
+
+* **songs:** read each song's length from its file and show it on event submissions ([e810d19](https://github.com/mini-app-polis/api-deejaytools/commit/e810d199faea163e181ea4ab90d475480a5c5fb0))
+
 # [1.36.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.35.0...v1.36.0) (2026-11-17)
 
 
