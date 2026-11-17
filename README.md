@@ -209,8 +209,9 @@ keeps its dashboard settings (`.railway/README.md`).
 Configuration comes from this repo's own Doppler project, whose configs
 hold the names in `.env.example`.
 Discord notifications (`DISCORD_WEBHOOK_URL`, optionally
-`DISCORD_WEBHOOK_URL_ERRORS` and `DISCORD_WEBHOOK_URL_ACTIVITY`; off when
-unset), the change-feed switch `NOTIFY_DATA_CHANGES` and the
+`DISCORD_WEBHOOK_URL_ERRORS`, `DISCORD_WEBHOOK_URL_ACTIVITY` and this
+service's own activity channel `DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY`;
+off when unset), the change-feed switch `NOTIFY_DATA_CHANGES` and the
 per-environment event allow-list `DISCORD_NOTIFY_EVENTS` (events
 `data_changed` and `fault`: production posts both, development posts faults only) are described in [docs/OPERATIONS.md](docs/OPERATIONS.md), with
 retrying failed song builds.

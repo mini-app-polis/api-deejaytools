@@ -107,6 +107,9 @@ export default defineRailway((ctx) => {
       WEB_CONCURRENCY: preserve(),
       // The fallback for every Discord channel without its own webhook.
       DISCORD_WEBHOOK_URL: preserve(),
+      // This service's own activity channel; unset, activity posts to the
+      // shared DISCORD_WEBHOOK_URL_ACTIVITY.
+      DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY: preserve(),
       // Mutes the change feed without a deploy (docs/OPERATIONS.md).
       NOTIFY_DATA_CHANGES: preserve(),
       // Which events each environment posts (docs/OPERATIONS.md).

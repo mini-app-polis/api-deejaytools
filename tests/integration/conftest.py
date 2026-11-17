@@ -65,6 +65,7 @@ for _name in (
     "DISCORD_WEBHOOK_URL",
     "DISCORD_WEBHOOK_URL_ERRORS",
     "DISCORD_WEBHOOK_URL_ACTIVITY",
+    "DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY",
 ):
     os.environ[_name] = ""
 
