@@ -29,6 +29,19 @@ from .job import DriveJobRefused, _Job, _missing_field
 logger = get_logger()
 
 
+def _is_refused_recipient(error: Exception) -> bool:
+    """Whether Drive refused the recipient itself (``invalidSharingRequest``:
+    no Google account for the address while the share sends no email, or a
+    domain policy). Retrying cannot change that answer."""
+    details = getattr(error, "error_details", None)
+    if isinstance(details, list) and any(
+        isinstance(d, dict) and d.get("reason") == "invalidSharingRequest"
+        for d in details
+    ):
+        return True
+    return "invalidsharingrequest" in str(error).lower()
+
+
 async def _holds_folder_role(db: AsyncSession, event_id: str, user_id: str) -> bool:
     """Whether the person is the event's DJ or event manager now."""
     held = (
@@ -106,7 +119,13 @@ async def _run_share_folder_job(db: AsyncSession, job: _Job) -> None:
     folder_id = await drive.ensure_event_folder(season_year=season, event_name=name)
     result = await drive.share_with_reader(folder_id, email)
     if result.failed:
-        raise result.failed[0][1]
+        error = result.failed[0][1]
+        if _is_refused_recipient(error):
+            raise DriveJobRefused(
+                f"{job.kind}: Drive refuses to share the event folder with the "
+                f"address of user {user_id} (invalidSharingRequest)"
+            )
+        raise error
     if not result.shared:
         raise DriveJobRefused(
             f"{job.kind}: the email address of user {user_id} is not one Drive "

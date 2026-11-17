@@ -417,6 +417,31 @@ async def test_a_person_without_an_email_fails_the_job_at_once(
     assert "is not one Drive can share with" in row["last_error"]
 
 
+async def test_an_address_drive_refuses_fails_the_job_at_once(
+    client: httpx.AsyncClient,
+    person: Callable[..., Any],
+    db: asyncpg.Connection,
+    session: AsyncSession,
+    real_drive: FakeDriveService,
+) -> None:
+    admin = await person("admin", admin=True)
+    dj = await person("dj")
+    event_id = await _event(client, admin)
+    await _grant(client, admin, event_id, dj.id, "dj")
+    refusal = RuntimeError("HttpError 400: invalidSharingRequest")
+    refusal.error_details = [{"reason": "invalidSharingRequest"}]  # type: ignore[attr-defined]
+    real_drive.fail_share = refusal
+
+    result = await drive_jobs.process_drive_jobs(session)
+    assert result == {"claimed": 1, "succeeded": 0, "failed": 1}
+    row = await db.fetchrow("SELECT status, attempts, last_error FROM drive_jobs")
+    assert (row["status"], row["attempts"]) == ("failed", 1)
+    assert row["last_error"] == (
+        "share_event_folder: Drive refuses to share the event folder with the "
+        f"address of user {dj.id} (invalidSharingRequest)"
+    )
+
+
 async def test_a_drive_failure_is_retried_like_any_job(
     client: httpx.AsyncClient,
     person: Callable[..., Any],

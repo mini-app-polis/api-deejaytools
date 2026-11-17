@@ -43,6 +43,7 @@ class FakeDriveService:
         self._next = 0
         self.fail_copy: Exception | None = None
         self.fail_list: Exception | None = None
+        self.fail_share: Exception | None = None
         # file id -> its permissions, as permissions.list returns them.
         self.permissions_by_file: dict[str, list[dict[str, Any]]] = {}
         # permissions.list answers this many per page.
@@ -246,6 +247,8 @@ class _Permissions:
         self._svc.calls.append(("permissions.create", kw))
 
         def run() -> Any:
+            if self._svc.fail_share is not None:
+                raise self._svc.fail_share
             perms = self._svc.permissions_by_file.setdefault(kw["fileId"], [])
             perm = {"id": self._svc._new_id("perm"), **kw["body"]}
             perms.append(perm)
