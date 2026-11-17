@@ -3193,7 +3193,9 @@ Sets the admin's marks; fields not sent are left as they are. `scratched` marks 
 
 **Auth:** `deejaytools.users.read`
 
-**Purpose:** User directory with song/partner counts.
+**Purpose:** User directory with counts of each user's songs, partners,
+events entered (distinct events their songs are submitted to), managed
+partnerships and teams.
 
 **Path params:** none
 
@@ -3221,7 +3223,10 @@ const listQuery = z.object({
       "role": "user",
       "created_at": 1710000000000,
       "song_count": 3,
-      "partner_count": 2
+      "partner_count": 2,
+      "event_count": 1,
+      "managed_partnership_count": 0,
+      "team_count": 1
     }
   ],
   "meta": { "version": "…", "count": 1, "total": 1 }

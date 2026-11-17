@@ -111,11 +111,68 @@ async def test_list_shape_counts_order_and_derived_role(
         "created_at": 100,
         "song_count": 1,
         "partner_count": 1,
+        "event_count": 0,
+        "managed_partnership_count": 0,
+        "team_count": 0,
     }
     assert admin_row["id"] == admin.id
     assert admin_row["role"] == "admin"
     assert admin_row["song_count"] == 0
     assert admin_row["partner_count"] == 0
+
+
+async def test_list_counts_events_managed_partnerships_and_teams(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    bob = await person("bob")
+    first = await insert_event(db, name="First")
+    second = await insert_event(db, name="Second")
+    gone = await insert_event(db, name="Gone")
+    song = await insert_song(db, alice.id)
+    other = await insert_song(db, alice.id)
+    deleted = await insert_song(db, alice.id)
+    await db.execute("UPDATE songs SET deleted_at = 9 WHERE id = $1", deleted)
+    # Two songs at one event count it once; bob submitting alice's song
+    # still counts for alice; a deleted song's event does not count.
+    for sid, eid, song_id, by in (
+        ("s1", first, song, alice.id),
+        ("s2", first, other, alice.id),
+        ("s3", second, song, bob.id),
+        ("s4", gone, deleted, alice.id),
+    ):
+        await db.execute(
+            "INSERT INTO event_song_submissions (id, event_id, song_id,"
+            " submitted_by_user_id, created_at) VALUES ($1, $2, $3, $4, 1)",
+            sid,
+            eid,
+            song_id,
+            by,
+        )
+    for mid, deleted_at in (("mp1", None), ("mp2", None), ("mp3", 9)):
+        await db.execute(
+            "INSERT INTO managed_partnerships (id, user_id, leader_first_name,"
+            " leader_last_name, follower_first_name, follower_last_name,"
+            " created_at, updated_at, deleted_at)"
+            " VALUES ($1, $2, 'Lee', 'Der', 'Fol', 'Lower', 1, 1, $3)",
+            mid,
+            alice.id,
+            deleted_at,
+        )
+    await db.execute(
+        "INSERT INTO teams (id, user_id, identifier, created_at, updated_at)"
+        " VALUES ('t1', $1, 'team2026', 1, 1)",
+        alice.id,
+    )
+
+    res = await client.get(URL, params={"q": "alice"}, headers=admin.headers)
+    assert res.status_code == 200, res.text
+    (row,) = res.json()["data"]
+    assert row["song_count"] == 2
+    assert row["event_count"] == 2
+    assert row["managed_partnership_count"] == 2
+    assert row["team_count"] == 1
 
 
 async def test_list_search_and_role_filter(
@@ -185,6 +242,9 @@ async def test_grant_writes_the_store_only(
             "created_at": created,
             "song_count": 1,
             "partner_count": 1,
+            "event_count": 0,
+            "managed_partnership_count": 0,
+            "team_count": 0,
         },
         "meta": {"version": "v1", "count": 1, "total": 1},
     }
