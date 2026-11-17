@@ -1,3 +1,10 @@
+# [1.35.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.34.0...v1.35.0) (2026-11-17)
+
+
+### Features
+
+* **admin-users:** list each user's per-event staff roles ([9ac77c2](https://github.com/mini-app-polis/api-deejaytools/commit/9ac77c2cc10156edf75eeebcc544885c6eb1a9c4))
+
 # [1.34.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.33.4...v1.34.0) (2026-11-17)
 
 
