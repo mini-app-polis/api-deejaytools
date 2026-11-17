@@ -40,6 +40,7 @@ from ..models import (
     Session,
     Song,
 )
+from ..services import change_feed
 from ..services.drive_jobs import enqueue_trash_jobs
 from ..text import title_case_words
 from ..validation import ZodModel
@@ -245,7 +246,8 @@ async def patch_managed_partnership(
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Update a managed partnership's names."""
-    await _load_live(session, id, caller.user_id)
+    before = change_feed.snapshot(await _load_live(session, id, caller.user_id))
+    names = _titled(body)
     try:
         await session.execute(
             update(ManagedPartnership)
@@ -253,7 +255,18 @@ async def patch_managed_partnership(
                 ManagedPartnership.id == id,
                 ManagedPartnership.user_id == caller.user_id,
             )
-            .values(updated_at=now_ms(), **_titled(body))
+            .values(updated_at=now_ms(), **names)
+        )
+        change_feed.record(
+            session,
+            "managed_partnerships",
+            change_feed.UPDATED,
+            {
+                "id": id,
+                **names,
+                **{f"from_{k}": v for k, v in before.items() if k != "id"},
+            },
+            covers=["managed_partnerships"],
         )
         await session.commit()
     except SQLAlchemyError as exc:
@@ -298,7 +311,7 @@ async def delete_managed_partnership(
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     """Soft-delete a managed partnership and its songs."""
-    await _load_live(session, id, caller.user_id)
+    partnership = change_feed.snapshot(await _load_live(session, id, caller.user_id))
 
     active = await session.execute(
         select(Checkin.id)
@@ -356,6 +369,13 @@ async def delete_managed_partnership(
                 ManagedPartnership.user_id == caller.user_id,
             )
             .values(deleted_at=now)
+        )
+        change_feed.record(
+            session,
+            "managed_partnerships",
+            change_feed.DELETED,
+            {**partnership, "songs": len(songs)},
+            covers=["managed_partnerships", "songs", "event_song_submissions"],
         )
         await session.commit()
     except SQLAlchemyError as exc:

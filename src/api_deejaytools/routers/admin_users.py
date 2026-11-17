@@ -55,6 +55,7 @@ from ..models import (
     Team,
     User,
 )
+from ..services import change_feed
 from ..submissions import fetch_user_submission_rows, map_submission_row
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
@@ -395,6 +396,13 @@ async def update_role(
                     PrincipalRole.role_name == ROLE_ADMIN,
                 )
             )
+        change_feed.record(
+            session,
+            "users",
+            change_feed.UPDATED,
+            {"id": id, "admin": body.role == "admin"},
+            covers=["users"],
+        )
         await session.commit()
     except Exception:
         await session.rollback()

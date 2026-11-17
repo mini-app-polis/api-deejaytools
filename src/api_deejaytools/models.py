@@ -25,6 +25,7 @@ from sqlalchemy import (
     Table,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -436,3 +437,23 @@ class SiteFeedback(Base):
     emailed_at: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[int] = mapped_column(BigInteger)
     updated_at: Mapped[int] = mapped_column(BigInteger)
+
+
+class ActivityFeedEntry(Base):
+    """One change a person made, waiting to be posted to Discord.
+
+    This service's own table (migration 016), written in the change's own
+    transaction by services/change_feed.py and posted by the scheduler, one
+    message per person once they have been quiet for a minute.
+    """
+
+    __tablename__ = "activity_feed"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    actor_id: Mapped[str] = mapped_column(Text)
+    request_id: Mapped[str | None] = mapped_column(Text)
+    table_name: Mapped[str] = mapped_column(Text)
+    op: Mapped[str] = mapped_column(Text)
+    facts: Mapped[dict] = mapped_column(JSONB, server_default="{}")
+    created_at: Mapped[int] = mapped_column(BigInteger)
+    posted_at: Mapped[int | None] = mapped_column(BigInteger)

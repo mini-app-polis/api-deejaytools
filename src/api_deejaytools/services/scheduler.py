@@ -2,7 +2,8 @@
 
 One pass (``run_tick``) advances session statuses, auto-fills the active queue
 of every running floor trial, retries site feedback whose email failed
-(``feedback_delivery``), then drains one batch of the Drive job queue,
+(``feedback_delivery``), posts the change feed of everyone quiet for a
+minute (``activity_feed``), then drains one batch of the Drive job queue,
 measures a few songs' lengths (``song_lengths``), and at most once per ``EVENT_FOLDER_SWEEP_INTERVAL_SECONDS`` trashes the
 emptied folders of deleted events (``drive_jobs.sweep_event_folders``).
 The background loop runs a pass at startup and then every ``TICK_INTERVAL_MS``
@@ -16,7 +17,7 @@ run against the database (ADR-0007 point 5); this loop is that scheduler.
 
 Several replicas are safe: session status updates are idempotent, the queue
 fill locks each session row, and Drive jobs and feedback retries are claimed
-with SKIP LOCKED.
+with SKIP LOCKED, and the change feed is claimed under an advisory lock.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..config import Settings, get_settings
 from ..database import get_sessionmaker
 from . import (
+    activity_feed,
     drive,
     drive_jobs,
     feedback_delivery,
@@ -150,6 +152,26 @@ async def run_tick() -> None:
         )
     else:
         notifications.clear_fault("scheduler.feedback")
+
+    try:
+        # Before the Drive check: the change feed does not need Drive.
+        await activity_feed.post_due(maker)
+    except Exception as exc:  # noqa: BLE001 - logged and reported
+        logger.error(
+            with_log_prefix(LOG_FAILURE, f"activity_feed_tick_failed: {exc!r}")
+        )
+        with sentry_sdk.new_scope() as scope:
+            scope.set_level("error")
+            scope.set_tag("subsystem", "activity_feed")
+            event_id = sentry_sdk.capture_exception(exc)
+        notifications.report_fault_once(
+            "scheduler.activity_feed",
+            "scheduler · activity feed",
+            exc,
+            event_id=event_id,
+        )
+    else:
+        notifications.clear_fault("scheduler.activity_feed")
 
     if not drive.drive_configured():
         # Without Drive credentials every build and Drive job would fail and

@@ -1,31 +1,31 @@
-"""Discord notifications: the change feed, faults, and "song added".
+"""Discord notifications: the change feed, faults, and feedback.
 
-The machinery is ``mini_app_polis.activity`` and ``mini_app_polis.discord``,
-shared with the fleet's other APIs: SQLAlchemy listeners that tally what a
-request committed, a middleware that posts one change summary per request
-to the ``activity`` channel (this service's own when
+Faults go through ``mini_app_polis.activity`` and ``mini_app_polis.discord``,
+shared with the fleet's other APIs: a middleware that posts every 5xx or
+unhandled exception to ``errors``, and background fault reports. The change
+feed is this service's own: each change a request commits is kept in
+``activity_feed`` in the same transaction (``services/change_feed.py``),
+and the scheduler posts one message per person, in words, once they have
+been quiet for a minute (``services/activity_feed.py``), to the
+``activity`` channel (this service's own when
 ``DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY`` is set, else the fleet's shared
-one) and every 5xx or unhandled exception to
-``errors``, announcements that go out only when their transaction commits,
-and background fault reports. Their module docstrings say what is and is not
-seen. Importing this module imports ``activity``, which is what registers
-the listeners.
+one). Kept in the database rather than in a worker's memory, because the
+API runs several workers and one person's burst used to arrive as one
+message or several depending on where their requests landed.
 
 What stays here is this service's policy:
 
-- **Where messages come from.** Every message's footer says
-  ``api-deejaytools``, because the channels are shared with the rest of the
-  fleet. The actor is ``request.state.caller``, which ``auth.require_scope``
-  stamps with the caller's Clerk user id (the principal's subject), and the
-  feed shows it as the person's first and last name from ``users``
-  (:func:`user_display_name`), or the id when they have none — never their
-  email, which does not belong in a shared channel. The name is read when a
-  message is sent, after the response, so it never slows or fails a request.
-- **Only production posts changes and faults.** common-python-utils
-  posts no change summary and no fault from any other environment; a
-  development process says what it changed and what broke in its own logs.
-  "Song added" and "feedback" still post from development, and their titles
-  say the environment (``[DEVELOPMENT] song added``).
+- **Who did it.** The actor is ``request.state.caller``, which
+  ``auth.require_scope`` stamps with the caller's Clerk user id (the
+  principal's subject); a message is titled with the person's first and
+  last name from ``users`` (:func:`user_display_name`), or the id when they
+  have none — never their email, which does not belong in a shared
+  channel. The name is read when a message is sent, never on a request's
+  path.
+- **Only production posts.** Changes and faults are posted from production
+  only; any other environment says what it changed and what broke in its
+  own logs. A message's footer is ``api-deejaytools``, with the environment
+  only outside production (:func:`footer`).
 - **What is not news** (``SUPPRESSED_TABLES``, ``EXCLUDED_PATHS``,
   ``CHANGES_NOT_REPORTED``), each with its reason. ``NOTIFY_DATA_CHANGES``
   turns the change feed off altogether without a deploy, as in
@@ -35,20 +35,21 @@ What stays here is this service's policy:
   ``data_changed`` is the change feed, ``fault`` is every fault, from a
   request or from background work. Both only ever post from production
   (above), so the list can narrow production's messages, not widen
-  development's. "Song
-  added" and "feedback" are not events in the list and are unaffected.
+  development's.
 - **No machine callers.** The only caller is the web app, so a 4xx is a
   person meeting a guard and is never reported (``is_machine`` is None).
-- **Activity has its own channel.** The change feed, "song added" and
-  "feedback" post to ``DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY`` when it is
-  set, so deejaytools' activity is not mixed into the fleet's shared
-  channel; unset, they post to ``DISCORD_WEBHOOK_URL_ACTIVITY`` as before.
+- **Activity has its own channel.** The change feed and "feedback" post to
+  ``DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY`` when it is set, so
+  deejaytools' activity is not mixed into the fleet's shared channel;
+  unset, they post to ``DISCORD_WEBHOOK_URL_ACTIVITY`` as before.
 - **Webhooks resolve from ``Settings``**, like every other setting,
   rather than straight from the environment. With none set,
   notifications are off: the first message dropped on each channel is
   logged, the rest silently, and nothing is posted.
-- **Song added** (``announce_song_added``): one message per song, posted
-  when its Drive build commits, never for a build that fails or rolls back.
+- **Song added** (:func:`record_song_added`): kept in the feed when the
+  song's Drive build commits, never for a build that fails or rolls back,
+  and posted with the uploader's other changes — joined to the song's
+  submission to an event when that came in the same minute.
 - **Feedback** (``announce_feedback``): one message per piece of site
   feedback accepted, naming its type and subject, never its sender.
 - **Background faults** (``report_fault``, ``report_fault_once``): work with
@@ -71,6 +72,7 @@ from sqlalchemy import select
 from ..config import Settings, get_settings
 from ..database import get_sessionmaker
 from ..models import User
+from . import change_feed
 
 logger = get_logger()
 
@@ -113,6 +115,15 @@ SUPPRESSED_TABLES = frozenset(
         # Failures that are final go to errors. An operator's own changes to
         # the queue are still reported (OPERATOR_QUEUE_PATHS).
         "drive_jobs",
+        # Who may do what: written with a change that is news in its own
+        # right (a staff grant, an admin role, a sign-in), which says it.
+        "identity_issuers",
+        "identity_principals",
+        "identity_principal_roles",
+        "identity_explicit_grants",
+        # A dancer and a partner as one check-in entity: made on the way to
+        # a check-in or a song, never news by itself.
+        "pairs",
     }
 )
 
@@ -132,7 +143,7 @@ CHANGES_NOT_REPORTED = frozenset(
         # The final chunk creates the song (and, for a team or "other"
         # upload, its placeholder partner), but a song is only added once
         # its Drive build succeeds: a failed build deletes it again. The
-        # build announces it then (announce_song_added), naming the
+        # build records it then (record_song_added), naming the
         # placeholder; a tally here would announce songs that never came
         # to exist. Earlier chunks write nothing but the audit row.
         "/v1/songs/upload/chunk",
@@ -226,21 +237,20 @@ async def send(channel: str, payload: dict[str, Any], context: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _config(
-    *,
-    report_changes: bool = True,
-    suppressed_tables: frozenset[str] = SUPPRESSED_TABLES,
-) -> activity.ActivityConfig:
+def _config() -> activity.ActivityConfig:
+    """The library middleware's config: faults only.
+
+    Changes are this service's own feed (``services/change_feed.py``), so
+    the library's per-worker tally is off.
+    """
     settings = get_settings()
     return activity.ActivityConfig(
         service=SERVICE,
         display_name=user_display_name,
         environment=settings.ENVIRONMENT,
-        suppressed_tables=suppressed_tables,
+        suppressed_tables=SUPPRESSED_TABLES,
         excluded_paths=EXCLUDED_PATHS,
-        report_changes=report_changes
-        and settings.NOTIFY_DATA_CHANGES
-        and event_enabled(DATA_CHANGED, settings),
+        report_changes=False,
         report_faults=event_enabled(FAULT, settings),
         send=send,
         label=True,
@@ -270,26 +280,46 @@ async def user_display_name(user_id: str) -> str | None:
     return name or None
 
 
-_feed = activity.activity_middleware(lambda: _config())
-_faults_only = activity.activity_middleware(lambda: _config(report_changes=False))
-_operator_queue = activity.activity_middleware(
-    lambda: _config(suppressed_tables=SUPPRESSED_TABLES - {"drive_jobs"})
-)
+_faults = activity.activity_middleware(lambda: _config())
+
+
+def captured_tables_ignored(path: str) -> frozenset[str]:
+    """The tables a request's change capture leaves out on ``path``."""
+    if activity.is_excluded(path, OPERATOR_QUEUE_PATHS):
+        return SUPPRESSED_TABLES - {"drive_jobs"}
+    return SUPPRESSED_TABLES
 
 
 async def activity_middleware(request: Any, call_next: Any) -> Any:
-    """Report what the request committed, and any fault, on the way out.
+    """Keep what the request changes for the feed, and report any fault.
 
-    Registered outside the error middleware and the request limits, so it
-    sees the status that went on the wire (a deadline's 503 included) and
-    the fault detail ``errors.UnhandledErrorMiddleware`` records.
+    Registered outside the error middleware and the request limits, so the
+    fault report sees the status that went on the wire (a deadline's 503
+    included) and the fault detail ``errors.UnhandledErrorMiddleware``
+    records. The capture is open for the request's own work only.
     """
     path = request.url.path
-    if activity.is_excluded(path, CHANGES_NOT_REPORTED):
-        return await _faults_only(request, call_next)
-    if activity.is_excluded(path, OPERATOR_QUEUE_PATHS):
-        return await _operator_queue(request, call_next)
-    return await _feed(request, call_next)
+    if activity.is_excluded(path, EXCLUDED_PATHS) or activity.is_excluded(
+        path, CHANGES_NOT_REPORTED
+    ):
+        return await _faults(request, call_next)
+    token = change_feed.begin(request, ignored=captured_tables_ignored(path))
+    try:
+        return await _faults(request, call_next)
+    finally:
+        change_feed.end(token)
+
+
+def footer() -> str:
+    """A message's footer: the service, and the environment outside production.
+
+    The channel is this service's own and only production posts, so the
+    environment would say the same thing on every message.
+    """
+    environment = get_settings().ENVIRONMENT
+    if environment.lower() == "production":
+        return SERVICE
+    return f"{SERVICE} · {environment}"
 
 
 # ---------------------------------------------------------------------------
@@ -382,72 +412,17 @@ def drive_file_url(file_id: str) -> str:
     return f"https://drive.google.com/file/d/{file_id}/view"
 
 
-def song_added_text(
-    *,
-    owner: str,
-    uploader: str | None,
-    routine: str | None,
-    division: str | None,
-    partner: str | None = None,
-    partner_kind: str | None = None,
-    managed: str | None = None,
-) -> str:
-    """One sentence: who added what, in which division, with whom.
+def record_song_added(session: Any, actor_id: str, facts: dict[str, Any]) -> None:
+    """Keep "song added" in the feed, in ``session``'s transaction.
 
-    ``owner`` is the dancer the song belongs to. ``uploader`` is set when
-    someone else uploaded it for them ("Upload For"): then
-    ``Uploader uploaded 'Routine' for Owner (…)``; otherwise
-    ``Owner added 'Routine' (…)``. ``partner_kind`` is the partners row's
-    kind: ``team`` and ``other`` are portal entries (a team name, a
-    free-text entity), not a person dancing with the owner.
+    ``actor_id`` is who uploaded it (its owner, or the person who uploaded it
+    for them). ``facts`` say what it is: ``song_id``, ``routine``,
+    ``division``, ``partner`` and ``partner_kind``, ``managed``, ``for`` (the
+    owner's name, when someone else uploaded it) and ``drive_file_id``. A
+    build that rolls back keeps nothing. Posted with the uploader's other
+    changes (``services/activity_feed.py``).
     """
-    what = f"'{_md(routine)}'" if routine else "a song"
-    if uploader:
-        sentence = f"{_md(uploader)} uploaded {what} for {_md(owner)}"
-    else:
-        sentence = f"{_md(owner)} added {what}"
-    details: list[str] = []
-    if division:
-        details.append(_md(division))
-    if managed:
-        details.append(f"managed partnership {_md(managed)}")
-    elif partner and partner_kind == "team":
-        details.append(f"team {_md(partner)}")
-    elif partner and partner_kind and partner_kind != "partner":
-        details.append(f"as {_md(partner)}")
-    elif partner:
-        details.append(f"with {_md(partner)}")
-    if details:
-        sentence += f" ({', '.join(details)})"
-    return sentence
-
-
-def announce_song_added(
-    session: Any, text: str, *, drive_file_id: str | None = None
-) -> None:
-    """Post "song added" to activity when ``session``'s transaction commits.
-
-    An embed rather than plain content: mentions inside an embed never
-    ping, so an ``@everyone`` typed into a routine name stays text. Outside
-    production the title carries the environment (``[DEVELOPMENT]``).
-    """
-    description = text
-    if drive_file_id:
-        description += f"\n[Drive file]({drive_file_url(drive_file_id)})"
-    activity.announce_on_commit(
-        session,
-        discord.CHANNEL_ACTIVITY,
-        embeds=[
-            {
-                "title": "song added",
-                "color": _ANNOUNCE_COLOR,
-                "description": description,
-                "footer": {"text": f"{SERVICE} · {get_settings().ENVIRONMENT}"},
-            }
-        ],
-        context="songs/added",
-        send=send,
-    )
+    change_feed.record_for(session, actor_id, "songs", change_feed.ADDED, facts)
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +464,7 @@ def announce_feedback(
                         "title": f"{discord.environment_prefix()}feedback · {kind}",
                         "color": _ANNOUNCE_COLOR,
                         "description": "\n".join(lines),
-                        "footer": {"text": f"{SERVICE} · {get_settings().ENVIRONMENT}"},
+                        "footer": {"text": footer()},
                     }
                 ],
                 "allowed_mentions": dict(discord.NO_MENTIONS),

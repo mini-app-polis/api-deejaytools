@@ -235,16 +235,16 @@ limits.
 
 ## Discord notifications
 
-The service posts to Discord through
-common-python-utils' `mini_app_polis.activity` and `mini_app_polis.discord`
-(`src/api_deejaytools/services/notifications.py`). Every message's footer
-says `api-deejaytools` and the environment. Only production posts the
-change feed and faults; development and local log them instead.
-"Song added" and "feedback" still post from development, with the title
-starting `[DEVELOPMENT]` (or `[LOCAL]`) — `[DEVELOPMENT] song added` — so
-they are not read as production's. Messages name people only where that
-is the point (the dancers in "song added"); the caller of a request is
-named by Clerk user id, never by email.
+The service posts to Discord through common-python-utils'
+`mini_app_polis.discord`: faults through its `mini_app_polis.activity`
+middleware, and the change feed through this service's own outbox
+(`src/api_deejaytools/services/notifications.py`, `change_feed.py` and
+`activity_feed.py`). Only production posts; development and local log what
+they changed and what broke instead. A message's footer says
+`api-deejaytools`, and the environment only outside production. People are
+named by their first and last name from `users`, or their Clerk user id
+(`users.id`) when they have none or the name cannot be read — never their
+email or display name, which provisioning sets to the email.
 
 Faults go to the fleet's shared `errors` channel. Activity (the change
 feed, "song added" and "feedback") goes to deejaytools' own channel when
@@ -266,7 +266,7 @@ as api-kaianolevine-com's:
 
 | Event | Message |
 |---|---|
-| `data_changed` | the summary of what a request committed, to `activity` |
+| `data_changed` | the change feed: each person's changes, to `activity` |
 | `fault` | every fault, a request's or background work's, to `errors` |
 
 An event left out of an environment's list is not sent, and an environment
@@ -275,7 +275,8 @@ production and only `fault` in development, where the writes are
 contract-suite runs and test cleanup — but neither event posts outside
 production whatever the list says, so development's entry has no effect. `NOTIFY_DATA_CHANGES` still applies:
 a data change is posted only when both allow it. "Song added" and
-"feedback" are not in the list and post as before. Don't silence a channel
+"feedback" are not in the list: with the change feed muted, a person's
+"song added" lines still post, on their own. Don't silence a channel
 by unsetting its webhook instead: it would fall back to
 `DISCORD_WEBHOOK_URL`, which other channels share.
 
@@ -293,19 +294,49 @@ logged, and the first drop of an episode is reported to Sentry.
 
 **`activity`**
 
-- **Song added**, one per song, when its Drive build succeeds (the commit
-  that records the file), never for a build that fails or rolls back:
+- **The change feed**: one message per person, once they have been quiet
+  for a minute (at most five minutes after their first change), titled
+  with their name, one line a change:
 
-  > **song added**
-  > Jane Doe added 'Ballad' (Classic, with John Smith)
-  > [Drive file](https://drive.google.com/file/d/…/view)
+  > **Gregory Rollinscott**
+  > 🤝 created managed partnership Leigh Yu & Lemery Rollinscott
+  > 👥 created team 'Future WOW'
+  > 🎵 added 'Good morning' (ProAm LeaderAm, managed partnership Leigh Yu & Lemery Rollinscott) to The Open · [Drive file](https://drive.google.com/file/d/…/view)
+  > ✏️ updated their name
+  > api-deejaytools
 
-  Uploaded for someone else ("Upload For"):
-  `Org Anizer uploaded 'Ballad' for Jane Doe (Classic)`. A managed
-  partnership reads `(ProAm, managed partnership Lee Lead & Fay Follow)`, a
-  team upload `(Team, team Jt Swing)`, an "other" upload `(…, as Formation)`.
-  Names are `First Last`, else the display name, else the user id; the
-  routine is the routine name, else the song's display name (the filename).
+  Each change is written to `activity_feed` (migration 016) in the same
+  transaction as the change itself, so a rolled-back change posts nothing,
+  and the scheduler posts it (`activity_feed.post_due`, every tick): one
+  person's minute is one message whichever worker or replica their
+  requests landed on. The scheduler claims under an advisory lock and marks
+  rows posted before it sends them, so nothing posts twice; a failed post is
+  not retried. Posted rows are kept a week.
+
+  Lines name things, never ids: songs by routine (else display) name and
+  division, events, partners, teams, managed partnerships, registration
+  entries and staff by name; an edit lists the fields it changed (`✏️ edited
+  'Ballad' (division, routine name)`), never their values, except a
+  registration's marks (`handled`, `scratched`, `linked to …`). A delete
+  says what it removed and what went with it (`🗑️ deleted 'Ballad'
+  (Classic), withdrawn from 2 events`), from what the row was called when
+  it was deleted. "Song added" — one per song, when its Drive build commits,
+  never for a build that fails or rolls back — is joined to the song's
+  submission to an event when both came in the same minute. Uploaded for
+  someone else ("Upload For"), it is the uploader's line: `🎵 uploaded
+  'Ballad' for Jane Doe (Classic)`. Many registration entries at one event
+  are one count, and an import is one line (`📋 imported The Open's
+  registration list: 312 added, 4 removed, 20 unchanged`).
+
+  How each change is caught: SQLAlchemy listeners keep every ORM insert,
+  update and delete a request flushes (`change_feed.py`), so a new route is
+  covered without anyone remembering to cover it. A Core `update()` or
+  `delete()` writes rows the session never loaded, so each route that uses
+  one records what it did itself (`change_feed.record`), naming the tables
+  its cascade touched (`covers`), which are then not listed again. A Core
+  statement no route described is still said, by its table:
+  `⚙️ songs · 1 bulk write`.
+
 - **Feedback**, one per piece of site feedback accepted (`POST /v1/feedback`):
   its type and subject, whether it had a screenshot, and whether it was
   emailed. Never the message, the sender's name or their email — those are
@@ -317,18 +348,6 @@ logged, and the first drop of an episode is reported to Sentry.
   > **feedback · bug**
   > Queue froze
   > emailed to the maintainer
-
-- **Data changed**, one per request that committed anything worth saying:
-  the tables it changed with `+` created, `~` updated, `-` deleted rows and
-  `*` statements (row count unknown), and in the footer the method, path and
-  caller's name: their first and last name from `users`, or their Clerk user
-  id (`users.id`) when they have no name or the name cannot be read. Never
-  their email or display name, which provisioning sets to the email: the
-  channel is shared.
-
-  > **data changed**
-  > `teams` +1
-  > POST /v1/teams · Jane Doe · api-deejaytools · production
 
 **`errors`**
 
@@ -350,7 +369,8 @@ logged, and the first drop of an episode is reported to Sentry.
   - `drive job <job id> (<kind>) · gave up after 10 attempts`: a Drive job
     is `failed` for good (retry it with
     `POST /v1/admin/drive-jobs/{id}/retry`). Retries are not posted.
-  - `scheduler · sessions`, `scheduler · song builds`,
+  - `scheduler · sessions`, `scheduler · activity feed`,
+    `scheduler · song builds`,
     `scheduler · drive jobs`, `scheduler · song lengths`,
     `scheduler · event folder sweep`,
     `drive jobs · claim failed`: a scheduler step
@@ -367,6 +387,7 @@ logged, and the first drop of an episode is reported to Sentry.
 |----------|-----|
 | `identity_audit_events` (suppressed table) | One row per authorization decision on every scoped request, the polled GETs included. It would turn the feed into the access log. |
 | `song_uploads` (suppressed table) | Staged upload bytes, written with the song and deleted when its build finishes. The song is announced on its own. |
+| `identity_*` tables, `pairs` (suppressed tables) | Who may do what, and a dancer and partner as one check-in entity: written alongside a change that is news in its own right (a staff grant, an admin role, a song), which says it. |
 | `drive_jobs` (suppressed table, except under `/v1/admin/drive-jobs`) | Queue rows enqueued as a side effect of a submission or a delete, already reported under their own table, and churned by the scheduler. An admin's retry or rename backfill is reported. |
 | Changes made by `POST /v1/auth/sync` | Every sign-in updates the users row and re-ensures the principal. Faults are still posted. |
 | Changes made by `POST /v1/songs/upload/chunk` | The song (and a team or "other" upload's placeholder partner) is announced by its build instead, and only if the build succeeds. Faults are still posted. |
@@ -376,7 +397,7 @@ logged, and the first drop of an episode is reported to Sentry.
 | `/health`, `/version` | Polled by monitors; never posted, faults included. |
 
 The legacy `POST /v1/songs` (a song record with no file and no build) gets
-no "song added": it appears in the change feed as an ordinary change. The
+no "song added": it appears in the change feed as `🎵 created song '…'`. The
 web app's e2e suite uploads real songs to dev. This repo's conformance
 suite runs against a local target with no Drive and uploads none; dev posts
 faults only, so those songs are not announced.
@@ -387,11 +408,10 @@ faults only, so those songs are not announced.
   The request routes write through the ORM, so they are all seen; the raw
   SQL in `services/drive_jobs/processor.py` runs in the background, which the change
   feed does not cover anyway.
-- Anything background work changes (scheduler, song builds, Drive jobs):
-  there is no request to tally it. What matters there is announced (song
+- Anything background work changes (scheduler, song builds, Drive jobs),
+  including work a request starts in the background: the capture is open
+  for the request's own work only. What matters there is recorded (song
   added) or reported (faults).
-- Writes a request makes after its deadline answered `503`: the handler
-  runs on, but the feed has already been posted.
 - An exception after a response has started streaming (Sentry still has
   it), and a 5xx answered by the server before the app (a crash).
 - Anything when Discord is down, and anything a rate limit holds for

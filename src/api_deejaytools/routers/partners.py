@@ -27,6 +27,7 @@ from ..errors import (
     success_list,
 )
 from ..models import Checkin, Pair, Partner, QueueEntry, Song
+from ..services import change_feed
 from ..validation import Email, NonEmptyStr, ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import zod_body
@@ -407,7 +408,7 @@ async def delete_partner(
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     """Delete a partner."""
-    await _load_owned(session, id, caller.user_id)
+    partner = await _load_owned(session, id, caller.user_id)
     if await _has_active_checkin(session, id):
         raise api_error(
             409,
@@ -453,6 +454,13 @@ async def delete_partner(
         await session.execute(delete(Pair).where(Pair.id.in_(to_delete)))
     await session.execute(
         delete(Partner).where(Partner.id == id, Partner.user_id == caller.user_id)
+    )
+    change_feed.record(
+        session,
+        "partners",
+        change_feed.DELETED,
+        change_feed.snapshot(partner),
+        covers=["partners", "songs", "pairs"],
     )
     await session.commit()
     return Response(status_code=204)

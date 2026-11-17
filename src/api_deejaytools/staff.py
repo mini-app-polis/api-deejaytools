@@ -30,6 +30,7 @@ from .auth import STAFF_ROLES, ensure_principal, event_resource, load_roles
 from .clock import now_ms
 from .config import get_settings
 from .models import EventStaffGrant, User
+from .services import change_feed
 from .services.drive_jobs import (
     DRIVE_FOLDER_ROLES,
     SHARE_EVENT_FOLDER,
@@ -172,6 +173,14 @@ async def grant_event_role(
             .returning(EventStaffGrant.role)
         )
     ).first()
+    if inserted is not None:
+        change_feed.record(
+            session,
+            "event_staff_grants",
+            change_feed.CREATED,
+            {"event_id": event_id, "user_id": user_id, "role": role},
+            covers=["event_staff_grants"],
+        )
     if inserted is not None and role in DRIVE_FOLDER_ROLES and not folder_roles_before:
         add_drive_job(session, SHARE_EVENT_FOLDER, event_id=event_id, user_id=user_id)
     scopes = sorted(role_scopes(role, await load_roles(session)))
@@ -243,6 +252,14 @@ async def revoke_event_role(
             )
         ).scalars()
     )
+    if deleted is not None:
+        change_feed.record(
+            session,
+            "event_staff_grants",
+            change_feed.DELETED,
+            {"event_id": event_id, "user_id": user_id, "role": role},
+            covers=["event_staff_grants"],
+        )
     if (
         deleted is not None
         and role in DRIVE_FOLDER_ROLES

@@ -20,7 +20,7 @@ Time columns in the app's tables are PostgreSQL `bigint` holding **epoch millise
 
 When writing raw SQL or ad-hoc queries, compare against numeric ms (e.g. `WHERE checkin_opens_at <= 1735689600000`) or convert explicitly. Do not pass ISO strings to bigint columns without conversion. Mixing types (`to_timestamp(ms/1000.0)` vs direct bigint compare) is a common source of off-by-timezone or off-by-unit bugs.
 
-Columns using this pattern: `created_at`, `updated_at`, `deleted_at` (where present), `checkin_opens_at`, `floor_trial_starts_at`, `floor_trial_ends_at`, `entered_queue_at`, `completed_at`, `next_attempt_at`, `granted_at` (`event_staff_grants`), `emailed_at` (`site_feedback`). `rate_limit_windows.window_start` is the exception: epoch seconds.
+Columns using this pattern: `created_at`, `updated_at`, `deleted_at` (where present), `checkin_opens_at`, `floor_trial_starts_at`, `floor_trial_ends_at`, `entered_queue_at`, `completed_at`, `next_attempt_at`, `granted_at` (`event_staff_grants`), `emailed_at` (`site_feedback`), `posted_at` (`activity_feed`). `rate_limit_windows.window_start` is the exception: epoch seconds.
 
 ### Primary keys
 
@@ -721,6 +721,27 @@ The rate limit's fixed windows, shared by every worker and replica ([ADR-0014](d
 **Primary key:** `key`
 
 **Indexes:** `idx_rate_limit_windows_start` on `(window_start)`
+
+---
+
+### `activity_feed`
+
+The Discord change feed's outbox (migration 016). One row per change a person made, written in the change's own transaction by `services/change_feed.py`; the scheduler posts each person's rows as one message once they have been quiet for a minute (`services/activity_feed.py`), so a rolled-back change posts nothing and one person's minute is one message across workers. Posted rows are pruned after a week.
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `id` | `bigserial` | NO | — | PK |
+| `actor_id` | `text` | NO | — | `users.id` of who made the change. Not a FK |
+| `request_id` | `text` | YES | — | Shared by one request's rows, so a cascade can be told from its cause; null for background work (a song build) |
+| `table_name` | `text` | NO | — | The table changed |
+| `op` | `text` | NO | — | `created` \| `updated` \| `deleted` \| `bulk` (a Core statement no route described) \| `added` (a song build) \| `summary` (one line for many rows) |
+| `facts` | `jsonb` | NO | `'{}'` | What the line says: names, titles, divisions, the names of the fields an edit changed, and `covers` (tables a record speaks for). Never an email, a note or a message body |
+| `created_at` | `bigint` | NO | — | Epoch ms |
+| `posted_at` | `bigint` | YES | — | Epoch ms when the scheduler claimed it; null until then |
+
+**Primary key:** `id`
+
+**Indexes:** `idx_activity_feed_unposted` on `(actor_id, created_at)` where `posted_at IS NULL`; `idx_activity_feed_posted` on `(posted_at)` where `posted_at IS NOT NULL`
 
 ---
 

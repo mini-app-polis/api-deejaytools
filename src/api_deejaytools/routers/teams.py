@@ -34,6 +34,7 @@ from ..errors import (
     success_list,
 )
 from ..models import Team
+from ..services import change_feed
 from ..text import title_case_if_no_caps
 from ..validation import ZodModel
 from ..zod_types import trimmed, zod_body
@@ -217,13 +218,21 @@ async def patch_team(
 ) -> dict[str, Any]:
     """Rename a team."""
     identifier = title_case_if_no_caps(body.identifier)
-    await _load_owned(session, id, caller.user_id)
+    before = (await _load_owned(session, id, caller.user_id)).identifier
     try:
         await session.execute(
             update(Team)
             .where(Team.id == id, Team.user_id == caller.user_id)
             .values(identifier=identifier, updated_at=now_ms())
         )
+        if identifier != before:
+            change_feed.record(
+                session,
+                "teams",
+                change_feed.UPDATED,
+                {"id": id, "identifier": identifier, "from": before},
+                covers=["teams"],
+            )
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
@@ -250,9 +259,16 @@ async def delete_team(
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     """Delete a team."""
-    await _load_owned(session, id, caller.user_id)
+    team = await _load_owned(session, id, caller.user_id)
     await session.execute(
         delete(Team).where(Team.id == id, Team.user_id == caller.user_id)
+    )
+    change_feed.record(
+        session,
+        "teams",
+        change_feed.DELETED,
+        change_feed.snapshot(team),
+        covers=["teams"],
     )
     await session.commit()
     return Response(status_code=204)

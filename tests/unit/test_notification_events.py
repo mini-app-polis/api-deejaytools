@@ -6,7 +6,7 @@ import pytest
 from mini_app_polis import activity
 
 from api_deejaytools.config import Settings, get_settings
-from api_deejaytools.services import notifications
+from api_deejaytools.services import activity_feed, notifications
 
 
 @pytest.fixture
@@ -28,18 +28,26 @@ def test_production_posts_data_changes_and_faults(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
-    config = notifications._config()
-    assert config.report_changes is True
-    assert config.report_faults is True
+    assert activity_feed.feed_enabled() is True
+    assert notifications._config().report_faults is True
 
 
 def test_development_drops_data_changes_and_keeps_faults(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "ENVIRONMENT", "development")
-    config = notifications._config()
-    assert config.report_changes is False
-    assert config.report_faults is True
+    assert activity_feed.feed_enabled() is False
+    assert notifications._config().report_faults is True
+
+
+def test_the_library_tally_is_always_off(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Changes are this service's own feed; the library middleware only
+    reports faults."""
+    for environment in ("production", "development", "local"):
+        monkeypatch.setattr(settings, "ENVIRONMENT", environment)
+        assert notifications._config().report_changes is False
 
 
 def test_an_event_left_out_of_the_list_is_not_sent(
@@ -50,9 +58,8 @@ def test_an_event_left_out_of_the_list_is_not_sent(
         settings, "DISCORD_NOTIFY_EVENTS", {"Production": [notifications.DATA_CHANGED]}
     )
     assert notifications.event_enabled(notifications.FAULT, settings) is False
-    config = notifications._config()
-    assert config.report_changes is True
-    assert config.report_faults is False
+    assert activity_feed.feed_enabled() is True
+    assert notifications._config().report_faults is False
 
     dispatched: list[object] = []
     monkeypatch.setattr(activity, "dispatch", dispatched.append)
@@ -66,9 +73,9 @@ def test_an_environment_with_no_entry_sends_everything(
     monkeypatch.setattr(settings, "ENVIRONMENT", "local")
     for event in notifications.NOTIFY_EVENTS:
         assert notifications.event_enabled(event, settings) is True
-    config = notifications._config()
-    assert config.report_changes is True
-    assert config.report_faults is True
+    assert notifications._config().report_faults is True
+    # Still production's channel: the feed posts from nowhere else.
+    assert activity_feed.feed_enabled() is False
 
 
 def test_notify_data_changes_still_gates_an_allowed_event(
@@ -76,9 +83,8 @@ def test_notify_data_changes_still_gates_an_allowed_event(
 ) -> None:
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
     monkeypatch.setattr(settings, "NOTIFY_DATA_CHANGES", False)
-    config = notifications._config()
-    assert config.report_changes is False
-    assert config.report_faults is True
+    assert activity_feed.feed_enabled() is False
+    assert notifications._config().report_faults is True
 
 
 def test_the_list_is_read_from_the_environment_as_json(

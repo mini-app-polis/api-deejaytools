@@ -71,6 +71,7 @@ from ..models import (
     Session,
     SessionDivision,
 )
+from ..services import change_feed
 from ..validation import JsInt, JsNumber, NonEmptyStr, NonNegativeJsInt, ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import QueryStr, documents_zod_query, parse_zod_query, zod_body
@@ -657,7 +658,7 @@ async def put_divisions(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Upsert a session's divisions."""
-    await _load(db, id)
+    floor = change_feed.snapshot(await _load(db, id))
     # Upsert by (session_id, division_name) rather than delete-and-reinsert:
     # check-ins reference division rows (fk_checkins_session_division, ON
     # DELETE RESTRICT), so a rebuild fails once a session has any.
@@ -677,6 +678,14 @@ async def put_divisions(
                     },
                 )
             )
+        change_feed.record(
+            db,
+            "sessions",
+            change_feed.UPDATED,
+            floor,
+            fields=["divisions"],
+            covers=["session_divisions"],
+        )
         await db.commit()
     except DBAPIError as exc:
         await db.rollback()
@@ -807,10 +816,24 @@ async def delete_session(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Delete a session and everything hanging off it."""
-    await _load(db, id)
+    floor = change_feed.snapshot(await _load(db, id))
     for model in (QueueEntry, QueueEvent, Run, Checkin, SessionDivision):
         await db.execute(delete(model).where(model.session_id == id))
     await db.execute(delete(Session).where(Session.id == id))
+    change_feed.record(
+        db,
+        "sessions",
+        change_feed.DELETED,
+        floor,
+        covers=[
+            "sessions",
+            "session_divisions",
+            "checkins",
+            "queue_entries",
+            "queue_events",
+            "runs",
+        ],
+    )
     await db.commit()
     invalidate_session_cache(id)
     return success({"deleted": True})
