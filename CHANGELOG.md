@@ -1,3 +1,16 @@
+# [1.34.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.33.4...v1.34.0) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.13.2 ([b7f58e8](https://github.com/mini-app-polis/api-deejaytools/commit/b7f58e847b91ffc6e27a0eb770192bc4146346f8))
+
+
+### Features
+
+* **admin-users:** count events entered, managed partnerships and teams per user ([9930545](https://github.com/mini-app-polis/api-deejaytools/commit/9930545001dccf03ba25d1f779cac2c262945743))
+* **notifications:** post activity to deejaytools' own Discord channel when DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY is set ([6f1a57b](https://github.com/mini-app-polis/api-deejaytools/commit/6f1a57b2c41b843e7182b30f8833161345baccbe))
+
 ## [1.33.4](https://github.com/mini-app-polis/api-deejaytools/compare/v1.33.3...v1.33.4) (2026-11-16)
 
 
