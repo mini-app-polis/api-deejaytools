@@ -134,6 +134,7 @@ class Lookups:
         self._sessions: dict[str, tuple[str, str | None] | None] = {}
 
     async def user(self, user_id: str | None) -> str:
+        """The person's first and last name, else their id; "someone" for none."""
         if not user_id:
             return "someone"
         if user_id not in self._users:
@@ -148,6 +149,7 @@ class Lookups:
         return _md(self._users[user_id] or user_id)
 
     async def event(self, event_id: str | None) -> str:
+        """The event's name; "a deleted event" once its row is gone."""
         if not event_id:
             return "an event"
         if event_id not in self._events:
@@ -175,6 +177,7 @@ class Lookups:
         return self._songs[song_id] or (None, None)
 
     async def session(self, session_id: str | None) -> tuple[str, str | None]:
+        """(name, event id) of a floor session; "a session" when it is unknown."""
         if not session_id:
             return "a session", None
         if session_id not in self._sessions:

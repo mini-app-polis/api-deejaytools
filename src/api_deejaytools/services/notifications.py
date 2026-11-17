@@ -10,8 +10,8 @@ been quiet for a minute (``services/activity_feed.py``), to the
 ``activity`` channel (this service's own when
 ``DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY`` is set, else the fleet's shared
 one). Kept in the database rather than in a worker's memory, because the
-API runs several workers and one person's burst used to arrive as one
-message or several depending on where their requests landed.
+API runs several workers and one person's requests land on any of them: the
+table gathers a burst into one message wherever each request was served.
 
 What stays here is this service's policy:
 
