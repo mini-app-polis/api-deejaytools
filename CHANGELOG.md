@@ -1,3 +1,15 @@
+# [1.40.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.39.0...v1.40.0) (2026-11-17)
+
+
+### Bug Fixes
+
+* **conformance:** document the feed lookups, exempt activity_feed from API-006, drop a history comment ([c17f3f1](https://github.com/mini-app-polis/api-deejaytools/commit/c17f3f181bf0462a0f94d282c2f7f715e276fbad))
+
+
+### Features
+
+* **events:** event series and a submission timeline against earlier editions ([fa0a917](https://github.com/mini-app-polis/api-deejaytools/commit/fa0a917df99f7cbbfd518b1de647d7baf887de69))
+
 # [1.39.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.38.0...v1.39.0) (2026-11-17)
 
 
