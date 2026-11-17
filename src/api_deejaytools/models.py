@@ -92,6 +92,8 @@ class Event(Base):
     end_date: Mapped[str] = mapped_column(Text)
     timezone: Mapped[str] = mapped_column(Text, server_default="America/Chicago")
     season_year: Mapped[str | None] = mapped_column(Text)
+    # Migration 017: the run of events this one is an edition of; NULL = none.
+    series: Mapped[str | None] = mapped_column(Text)
 
 
 class EventStaffGrant(Base):

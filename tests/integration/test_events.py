@@ -35,12 +35,14 @@ async def test_create_and_read_back(
         "end_date",
         "timezone",
         "season_year",
+        "series",
         "status",
         "created_by",
         "created_at",
         "updated_at",
     }
     assert created["timezone"] == "America/Chicago"
+    assert created["series"] is None
     assert created["season_year"] == "2026"
     assert created["created_by"] == admin.id
 

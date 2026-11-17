@@ -1,5 +1,6 @@
-"""``/v1/events/{id}/song-submissions`` and ``/v1/events/{id}/registrations``:
-an event's entries and registration list, for its staff (ADR-0012).
+"""``/v1/events/{id}/song-submissions``, ``/v1/events/{id}/registrations`` and
+``/v1/events/{id}/submission-timeline``: an event's entries, registration list
+and submissions by day, for its staff (ADR-0012).
 
 Reading the registration list takes event-scoped ``deejaytools.entries.read``;
 importing it (replacing it, or adding only the entries not on it yet), adding
@@ -21,6 +22,8 @@ entry's admin ``note`` is null for every caller but an admin.
 from __future__ import annotations
 
 import uuid
+from collections import Counter
+from datetime import date
 from typing import Annotated, Any
 
 import sentry_sdk
@@ -35,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import Caller, EventRef, is_admin, require_event_scope
 from ..clock import now_ms
 from ..database import get_db_session
+from ..domain import ms_to_date_in_zone, today_in_zone
 from ..errors import (
     Envelope,
     ErrorCode,
@@ -44,7 +48,7 @@ from ..errors import (
     success,
     success_list,
 )
-from ..models import Event, EventRegistration
+from ..models import Event, EventRegistration, EventSongSubmission
 from ..services import change_feed
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
@@ -421,3 +425,167 @@ async def remove_event_registration(
             exc,
         )
     return success({"deleted": True})
+
+
+#: Most earlier editions of a series a timeline compares an event with.
+MAX_EARLIER_EDITIONS = 5
+
+
+class TimelineDay(BaseModel):
+    """Submissions made on one day, counted from the event's first day."""
+
+    day: int = Field(
+        ..., description="Days from the event's start_date (day 0), in its timezone."
+    )
+    count: int = Field(..., description="Submissions made that day.")
+
+
+class TimelineEvent(BaseModel):
+    """One event's submissions by day."""
+
+    id: str = Field(..., description="Event id.")
+    name: str = Field(..., description="Event name.")
+    start_date: str = Field(..., description="Day 0, YYYY-MM-DD, local.")
+    end_date: str = Field(..., description="Last day, YYYY-MM-DD, local.")
+    registrations: int = Field(
+        ..., description="Entries on its registration list, not scratched; 0: no list."
+    )
+    submissions: int = Field(..., description="Its submissions, every day together.")
+    days: list[TimelineDay] = Field(..., description="Days with submissions, in order.")
+
+
+class SubmissionTimeline(BaseModel):
+    """An event's submissions by day, beside the earlier events of its series."""
+
+    series: str | None = Field(None, description="The event's series; null: none.")
+    today: int = Field(
+        ..., description="Today, in days from the event's start_date, in its timezone."
+    )
+    events: list[TimelineEvent] = Field(
+        ...,
+        description=(
+            "The event first, then the latest earlier events of its series, "
+            "newest first."
+        ),
+    )
+
+
+class SubmissionTimelineResponse(Envelope[SubmissionTimeline]):
+    """An event's submission timeline."""
+
+    data: SubmissionTimeline = Field(..., description="The timeline.")
+
+
+def day_number(day: str, start_date: str) -> int:
+    """Days from ``start_date`` to ``day``, both YYYY-MM-DD."""
+    return (date.fromisoformat(day) - date.fromisoformat(start_date)).days
+
+
+async def submission_timeline(session: AsyncSession, event: Event) -> dict[str, Any]:
+    """``event``'s timeline: it and the earlier editions of its series."""
+    events = [event]
+    if event.series:
+        events += (
+            (
+                await session.execute(
+                    select(Event)
+                    .where(
+                        func.lower(Event.series) == event.series.lower(),
+                        Event.start_date < event.start_date,
+                        Event.id != event.id,
+                    )
+                    .order_by(Event.start_date.desc())
+                    .limit(MAX_EARLIER_EDITIONS)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    ids = [e.id for e in events]
+    registered = dict(
+        (
+            await session.execute(
+                select(EventRegistration.event_id, func.count())
+                .where(
+                    EventRegistration.event_id.in_(ids),
+                    EventRegistration.scratched.is_(False),
+                )
+                .group_by(EventRegistration.event_id)
+            )
+        ).all()
+    )
+    made = (
+        await session.execute(
+            select(EventSongSubmission.event_id, EventSongSubmission.created_at).where(
+                EventSongSubmission.event_id.in_(ids)
+            )
+        )
+    ).all()
+    by_event = {e.id: e for e in events}
+    days: dict[str, Counter[int]] = {e.id: Counter() for e in events}
+    for event_id, created_at in made:
+        e = by_event[event_id]
+        day = ms_to_date_in_zone(created_at, e.timezone)
+        days[event_id][day_number(day, e.start_date)] += 1
+    return {
+        "series": event.series,
+        "today": day_number(today_in_zone(event.timezone), event.start_date),
+        "events": [
+            {
+                "id": e.id,
+                "name": e.name,
+                "start_date": e.start_date,
+                "end_date": e.end_date,
+                "registrations": registered.get(e.id, 0),
+                "submissions": sum(days[e.id].values()),
+                "days": [{"day": d, "count": n} for d, n in sorted(days[e.id].items())],
+            }
+            for e in events
+        ],
+    }
+
+
+@router.get(
+    "/{id}/submission-timeline",
+    response_model=SubmissionTimelineResponse,
+    summary="An event's submissions by day, beside its series",
+    description=(
+        "How many submissions the event has had on each day, counted from its "
+        "start_date (day 0) in its timezone, with the size of its registration "
+        "list; and the same for the latest earlier events of its series, so "
+        "staff can see how far along it is against past editions. Each entry "
+        "counts once, on the day of its current submission. Counts only, "
+        "never who. Requires deejaytools.entries.read on the event."
+    ),
+    responses={
+        401: {"model": ErrorResponse, "description": "Missing or invalid token."},
+        403: {"model": ErrorResponse, "description": "Lacks the scope on this event."},
+        404: {"model": ErrorResponse, "description": "No such event."},
+        500: {"model": ErrorResponse, "description": "The query failed."},
+    },
+)
+async def get_submission_timeline(
+    id: Annotated[str, Path(description="Event id.")],
+    _caller: Caller = Depends(
+        require_event_scope("deejaytools.entries.read", THIS_EVENT)
+    ),
+    session: AsyncSession = Depends(get_db_session),
+) -> Any:
+    """The event's submission timeline."""
+    event = await session.get(Event, id)
+    if event is None:
+        raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
+    try:
+        timeline = await submission_timeline(session, event)
+    except SQLAlchemyError as exc:
+        sentry_sdk.capture_exception(exc)
+        logger.error(
+            with_log_prefix(
+                LOG_FAILURE, f"event_submission_timeline_failed event={id}: {exc!r}"
+            )
+        )
+        return JSONResponse(
+            status_code=500,
+            content=error_body(ErrorCode.INTERNAL, "Internal server error"),
+        )
+    return success(timeline)
