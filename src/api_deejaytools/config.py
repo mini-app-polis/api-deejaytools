@@ -162,12 +162,12 @@ class Settings(BaseSettings):
         description="Webhook for this service's activity: data changes, songs added, feedback.",
     )
     # The change feed's switch, as api-kaianolevine-com has it: off mutes
-    # the per-request "data changed" summaries without a deploy, and leaves
-    # faults, and the "song added" announcements, as they are. Unsetting a
+    # each person's change messages without a deploy, and leaves faults,
+    # and the "song added" lines, as they are. Unsetting a
     # webhook cannot do that: activity would fall back to
     # DISCORD_WEBHOOK_URL, and unsetting that silences errors too.
     NOTIFY_DATA_CHANGES: bool = Field(
-        default=True, description="Post per-request data-change summaries."
+        default=True, description="Post the change feed: each person's changes."
     )
     # Which messages each environment posts, keyed by ENVIRONMENT, in the
     # same shape and with the same defaults as api-kaianolevine-com's. The

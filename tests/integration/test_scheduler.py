@@ -12,6 +12,7 @@ import pytest
 from api_deejaytools import main
 from api_deejaytools.config import Settings, get_settings
 from api_deejaytools.services import (
+    activity_feed,
     drive_jobs,
     feedback_delivery,
     scheduler,
@@ -86,7 +87,7 @@ class Sentry:
 
 @pytest.fixture
 def steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Replace the seven steps with recorders; each can be told to raise. The
+    """Replace the eight steps with recorders; each can be told to raise. The
     event folder sweep is due on the first pass."""
     state: dict[str, Any] = {"calls": [], "raise": set(), "maker": FakeMaker()}
 
@@ -104,6 +105,11 @@ def steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
         return run
 
+    async def feed(maker: FakeMaker, **kwargs: Any) -> int:
+        async with maker() as db:
+            return await step("feed")(db)
+
+    monkeypatch.setattr(activity_feed, "post_due", feed)
     monkeypatch.setattr(session_tick, "tick_session_statuses", step("statuses"))
     monkeypatch.setattr(session_tick, "fill_running_sessions", step("fill"))
     monkeypatch.setattr(feedback_delivery, "process_pending_feedback", step("feedback"))
@@ -132,10 +138,11 @@ async def test_tick_runs_sessions_then_drive_each_in_its_own_session(
         ("statuses", 0),
         ("fill", 1),
         ("feedback", 2),
-        ("builds", 3),
-        ("drive", 4),
-        ("lengths", 5),
-        ("sweep", 6),
+        ("feed", 3),
+        ("builds", 4),
+        ("drive", 5),
+        ("lengths", 6),
+        ("sweep", 7),
     ]
     assert all(s.closed for s in steps["maker"].made)
 
@@ -147,6 +154,7 @@ async def test_session_failure_does_not_stop_drive_work(steps: dict[str, Any]) -
     assert [c[0] for c in steps["calls"]] == [
         "statuses",
         "feedback",
+        "feed",
         "builds",
         "drive",
         "lengths",
@@ -168,6 +176,7 @@ async def test_drive_failure_is_logged_and_reported(steps: dict[str, Any]) -> No
         "statuses",
         "fill",
         "feedback",
+        "feed",
         "builds",
         "drive",
         "lengths",
@@ -187,6 +196,7 @@ async def test_build_failure_is_isolated_and_reported(steps: dict[str, Any]) -> 
         "statuses",
         "fill",
         "feedback",
+        "feed",
         "builds",
         "drive",
         "lengths",
@@ -208,6 +218,7 @@ async def test_song_length_failure_is_isolated_and_reported(
         "statuses",
         "fill",
         "feedback",
+        "feed",
         "builds",
         "drive",
         "lengths",
@@ -229,6 +240,7 @@ async def test_feedback_failure_is_isolated_and_reported(
         "statuses",
         "fill",
         "feedback",
+        "feed",
         "builds",
         "drive",
         "lengths",
@@ -241,13 +253,38 @@ async def test_feedback_failure_is_isolated_and_reported(
     assert tags == {"level": "error", "subsystem": "feedback"}
 
 
-async def test_both_halves_failing_never_raises(steps: dict[str, Any]) -> None:
-    steps["raise"].update({"fill", "feedback", "builds", "drive", "lengths", "sweep"})
+async def test_activity_feed_failure_is_isolated_and_reported(
+    steps: dict[str, Any],
+) -> None:
+    steps["raise"].add("feed")
     await scheduler.run_tick()
     assert [c[0] for c in steps["calls"]] == [
         "statuses",
         "fill",
         "feedback",
+        "feed",
+        "builds",
+        "drive",
+        "lengths",
+        "sweep",
+    ]
+    errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
+    assert len(errors) == 1 and "activity_feed_tick_failed" in errors[0]
+    ((exc, tags),) = steps["sentry"].captured
+    assert str(exc) == "feed broke"
+    assert tags == {"level": "error", "subsystem": "activity_feed"}
+
+
+async def test_both_halves_failing_never_raises(steps: dict[str, Any]) -> None:
+    steps["raise"].update(
+        {"fill", "feedback", "feed", "builds", "drive", "lengths", "sweep"}
+    )
+    await scheduler.run_tick()
+    assert [c[0] for c in steps["calls"]] == [
+        "statuses",
+        "fill",
+        "feedback",
+        "feed",
         "builds",
         "drive",
         "lengths",
@@ -314,14 +351,16 @@ async def test_drive_work_waits_when_drive_is_not_configured(
     monkeypatch.setattr(scheduler, "_drive_skip_logged", False)
     await scheduler.run_tick()
     await scheduler.run_tick()
-    # Feedback email does not need Drive, so it still runs.
+    # Feedback email and the change feed do not need Drive, so they still run.
     assert [name for name, _ in steps["calls"]] == [
         "statuses",
         "fill",
         "feedback",
+        "feed",
         "statuses",
         "fill",
         "feedback",
+        "feed",
     ]
     warnings = [m for level, m in steps["logs"].lines if level == "warning"]
     assert len(warnings) == 1 and "drive_work_skipped" in warnings[0]  # once

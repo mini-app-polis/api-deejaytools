@@ -79,10 +79,14 @@ and shapes of [API.md](API.md) (`errors.py`).
   per signed-in user or anonymous client address on `/v1/*` (5 a minute on `POST /v1/feedback`; anonymous public cached reads not counted), counted in Postgres so they hold across workers (ADR-0014), a 30 s deadline (300 s for uploads). The
   deadline does not cancel the handler: it runs on and its writes land, only
   its response is discarded.
-- **Discord notifications** (`services/notifications.py`, on
-  common-python-utils' `activity`): the change feed and request faults as
-  api-kaianolevine-com has them, plus "song added" posted on the commit of
-  a successful Drive build. The build can run long after the upload (a
+- **Discord notifications** (`services/notifications.py`): request faults
+  on common-python-utils' `activity`, as api-kaianolevine-com has them, and
+  a change feed of this service's own — one message per person, in words —
+  kept in `activity_feed` (migration 016) in each change's own transaction
+  and posted by the scheduler once the person has been quiet for a minute,
+  so the grouping holds across workers (`services/change_feed.py`,
+  `services/activity_feed.py`). "Song added" is kept on the commit of a
+  successful Drive build. The build can run long after the upload (a
   retry, a restart), so whoever uploaded a song for someone else is staged
   with the bytes (`song_uploads.uploaded_by_user_id`, migration 004)
   rather than kept in memory. What posts where: docs/OPERATIONS.md.

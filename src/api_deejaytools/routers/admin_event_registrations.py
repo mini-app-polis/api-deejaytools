@@ -47,6 +47,7 @@ from ..errors import (
     success_list,
 )
 from ..models import Event, EventRegistration, EventSongSubmission
+from ..services import change_feed
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import trimmed, zod_body
@@ -381,6 +382,7 @@ async def replace_registrations(
             by_key[row.entry_key].append(row)
 
         kept: set[str] = set()
+        added = 0
         for position, item in enumerate(body.entries):
             dancer_2, key = item_key(item)
             matches = by_key.get(key)
@@ -393,6 +395,7 @@ async def replace_registrations(
                 row.dancer_2 = dancer_2
                 row.updated_at = now
             else:
+                added += 1
                 session.add(
                     EventRegistration(
                         id=str(uuid.uuid4()),
@@ -412,6 +415,19 @@ async def replace_registrations(
             await session.execute(
                 delete(EventRegistration).where(EventRegistration.id.in_(gone))
             )
+        change_feed.record(
+            session,
+            "event_registrations",
+            change_feed.SUMMARY,
+            {
+                "event_id": id,
+                "kind": "import",
+                "added": added,
+                "removed": len(gone),
+                "kept": len(kept),
+            },
+            covers=["event_registrations", "event_song_submissions"],
+        )
         await session.commit()
         rows = await registration_rows(session, id)
         return success_list(rows if show_note else without_notes(rows))
@@ -461,6 +477,19 @@ async def append_registrations(
                     created_at=now,
                     updated_at=now,
                 )
+            )
+        if add:
+            change_feed.record(
+                session,
+                "event_registrations",
+                change_feed.SUMMARY,
+                {
+                    "event_id": id,
+                    "kind": "append",
+                    "added": len(add),
+                    "skipped": skipped,
+                },
+                covers=["event_registrations"],
             )
         await session.commit()
     except SQLAlchemyError as exc:

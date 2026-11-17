@@ -9,6 +9,8 @@ the file is in Drive, so a failure there leaves the song unannounced.
 
 from __future__ import annotations
 
+from typing import Any
+
 import sentry_sdk
 from mini_app_polis.logger import LOG_FAILURE, LOG_WARNING, get_logger, with_log_prefix
 from sqlalchemy import delete, select
@@ -31,17 +33,21 @@ from .naming import _name
 logger = get_logger()
 
 
+#: What "song added" says, and who it is from: (actor id, facts).
+Announcement = tuple[str, dict[str, Any]]
+
+
 def song_added_text(
     song: Song,
     user: User,
     partner: Partner | None,
     managed: ManagedPartnership | None,
     uploader: User | None,
-) -> str:
-    """The "song added" sentence: who added it, and its details.
+) -> Announcement:
+    """ "Song added": who added it, and its details, for the feed.
 
     ``uploader`` is set when someone uploaded the song for its owner ("Upload
-    For"); the sentence then names both.
+    For"); the line then names the owner, and the uploader is who it is from.
     """
 
     def name(person: User) -> str:
@@ -49,20 +55,22 @@ def song_added_text(
             person.first_name, person.last_name, person.display_name, person.id
         )
 
-    return notifications.song_added_text(
-        owner=name(user),
-        uploader=name(uploader) if uploader is not None else None,
-        routine=song.routine_name or song.display_name,
-        division=song.division,
-        partner=_name(partner.first_name, partner.last_name) if partner else None,
-        partner_kind=partner.kind if partner else None,
-        managed=(
+    facts: dict[str, Any] = {
+        "song_id": song.id,
+        "routine": song.routine_name or song.display_name,
+        "division": song.division,
+        "partner": _name(partner.first_name, partner.last_name) if partner else None,
+        "partner_kind": partner.kind if partner else None,
+        "managed": (
             f"{_name(managed.leader_first_name, managed.leader_last_name)} & "
             f"{_name(managed.follower_first_name, managed.follower_last_name)}"
             if managed is not None
             else None
         ),
-    )
+        "for": name(user) if uploader is not None else None,
+    }
+    actor = uploader.id if uploader is not None else user.id
+    return actor, facts
 
 
 def _compose_announcement(
@@ -71,7 +79,7 @@ def _compose_announcement(
     partner: Partner | None,
     managed: ManagedPartnership | None,
     uploader: User | None,
-) -> str | None:
+) -> Announcement | None:
     """``song_added_text``, or None (logged) if it cannot be composed.
 
     By the time it runs the file is in Drive: a bug in a notification must
@@ -90,15 +98,18 @@ def _compose_announcement(
 
 
 def _announce(
-    db: AsyncSession, song_id: str, sentence: str, drive_file_id: str
+    db: AsyncSession, song_id: str, announcement: Announcement, drive_file_id: str
 ) -> None:
-    """Register "song added" on ``db``'s transaction; never raises.
+    """Keep "song added" in ``db``'s transaction; never raises.
 
     Inside ``_finish``'s transaction, where a raise would roll back the
     commit that adds the song and send it down the failure path.
     """
     try:
-        notifications.announce_song_added(db, sentence, drive_file_id=drive_file_id)
+        actor, facts = announcement
+        notifications.record_song_added(
+            db, actor, {**facts, "drive_file_id": drive_file_id}
+        )
     except Exception as exc:  # noqa: BLE001 - a notification never fails a build
         logger.error(
             with_log_prefix(
@@ -140,7 +151,7 @@ async def _finish(
     song_id: str,
     claim: str,
     *,
-    announcement: str | None,
+    announcement: Announcement | None,
     original_filename: str,
     processed_filename: str,
     season: str,
@@ -150,9 +161,9 @@ async def _finish(
 ) -> bool:
     """Record the file on the song and drop the staged bytes, in one transaction.
 
-    That commit is when the song is added for good, so "song added" rides on
-    it: posted if it commits, never if it rolls back or the song was deleted
-    while it built. ``announcement`` is None when it could not be composed;
+    That commit is when the song is added for good, so "song added" is kept
+    in it: posted if it commits, never if it rolls back or the song was
+    deleted while it built. ``announcement`` is None when it could not be composed;
     the song is added unannounced. ``duration_ms`` is the length the build
     read from the bytes; None leaves it to the scheduler's song-length step.
     """

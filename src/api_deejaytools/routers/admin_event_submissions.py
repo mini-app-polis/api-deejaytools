@@ -56,6 +56,7 @@ from ..models import (
     Song,
     User,
 )
+from ..services import change_feed
 from ..services.drive_jobs import MOVE, add_drive_job
 from ..submissions import (
     DEFAULT_ROUND,
@@ -457,6 +458,19 @@ async def move_event_submission(
         # In the move's transaction: the Drive copy follows only a move that
         # committed, and is lost only with it.
         add_drive_job(session, MOVE, submission_id=id)
+        change_feed.record(
+            session,
+            "event_song_submissions",
+            change_feed.UPDATED,
+            {
+                "id": id,
+                "event_id": current.event_id,
+                "song_id": current.song_id,
+                "from": old_division,
+                "to": division,
+            },
+            covers=["event_song_submissions"],
+        )
         await session.commit()
         moved = await _submission_rows(session, current.event_id, submission_id=id)
     except SQLAlchemyError as exc:

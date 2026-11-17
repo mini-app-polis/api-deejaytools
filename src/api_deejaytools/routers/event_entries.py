@@ -45,6 +45,7 @@ from ..errors import (
     success_list,
 )
 from ..models import Event, EventRegistration
+from ..services import change_feed
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import zod_body
@@ -399,11 +400,18 @@ async def remove_event_registration(
     session: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Remove one entry."""
-    await _event_entry(session, id, entry_id)
+    entry = change_feed.snapshot(await _event_entry(session, id, entry_id))
     try:
         # event_song_submissions.hidden_by_registration_id is ON DELETE SET NULL.
         await session.execute(
             delete(EventRegistration).where(EventRegistration.id == entry_id)
+        )
+        change_feed.record(
+            session,
+            "event_registrations",
+            change_feed.DELETED,
+            entry,
+            covers=["event_registrations", "event_song_submissions"],
         )
         await session.commit()
     except SQLAlchemyError as exc:

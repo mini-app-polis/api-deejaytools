@@ -36,6 +36,7 @@ from ..errors import (
     success_list,
 )
 from ..models import Event, EventSongSubmission, Partner, Song
+from ..services import change_feed
 from ..services.drive_jobs import enqueue_copy_job, enqueue_trash_jobs
 from ..song_records import shared_with
 from ..submissions import (
@@ -351,7 +352,13 @@ async def delete_submission(
     user_id = caller.user_id
     existing = (
         await session.execute(
-            select(EventSongSubmission.id)
+            select(
+                EventSongSubmission.id,
+                EventSongSubmission.event_id,
+                EventSongSubmission.song_id,
+                EventSongSubmission.division,
+                EventSongSubmission.round,
+            )
             .where(
                 EventSongSubmission.id == id,
                 EventSongSubmission.submitted_by_user_id == user_id,
@@ -375,6 +382,19 @@ async def delete_submission(
                 .returning(EventSongSubmission.drive_copy_file_id)
             )
         ).scalar_one_or_none()
+        change_feed.record(
+            session,
+            "event_song_submissions",
+            change_feed.DELETED,
+            {
+                "id": id,
+                "event_id": existing.event_id,
+                "song_id": existing.song_id,
+                "division": existing.division,
+                "round": existing.round,
+            },
+            covers=["event_song_submissions"],
+        )
         await session.commit()
     except SQLAlchemyError as exc:
         await session.rollback()

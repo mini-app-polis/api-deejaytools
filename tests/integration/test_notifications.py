@@ -1,8 +1,9 @@
 """Discord notifications (services/notifications.py) over the real app and database.
 
 Every post is captured at the library's transport (``discord.post_webhook``),
-so the whole path runs — the middleware, the ORM listeners, the commit hooks,
-webhook resolution from Settings — and nothing reaches the network.
+so the whole path runs — the middleware, the ORM listeners, the activity
+feed's rows and the scheduler step that posts them, webhook resolution from
+Settings — and nothing reaches the network.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from mini_app_polis import activity, discord
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api_deejaytools import errors
+from api_deejaytools.clock import now_ms
 from api_deejaytools.config import get_settings
 from api_deejaytools.database import get_sessionmaker
 from api_deejaytools.errors import ErrorCode, api_error
@@ -28,6 +30,8 @@ from api_deejaytools.models import Song
 from api_deejaytools.routers import auth as auth_router
 from api_deejaytools.routers import teams
 from api_deejaytools.services import (
+    activity_feed,
+    change_feed,
     drive_jobs,
     notifications,
     scheduler,
@@ -85,17 +89,29 @@ class Posts:
         ]
 
     async def changes(self) -> list[dict[str, Any]]:
+        """The change feed's messages, once everyone is quiet for a minute."""
+        await song_builds.wait_for_builds()
+        await activity_feed.post_due(
+            get_sessionmaker(), now=now_ms() + change_feed.QUIET_MS + 1
+        )
         return [
             e
             for e in await self.channel(discord.CHANNEL_ACTIVITY)
-            if e["title"].startswith("data changed")
+            if not e["title"].startswith("feedback")
         ]
 
-    async def songs_added(self) -> list[dict[str, Any]]:
+    async def lines(self) -> list[str]:
+        """Every line of the change feed's messages, in order."""
         return [
-            e
-            for e in await self.channel(discord.CHANNEL_ACTIVITY)
-            if e["title"].endswith("song added")
+            line for e in await self.changes() for line in e["description"].split("\n")
+        ]
+
+    async def songs_added(self) -> list[str]:
+        """The "song added" lines, without their Drive link."""
+        return [
+            line.split(" · [Drive file]")[0]
+            for line in await self.lines()
+            if line.startswith(("🎵 added", "🎵 uploaded"))
         ]
 
 
@@ -137,17 +153,17 @@ async def test_successful_build_announces_one_song_added(
     partner = await _partner(client, jane)
     song = await _upload(client, jane, routine_name="Ballad", partner_id=partner)
 
-    added = await discord_posts.songs_added()
-    assert len(added) == 1
-    assert added[0]["description"] == (
-        "Jane Doe added 'Ballad' (Classic, with Pat Partner)\n"
+    # One message for Jane's minute: the partner she added, then the song,
+    # announced by its build rather than by the upload's own writes.
+    (message,) = await discord_posts.changes()
+    assert message["title"] == "Jane Doe"
+    assert message["description"] == (
+        "👤 added partner Pat Partner\n"
+        "🎵 added 'Ballad' (Classic, with Pat Partner) · "
         "[Drive file](https://drive.google.com/file/d/file-1/view)"
     )
-    assert added[0]["footer"]["text"] == "api-deejaytools · production"
+    assert message["footer"]["text"] == "api-deejaytools"
     assert await discord_posts.channel(discord.CHANNEL_ERRORS) == []
-    # The upload itself is not in the change feed: the build announced it.
-    changes = await discord_posts.changes()
-    assert ["partners · 1 created"] == [c["description"] for c in changes]
     assert await db.fetchval(
         "SELECT drive_file_id FROM songs WHERE id = $1", song["id"]
     )
@@ -167,13 +183,14 @@ async def test_upload_for_names_both_people(
     await _upload(client, admin, routine_name="Show", on_behalf_of_user_id=target.id)
     await _upload(client, target, routine_name="Own")
 
-    added = sorted(
-        e["description"].split("\n")[0] for e in await discord_posts.songs_added()
-    )
-    assert added == [
-        "John Smith added 'Own' (Classic)",
-        "Org Anizer uploaded 'Show' for John Smith (Classic)",
-    ]
+    by_title = {
+        e["title"]: e["description"].split(" · ")[0]
+        for e in await discord_posts.changes()
+    }
+    assert by_title == {
+        "John Smith": "🎵 added 'Own' (Classic)",
+        "Org Anizer": "🎵 uploaded 'Show' for John Smith (Classic)",
+    }
 
 
 async def test_upload_for_survives_a_resumed_build(
@@ -216,44 +233,33 @@ async def test_upload_for_survives_a_resumed_build(
     await db.execute("UPDATE song_uploads SET next_attempt_at = 0")
     async with get_sessionmaker()() as s:
         assert await song_builds.process_song_uploads(s) == 1
-    (added,) = await discord_posts.songs_added()
-    assert added["description"].startswith(
-        "Org Anizer uploaded 'Show' for Target (Classic)\n"
-    )
+    assert await discord_posts.songs_added() == [
+        "🎵 uploaded 'Show' for Target (Classic)"
+    ]
 
 
 async def test_portal_and_managed_details() -> None:
+    phrase = activity_feed.song_added_phrase
     assert (
-        notifications.song_added_text(
-            owner="Jane",
-            uploader=None,
-            routine="R",
-            division="Team",
-            partner="Jt Swing",
-            partner_kind="team",
+        phrase(
+            {
+                "routine": "R",
+                "division": "Team",
+                "partner": "Jt Swing",
+                "partner_kind": "team",
+            }
         )
-        == "Jane added 'R' (Team, team Jt Swing)"
+        == "added 'R' (Team, team Jt Swing)"
     )
     assert (
-        notifications.song_added_text(
-            owner="Jane",
-            uploader=None,
-            routine=None,
-            division=None,
-            partner="Formation",
-            partner_kind="other",
-        )
-        == "Jane added a song (as Formation)"
+        phrase({"partner": "Formation", "partner_kind": "other"})
+        == "added a song (as Formation)"
     )
     assert (
-        notifications.song_added_text(
-            owner="Coach",
-            uploader=None,
-            routine="R*",
-            division="ProAm",
-            managed="Lee Lead & Fay Follow",
+        phrase(
+            {"routine": "R*", "division": "ProAm", "managed": "Lee Lead & Fay Follow"}
         )
-        == "Coach added 'R\\*' (ProAm, managed partnership Lee Lead & Fay Follow)"
+        == "added 'R\\*' (ProAm, managed partnership Lee Lead & Fay Follow)"
     )
     assert notifications.person_name(" ", None, "", "Disp") == "Disp"
     assert notifications.person_name(None, None) == "someone"
@@ -329,7 +335,7 @@ async def test_song_deleted_mid_build_announces_nothing(
     assert await discord_posts.songs_added() == []
 
 
-@pytest.mark.parametrize("broken", ["song_added_text", "announce_song_added"])
+@pytest.mark.parametrize("broken", ["song_added_text", "record_song_added"])
 async def test_a_broken_announcement_does_not_fail_the_build(
     broken: str,
     client: httpx.AsyncClient,
@@ -364,12 +370,13 @@ async def test_announcement_on_a_rolled_back_transaction_is_dropped(
     db: asyncpg.Connection, discord_posts: Posts
 ) -> None:
     async with get_sessionmaker()() as s:
-        notifications.announce_song_added(s, "never happened")
+        notifications.record_song_added(s, "u1", {"routine": "never happened"})
         await s.get(Song, "nothing")
         await s.rollback()
         # Nor does it ride on the session's next, unrelated commit.
         await s.commit()
-    assert await discord_posts.channel(discord.CHANNEL_ACTIVITY) == []
+    assert await db.fetchval("SELECT count(*) FROM activity_feed") == 0
+    assert await discord_posts.changes() == []
 
 
 async def test_announcement_before_any_query_does_not_outlive_a_close(
@@ -378,12 +385,13 @@ async def test_announcement_before_any_query_does_not_outlive_a_close(
     """On an AsyncSession over Postgres: registered before the session did
     anything, then closed — it must not post on the session's next commit."""
     s = get_sessionmaker()()
-    notifications.announce_song_added(s, "never happened")
+    notifications.record_song_added(s, "u1", {"routine": "never happened"})
     await s.close()
     await s.get(Song, "nothing")
     await s.commit()
     await s.close()
-    assert await discord_posts.channel(discord.CHANNEL_ACTIVITY) == []
+    assert await db.fetchval("SELECT count(*) FROM activity_feed") == 0
+    assert await discord_posts.changes() == []
 
 
 # --- the change feed --------------------------------------------------------------
@@ -413,14 +421,14 @@ async def test_rollup_names_the_caller_and_leaves_out_bookkeeping(
     )
     await client.post("/v1/teams", json={"identifier": "Two"}, headers=jane.headers)
 
-    # One caller writing to one route within the window is one message.
+    # One person's minute is one message, titled with their name.
     (change,) = await discord_posts.changes()
-    assert change["title"] == "data changed · 2 writes"
-    assert change["description"] == "teams · 2 created"
-    assert "identity_audit_events" not in str(change)
-    assert change["footer"]["text"] == (
-        "POST /v1/teams · Jane · api-deejaytools · production"
+    assert change["title"] == "Jane"
+    assert change["description"] == (
+        "👥 created team 'Jt Swing'\n👥 created team 'Two'"
     )
+    assert "identity" not in str(change)
+    assert change["footer"]["text"] == "api-deejaytools"
     assert "@" not in str(change)
 
 
@@ -441,9 +449,7 @@ async def test_a_person_with_no_name_is_shown_by_their_id(
     )
     assert created.status_code == 201
     (change,) = await discord_posts.changes()
-    assert change["footer"]["text"] == (
-        f"POST /v1/teams · {jane.id} · api-deejaytools · production"
-    )
+    assert change["title"] == jane.id
     assert "@" not in str(change)
 
 
@@ -464,7 +470,7 @@ async def test_a_failed_name_read_shows_the_id(
     )
     assert created.status_code == 201
     (change,) = await discord_posts.changes()
-    assert jane.id in change["footer"]["text"]
+    assert change["title"] == jane.id
 
 
 async def test_rolled_back_request_reports_no_change(
@@ -488,8 +494,8 @@ async def test_rolled_back_request_reports_no_change(
     assert clash.status_code == 409, clash.text
     assert first.status_code == 201
     (change,) = await discord_posts.changes()
-    assert change["footer"]["text"].split(" · ")[0] == "POST /v1/teams"
-    assert change["description"] == "teams · 2 created"  # the rename is not in it
+    # The rename is not in it.
+    assert change["description"] == "👥 created team 'One'\n👥 created team 'Two'"
     assert (
         await discord_posts.channel(discord.CHANNEL_ERRORS) == []
     )  # a 4xx is not a fault
@@ -506,7 +512,7 @@ async def test_operator_queue_changes_are_reported(
     res = await client.post("/v1/admin/drive-jobs/job_1/retry", headers=admin.headers)
     assert res.status_code == 200, res.text
     (change,) = await discord_posts.changes()
-    assert change["description"] == "drive_jobs · 1 bulk write"
+    assert change["description"] == "⚙️ Drive jobs · 1 bulk write"
 
 
 async def test_change_feed_can_be_switched_off(
@@ -525,8 +531,9 @@ async def test_change_feed_can_be_switched_off(
     assert created.status_code == 201
     await _upload(client, jane, routine_name="Ballad")
 
-    assert await discord_posts.changes() == []
-    assert len(await discord_posts.songs_added()) == 1
+    # The team is not in it; the song is.
+    assert await discord_posts.songs_added() == ["🎵 added 'Ballad' (Classic)"]
+    assert "team" not in str(await discord_posts.changes())
 
 
 async def test_synthetic_check_ins_are_not_news(
@@ -603,7 +610,12 @@ async def test_development_posts_no_data_changes(
     monkeypatch.setattr(get_settings(), "ENVIRONMENT", "development")
     admin = await person("admin", admin=True)
     await _commit_changes_with_cascades(client, admin, db)
-    assert await discord_posts.channel(discord.CHANNEL_ACTIVITY) == []
+    assert await discord_posts.changes() == []
+    # Claimed all the same, so development's rows do not pile up.
+    assert (
+        await db.fetchval("SELECT count(*) FROM activity_feed WHERE posted_at IS NULL")
+        == 0
+    )
 
 
 async def test_production_posts_the_same_data_changes(
@@ -616,9 +628,14 @@ async def test_production_posts_the_same_data_changes(
     monkeypatch.setattr(get_settings(), "ENVIRONMENT", "production")
     admin = await person("admin", admin=True)
     await _commit_changes_with_cascades(client, admin, db)
-    paths = [c["footer"]["text"].split(" · ")[0] for c in await discord_posts.changes()]
-    assert "DELETE /v1/partners/" in " ".join(paths)
-    assert any(p.startswith("DELETE /v1/events/") for p in paths)
+    lines = await discord_posts.lines()
+    # The cascades are said by what caused them, never as bulk statements.
+    assert lines == [
+        "👤 added partner Pat Partner",
+        "🗑️ removed partner Pat Partner",
+        "📅 created event Swing Fling (2026-05-01 – 2026-05-03)",
+        "🗑️ deleted event Swing Fling",
+    ]
 
 
 async def test_development_posts_nothing(
@@ -739,7 +756,8 @@ async def test_feedback_posts_its_type_and_subject_only(
         "Queue \\*froze\\* @everyone\n"
         "saved, not emailed: no Brevo key or feedback address is set"
     )
-    assert embed["footer"]["text"] == "api-deejaytools · production"
+    # The channel is production's own: the environment would say nothing.
+    assert embed["footer"]["text"] == "api-deejaytools"
     # The sender and their message go by email, never to the shared channel.
     for private in ("Jane", "jane@example.test", "3pm"):
         assert private not in str(post)
@@ -1165,6 +1183,9 @@ async def test_nothing_is_sent_without_webhooks(
     fake_drive.fail_upload = RuntimeError("down")
     await _send(client, jane, str(uuid.uuid4()), 0, 1, MP3)  # a fault
     await song_builds.wait_for_builds()
+    await activity_feed.post_due(
+        get_sessionmaker(), now=now_ms() + change_feed.QUIET_MS + 1
+    )
     await activity.wait_for_deliveries()
 
     assert posted == []

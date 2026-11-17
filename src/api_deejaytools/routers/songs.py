@@ -43,6 +43,7 @@ from ..models import (
     Song,
     User,
 )
+from ..services import change_feed
 from ..services.drive_jobs import SHARE_SONG, add_drive_job, enqueue_trash_jobs
 from ..song_records import (
     SongData,
@@ -343,6 +344,7 @@ async def patch_song(
 ) -> dict[str, Any]:
     """Update a song's metadata."""
     song = await _load_live(session, id, caller.user_id)
+    title = {"routine_name": song.routine_name, "display_name": song.display_name}
     if body.partner_id and not await assert_partner_owned(
         session, caller.user_id, body.partner_id
     ):
@@ -372,6 +374,14 @@ async def patch_song(
         if field in sent:
             values[field] = getattr(body, field)
     await session.execute(update(Song).where(Song.id == id).values(**values))
+    change_feed.record(
+        session,
+        "songs",
+        change_feed.UPDATED,
+        {"id": id, **title},
+        fields=values,
+        covers=["songs"],
+    )
     await session.commit()
     data = await load_song_with_partner(session, id)
     assert data is not None
@@ -448,17 +458,23 @@ async def delete_song(
             if marked is not None and marked.drive_file_id and marked.drive_folder_id
             else []
         )
-        copies = [
-            file_id
-            for file_id in (
+        withdrawn = list(
+            (
                 await session.execute(
                     delete(EventSongSubmission)
                     .where(EventSongSubmission.song_id == id)
                     .returning(EventSongSubmission.drive_copy_file_id)
                 )
             ).scalars()
-            if file_id is not None
-        ]
+        )
+        copies = [file_id for file_id in withdrawn if file_id is not None]
+        change_feed.record(
+            session,
+            "songs",
+            change_feed.DELETED,
+            {"id": id, "submissions": len(withdrawn)},
+            covers=["songs", "event_song_submissions"],
+        )
         await session.commit()
     except SQLAlchemyError as exc:
         await session.rollback()

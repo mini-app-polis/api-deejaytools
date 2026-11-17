@@ -64,6 +64,7 @@ from ..models import (
     User,
     event_division_run_limits,
 )
+from ..services import change_feed
 from ..services.drive_jobs import enqueue_trash_jobs, event_folder_path
 from ..staff import purge_event_staff, reshare_event_folder
 from ..validation import NonEmptyStr, ZodModel
@@ -512,7 +513,7 @@ async def delete_event(
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Delete an event and everything hanging off it."""
-    await _load(session, id)
+    event = change_feed.snapshot(await _load(session, id))
     session_ids = list(
         (
             await session.execute(select(Session.id).where(Session.event_id == id))
@@ -545,6 +546,24 @@ async def delete_event(
     # Its staff rows and every explicit grant on event:<id>, together.
     await purge_event_staff(session, id)
     await session.execute(delete(Event).where(Event.id == id))
+    change_feed.record(
+        session,
+        "events",
+        change_feed.DELETED,
+        event,
+        covers=[
+            "events",
+            "sessions",
+            "session_divisions",
+            "checkins",
+            "queue_entries",
+            "queue_events",
+            "runs",
+            "event_song_submissions",
+            "event_division_run_limits",
+            "event_staff_grants",
+        ],
+    )
     await session.commit()
     invalidate_all_session_caches()
 
