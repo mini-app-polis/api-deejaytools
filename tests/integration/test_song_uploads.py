@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import time
 import uuid
+import wave
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -177,9 +179,43 @@ async def test_chunks_assemble_out_of_order_and_build(
         "division-folder",
     )
     assert row["original_filename"] == "my routine.MP3"
+    # These bytes are no real MP3, so no length: the scheduler tries later.
+    assert (row["duration_ms"], row["duration_checked_at"]) == (None, None)
     assert await db.fetchval("SELECT count(*) FROM song_uploads") == 0
     [(shared_file, emails)] = fake_drive.shares
     assert shared_file == "file-1" and emails[0].startswith("alice.")
+
+
+async def test_a_build_records_the_length_it_reads_from_the_upload(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    fake_drive: FakeDrive,
+) -> None:
+    alice = await person("alice")
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(8000)
+        w.writeframes(b"\x00\x00" * 8000 * 3)
+    song = await _upload(
+        client,
+        alice,
+        buf.getvalue(),
+        original_filename="routine.wav",
+        mime_type="audio/wav",
+    )
+    await song_builds.wait_for_builds()
+
+    row = await db.fetchrow(
+        "SELECT drive_file_id, duration_ms, duration_checked_at FROM songs"
+        " WHERE id = $1",
+        song["id"],
+    )
+    assert row["drive_file_id"] == "file-1"
+    assert row["duration_ms"] == 3000
+    assert row["duration_checked_at"] is not None
 
 
 async def test_validation_order_and_messages(
@@ -709,10 +745,14 @@ async def test_interrupted_build_resumes_without_uploading_twice(
     await song_builds.wait_for_builds()
 
     assert fake_drive.uploads == []
-    assert (
-        await db.fetchval("SELECT drive_file_id FROM songs WHERE id = $1", song["id"])
-        == "file-from-before"
+    row = await db.fetchrow(
+        "SELECT drive_file_id, duration_ms, duration_checked_at FROM songs"
+        " WHERE id = $1",
+        song["id"],
     )
+    assert row["drive_file_id"] == "file-from-before"
+    # The bytes were never read: the scheduler measures it from Drive.
+    assert (row["duration_ms"], row["duration_checked_at"]) == (None, None)
 
 
 async def test_concurrent_uploads_for_one_slot_get_distinct_versions(

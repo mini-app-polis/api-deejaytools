@@ -2749,7 +2749,7 @@ const listQuery = z.object({
 
 `owner_user_id` is the song owner's user id, the `on_behalf_of_user_id` that `POST /v1/checkins` takes to check in for that song.
 
-`duration_ms` is how long the song's file plays, in milliseconds, read from the file by the scheduler ([DRIVE.md "Song lengths"](DRIVE.md#song-lengths)); `null` until it has been read, and for a file that cannot be read.
+`duration_ms` is how long the song's file plays, in milliseconds, read from the file at upload, or later by the scheduler ([DRIVE.md "Song lengths"](DRIVE.md#song-lengths)); `null` until it has been read, and for a file that cannot be read.
 
 **Errors:**
 

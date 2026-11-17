@@ -535,13 +535,17 @@ staff can check a routine's music against its division's time limit. The
 length comes from the file's own headers (mutagen), in any format an upload
 may use.
 
-**When.** Not a job: the scheduler measures up to `LENGTH_BATCH` songs (2) on
+**At upload.** The build reads the length from the uploaded bytes before it
+tags them, and records it with the Drive file. A build that finds its file
+already in Drive (resuming after a crash) never loads the bytes, and some
+files' headers give no length; those songs are left to the scheduler.
+
+**After.** Not a job: the scheduler measures up to `LENGTH_BATCH` songs (2) on
 every tick, after the Drive jobs, and only when Drive is configured. A song is
 measured once it has a Drive file, is not deleted and has no length: those
-never tried first, oldest first, so a new upload is measured within a tick or
-two of its build, and songs uploaded before lengths were kept are measured as
-a backlog, two a tick. Each is a whole-file download inside the tick, hence
-the small batch.
+never tried first, oldest first. That clears the songs uploaded before lengths
+were kept as a backlog, two a tick, and picks up the builds above within a
+tick. Each is a whole-file download inside the tick, hence the small batch.
 
 **Failures.** A file Drive refuses, or whose headers give no length, logs
 `song_length_download_failed` or `song_length_unreadable` and is stamped as

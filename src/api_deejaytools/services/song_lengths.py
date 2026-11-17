@@ -1,11 +1,13 @@
 """Each song's length, read from its file in Drive.
 
 Staff see it next to each submission, to check a routine's music against its
-division's time limit. The scheduler measures a few songs a tick
-(``measure_song_lengths``): every song with a Drive file and no length yet,
-those never tried first, so new uploads are measured within a tick or two
-of their build and the songs uploaded before lengths were kept are measured
-as a backlog. A file that cannot be read (Drive refuses it, or mutagen cannot
+division's time limit. A song's build reads it from the uploaded bytes
+(``read_duration_ms``, called from ``song_builds``). The scheduler measures
+the rest a few a tick (``measure_song_lengths``): every song with a Drive file
+and no length yet, those never tried first. That is the songs uploaded before
+lengths were kept, as a backlog, and the few builds that never read their
+bytes (one that found its file already in Drive) or could not read a length
+from them. A file that cannot be read (Drive refuses it, or mutagen cannot
 parse it) is tried again a day later, behind every song not tried yet.
 
 The length comes from the file's own headers (mutagen), not from decoding
