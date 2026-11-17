@@ -315,6 +315,7 @@ Multi-day competition container.
 | `end_date` | `text` | NO | — | `YYYY-MM-DD`; must be `>= start_date` |
 | `timezone` | `text` | NO | `America/Chicago` | IANA timezone; session timestamps displayed in this zone |
 | `season_year` | `text` | YES | — | Season the event belongs to (e.g. `"2027"`). Set on create from the body or derived from `start_date` (October 1 rollover, [ADR-0011](decisions/ADR-0011-season-year-rolls-over-october-1.md)); **not** recomputed when `start_date` changes. Reads fall back to deriving from `start_date` when null. Decides the Drive year folder for event copies |
+| `series` | `text` | YES | — | Migration 017. The run of events this one is an edition of (e.g. `"The Open"`), set by an admin; stored trimmed, matched case-insensitively. Null = in no series. The submission timeline compares an event with the earlier events of its series |
 | `created_by` | `text` | YES | — | Admin who created the event |
 | `created_at` | `bigint` | NO | — | Epoch ms |
 | `updated_at` | `bigint` | NO | — | Epoch ms |
@@ -322,6 +323,8 @@ Multi-day competition container.
 **Primary key:** `id`
 
 **Foreign keys:** `created_by` → `users.id` (NO ACTION)
+
+**Indexes:** `idx_events_series` on `(lower(series))` where `series` is not null
 
 **Check constraints:** `ck_events_date_range`: `start_date <= end_date`
 

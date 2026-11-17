@@ -161,6 +161,12 @@
       "event-manager",
       "admin"
     ],
+    "GET /v1/events/{id}/submission-timeline": [
+      "coordinator",
+      "dj",
+      "event-manager",
+      "admin"
+    ],
     "GET /v1/managed-partnerships": [
       "dancer",
       "coordinator",

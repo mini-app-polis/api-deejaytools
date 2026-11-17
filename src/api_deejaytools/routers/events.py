@@ -69,7 +69,7 @@ from ..services.drive_jobs import enqueue_trash_jobs, event_folder_path
 from ..staff import purge_event_staff, reshare_event_folder
 from ..validation import NonEmptyStr, ZodModel
 from ..zod_coerce import js_trim
-from ..zod_types import zod_body
+from ..zod_types import trimmed, zod_body
 
 logger = get_logger()
 
@@ -104,6 +104,8 @@ def _timezone(value: str) -> str:
 DateString = Annotated[str, AfterValidator(_date)]
 SeasonYear = Annotated[str, AfterValidator(_season_year)]
 Timezone = Annotated[str, AfterValidator(_timezone)]
+# Trimmed; empty means "in no series" and is stored as null.
+Series = Annotated[str, trimmed(max_length=100)]
 
 
 class CreateEventBody(ZodModel):
@@ -116,6 +118,13 @@ class CreateEventBody(ZodModel):
     season_year: SeasonYear | None = Field(
         None, description="Season; omit to derive from start_date."
     )
+    series: Series | None = Field(
+        None,
+        description=(
+            "The run of events this is an edition of (e.g. The Open); omit "
+            "or empty for none."
+        ),
+    )
 
 
 class PatchEventBody(ZodModel):
@@ -126,6 +135,9 @@ class PatchEventBody(ZodModel):
     end_date: DateString | None = Field(None, description="Last day, YYYY-MM-DD.")
     timezone: Timezone | None = Field(None, description="IANA timezone.")
     season_year: SeasonYear | None = Field(None, description="Season year.")
+    series: Series | None = Field(
+        None, description="Series; empty takes the event out of its series."
+    )
 
 
 class EventData(BaseModel):
@@ -137,6 +149,9 @@ class EventData(BaseModel):
     end_date: str = Field(..., description="Last day, YYYY-MM-DD, local.")
     timezone: str = Field(..., description="IANA timezone of the dates.")
     season_year: str = Field(..., description="Competitive season.")
+    series: str | None = Field(
+        None, description="The run of events this is an edition of; null: none."
+    )
     status: str = Field(..., description="upcoming, active or completed, today.")
     created_by: str | None = Field(None, description="users.id of the creator.")
     created_at: int = Field(..., description="Created, epoch ms.")
@@ -212,6 +227,7 @@ def map_event(row: Event) -> dict[str, Any]:
         "timezone": row.timezone,
         # Rows predating the column fall back, so consumers never see null.
         "season_year": row.season_year or season_year_from_date_string(row.start_date),
+        "series": row.series,
         "status": compute_status(row.start_date, row.end_date, row.timezone),
         "created_by": row.created_by,
         "created_at": row.created_at,
@@ -443,6 +459,7 @@ async def create_event(
         end_date=body.end_date,
         timezone=body.timezone,
         season_year=body.season_year or season_year_from_date_string(body.start_date),
+        series=body.series or None,
         created_by=caller.user_id,
         created_at=now,
         updated_at=now,
@@ -484,6 +501,8 @@ async def patch_event(
         value = getattr(body, field)
         if value is not None:
             setattr(row, field, value)
+    if body.series is not None:
+        row.series = body.series or None
     row.updated_at = now_ms()
     if event_folder_path(row.name, row.season_year, row.start_date) != folder:
         await reshare_event_folder(session, id)

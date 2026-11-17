@@ -355,6 +355,7 @@ const ianaTimezone = z
       "end_date": "2026-03-03",
       "timezone": "America/Chicago",
       "season_year": "2026",
+      "series": "Rising Star Classic",
       "status": "upcoming",
       "created_by": "user_…",
       "created_at": 1710000000000,
@@ -365,7 +366,7 @@ const ianaTimezone = z
 }
 ```
 
-`status` is derived at response time (`upcoming` | `active` | `completed`), not stored. `season_year` is the stored season, or derived from `start_date` (October 1 rollover, [ADR-0011](decisions/ADR-0011-season-year-rolls-over-october-1.md)) when the row has none; never `null`.
+`status` is derived at response time (`upcoming` | `active` | `completed`), not stored. `season_year` is the stored season, or derived from `start_date` (October 1 rollover, [ADR-0011](decisions/ADR-0011-season-year-rolls-over-october-1.md)) when the row has none; never `null`. `series` names the run of events this one is an edition of (migration 017), `null` when none; [`GET /v1/events/:id/submission-timeline`](#get-v1eventsidsubmission-timeline) compares an event with the earlier events of its series.
 
 **Errors:** none (empty list is valid).
 
@@ -475,6 +476,8 @@ const createEvent = z.object({
   timezone: ianaTimezone.default("America/Chicago"),
   /** Omit to derive from start_date (October 1 rollover). */
   season_year: z.string().regex(/^\d{4}$/, "Must be a 4-digit year").optional(),
+  /** The run of events this is an edition of; omit or empty for none. */
+  series: z.string().trim().max(100).optional(),
 });
 ```
 
@@ -508,6 +511,8 @@ const patchEvent = z.object({
   end_date: dateString.optional(),
   timezone: ianaTimezone.optional(),
   season_year: z.string().regex(/^\d{4}$/, "Must be a 4-digit year").optional(),
+  /** Empty takes the event out of its series. */
+  series: z.string().trim().max(100).optional(),
 });
 ```
 
@@ -2974,6 +2979,53 @@ Remove one entry from the event's list. Submissions it hid from the event's publ
 | 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
 | 404 | `NOT_FOUND` | Registration not found | Unknown entry, or one on another event's list |
 | 500 | `INTERNAL` | … | Write failed |
+
+---
+
+### GET /v1/events/:id/submission-timeline
+
+How far along the event's music is against earlier editions of it, for the event page's submissions chart. Counts only, never who.
+
+**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path
+
+**Path params:** `id` — event id
+
+**Query params / Request body:** none
+
+**Purpose:** The event's submissions per day, counted from its `start_date` (day 0) in its own timezone, with the size of its registration list (entries not scratched; 0 when no list was imported). When the event has a `series`, the same for the latest five earlier events of that series (matched case-insensitively, `start_date` before this one's), newest first. Each submission counts once, on the day it was made: the app keeps only an entry's current submission, so an entry that replaced its music counts on the day of its latest version.
+
+**Response:**
+
+```json
+{
+  "data": {
+    "series": "The Open",
+    "today": -8,
+    "events": [
+      {
+        "id": "evt_…",
+        "name": "The Open 2026",
+        "start_date": "2026-11-25",
+        "end_date": "2026-11-29",
+        "registrations": 164,
+        "submissions": 2,
+        "days": [{ "day": -55, "count": 1 }, { "day": -50, "count": 1 }]
+      }
+    ]
+  },
+  "meta": { "version": "…" }
+}
+```
+
+`today` is today, in days from the event's `start_date` in its timezone. `days` lists only days with submissions, in order.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 403 | `FORBIDDEN` | Admin access required | Scope not held on this event |
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 500 | `INTERNAL` | … | Query failed |
 
 ---
 
