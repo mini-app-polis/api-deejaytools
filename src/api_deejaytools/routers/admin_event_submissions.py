@@ -112,6 +112,13 @@ class AdminSubmissionData(BaseModel):
     )
     song_label: str = Field(..., description="Structured song label.")
     partnership_label: str = Field(..., description="Who the song belongs to.")
+    duration_ms: int | None = Field(
+        None,
+        description=(
+            "How long the song's file plays, in milliseconds; null until it "
+            "has been read from the file, or when it cannot be."
+        ),
+    )
     submitter_email: str = Field(
         ...,
         description=(
@@ -237,6 +244,7 @@ async def _submission_rows(
                 Song.processed_filename.label("song_processed_filename"),
                 Song.routine_name.label("song_routine_name"),
                 Song.season_year.label("song_season_year"),
+                Song.duration_ms.label("song_duration_ms"),
                 owner.first_name.label("owner_first"),
                 owner.last_name.label("owner_last"),
                 Partner.first_name.label("partner_first"),
@@ -305,6 +313,7 @@ async def _submission_rows(
                     song_id=r.song_id,
                 ),
                 "partnership_label": label,
+                "duration_ms": r.song_duration_ms,
                 "submitter_email": email_for_caller(
                     r.submitter_email, whole=whole_emails
                 )

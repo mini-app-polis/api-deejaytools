@@ -17,6 +17,7 @@ from api_deejaytools.services import (
     scheduler,
     session_tick,
     song_builds,
+    song_lengths,
 )
 
 # --- fakes ----------------------------------------------------------------------
@@ -85,7 +86,7 @@ class Sentry:
 
 @pytest.fixture
 def steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Replace the six steps with recorders; each can be told to raise. The
+    """Replace the seven steps with recorders; each can be told to raise. The
     event folder sweep is due on the first pass."""
     state: dict[str, Any] = {"calls": [], "raise": set(), "maker": FakeMaker()}
 
@@ -109,6 +110,7 @@ def steps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(song_builds, "process_song_uploads", step("builds"))
     monkeypatch.setattr(drive_jobs, "process_drive_jobs", step("drive"))
     monkeypatch.setattr(drive_jobs, "sweep_event_folders", step("sweep"))
+    monkeypatch.setattr(song_lengths, "measure_song_lengths", step("lengths"))
     monkeypatch.setattr(scheduler, "_event_folder_sweep_at", None)
     monkeypatch.setattr(scheduler, "_session_factory", lambda: state["maker"])
     monkeypatch.setattr(scheduler.drive, "drive_configured", lambda: True)
@@ -132,7 +134,8 @@ async def test_tick_runs_sessions_then_drive_each_in_its_own_session(
         ("feedback", 2),
         ("builds", 3),
         ("drive", 4),
-        ("sweep", 5),
+        ("lengths", 5),
+        ("sweep", 6),
     ]
     assert all(s.closed for s in steps["maker"].made)
 
@@ -146,6 +149,7 @@ async def test_session_failure_does_not_stop_drive_work(steps: dict[str, Any]) -
         "feedback",
         "builds",
         "drive",
+        "lengths",
         "sweep",
     ]
     errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
@@ -166,6 +170,7 @@ async def test_drive_failure_is_logged_and_reported(steps: dict[str, Any]) -> No
         "feedback",
         "builds",
         "drive",
+        "lengths",
         "sweep",
     ]
     errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
@@ -184,6 +189,7 @@ async def test_build_failure_is_isolated_and_reported(steps: dict[str, Any]) -> 
         "feedback",
         "builds",
         "drive",
+        "lengths",
         "sweep",
     ]
     errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
@@ -191,6 +197,27 @@ async def test_build_failure_is_isolated_and_reported(steps: dict[str, Any]) -> 
     ((exc, tags),) = steps["sentry"].captured
     assert str(exc) == "builds broke"
     assert tags == {"level": "error", "subsystem": "song_builds"}
+
+
+async def test_song_length_failure_is_isolated_and_reported(
+    steps: dict[str, Any],
+) -> None:
+    steps["raise"].add("lengths")
+    await scheduler.run_tick()
+    assert [c[0] for c in steps["calls"]] == [
+        "statuses",
+        "fill",
+        "feedback",
+        "builds",
+        "drive",
+        "lengths",
+        "sweep",
+    ]
+    errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
+    assert len(errors) == 1 and "song_lengths_tick_failed" in errors[0]
+    ((exc, tags),) = steps["sentry"].captured
+    assert str(exc) == "lengths broke"
+    assert tags == {"level": "error", "subsystem": "song_lengths"}
 
 
 async def test_feedback_failure_is_isolated_and_reported(
@@ -204,6 +231,7 @@ async def test_feedback_failure_is_isolated_and_reported(
         "feedback",
         "builds",
         "drive",
+        "lengths",
         "sweep",
     ]
     errors = [m for lvl, m in steps["logs"].lines if lvl == "error"]
@@ -214,7 +242,7 @@ async def test_feedback_failure_is_isolated_and_reported(
 
 
 async def test_both_halves_failing_never_raises(steps: dict[str, Any]) -> None:
-    steps["raise"].update({"fill", "feedback", "builds", "drive", "sweep"})
+    steps["raise"].update({"fill", "feedback", "builds", "drive", "lengths", "sweep"})
     await scheduler.run_tick()
     assert [c[0] for c in steps["calls"]] == [
         "statuses",
@@ -222,6 +250,7 @@ async def test_both_halves_failing_never_raises(steps: dict[str, Any]) -> None:
         "feedback",
         "builds",
         "drive",
+        "lengths",
         "sweep",
     ]
 

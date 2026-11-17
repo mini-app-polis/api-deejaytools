@@ -186,6 +186,9 @@ UPDATE_PERMISSIONS=1 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:
   `deejaytools.sessions.write` and `deejaytools.registrations.write` from the
   DJ role, and from DJs already on an event's staff unless another role they
   hold on that event still carries it.
+- `migrations/015_song_duration.sql` adds `songs.duration_ms` and
+  `songs.duration_checked_at`: each song's length, which the scheduler reads
+  from its Drive file.
 - `scripts/apply_migrations.py` applies pending files on every deploy,
   tracked in `schema_migrations`, before the app starts.
 - `scripts/backfill_principals.py` runs next, on every deploy: it writes this

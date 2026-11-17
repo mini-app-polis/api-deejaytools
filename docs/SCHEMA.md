@@ -279,6 +279,8 @@ Uploaded or metadata-only music records tied to a user (and optional partner or 
 | `routine_name` | `text` | YES | — | Routine title segment in processed filename |
 | `personal_descriptor` | `text` | YES | — | Optional disambiguator in processed filename |
 | `season_year` | `text` | YES | — | Season year string (e.g. `"2026"`), fixed when the upload is accepted, from its UTC date (rolls over at 00:00 UTC on October 1, [ADR-0011](decisions/ADR-0011-season-year-rolls-over-october-1.md)) |
+| `duration_ms` | `integer` | YES | — | How long the file plays, read from it by the scheduler ([DRIVE.md "Song lengths"](DRIVE.md#song-lengths)); null until read, or when it cannot be |
+| `duration_checked_at` | `bigint` | YES | — | Epoch ms of the last attempt to read `duration_ms`; null = never tried |
 | `deleted_at` | `bigint` | YES | — | Soft delete; null = active |
 | `created_at` | `bigint` | NO | — | Epoch ms |
 | `updated_at` | `bigint` | NO | — | Epoch ms |

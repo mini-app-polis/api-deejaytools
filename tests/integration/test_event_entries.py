@@ -125,6 +125,26 @@ async def test_a_coordinator_sees_their_event_and_only_theirs(
     }
 
 
+async def test_each_entry_carries_its_songs_length(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    event_a, _ = await _two_events(client, db, admin, alice)
+    # s_a2's song has been measured; s_a1's not yet.
+    await db.execute(
+        "UPDATE songs SET duration_ms = 185000 WHERE id ="
+        " (SELECT song_id FROM event_song_submissions WHERE id = 's_a2')"
+    )
+
+    res = await client.get(_url(event_a), headers=admin.headers)
+    assert res.status_code == 200, res.text
+    assert {r["id"]: r["duration_ms"] for r in res.json()["data"]} == {
+        "s_a2": 185000,
+        "s_a1": None,
+    }
+
+
 async def test_a_coordinator_gets_no_admin_list(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:
