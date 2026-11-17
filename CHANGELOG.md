@@ -1,3 +1,16 @@
+# [1.39.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.38.0...v1.39.0) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.14.1 ([fb22f11](https://github.com/mini-app-polis/api-deejaytools/commit/fb22f11ea8204920c647aa629de974f01dce4171))
+* **deps:** bump miniapppolis-common-utils to 9.14.2 ([de615db](https://github.com/mini-app-polis/api-deejaytools/commit/de615db320cfd39ed735bfed5c05aeb86d8ad487))
+
+
+### Features
+
+* **notifications:** post the change feed as one message per person, in words ([0bd0451](https://github.com/mini-app-polis/api-deejaytools/commit/0bd0451c0ac73ebc9278d40a015e1d05f373b9f1))
+
 # [1.38.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.37.0...v1.38.0) (2026-11-17)
 
 
