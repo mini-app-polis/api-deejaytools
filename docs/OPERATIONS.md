@@ -235,7 +235,7 @@ limits.
 
 ## Discord notifications
 
-The service posts to the fleet's shared Discord channels through
+The service posts to Discord through
 common-python-utils' `mini_app_polis.activity` and `mini_app_polis.discord`
 (`src/api_deejaytools/services/notifications.py`). Every message's footer
 says `api-deejaytools` and the environment. Only production posts the
@@ -245,6 +245,14 @@ starting `[DEVELOPMENT]` (or `[LOCAL]`) — `[DEVELOPMENT] song added` — so
 they are not read as production's. Messages name people only where that
 is the point (the dancers in "song added"); the caller of a request is
 named by Clerk user id, never by email.
+
+Faults go to the fleet's shared `errors` channel. Activity (the change
+feed, "song added" and "feedback") goes to deejaytools' own channel when
+`DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY` is set, and to the fleet's shared
+`activity` channel (`DISCORD_WEBHOOK_URL_ACTIVITY`) when it is unset or
+blank. To move activity to a new channel, create a webhook on it and set
+`DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY` in this repo's Doppler configs;
+no deploy is needed beyond the restart the sync triggers.
 
 ### Configuration
 

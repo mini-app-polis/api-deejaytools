@@ -151,7 +151,15 @@ class Settings(BaseSettings):
         default=None, description="Webhook for 5xx, unhandled and background faults."
     )
     DISCORD_WEBHOOK_URL_ACTIVITY: str | None = Field(
-        default=None, description="Webhook for data changes and songs added."
+        default=None, description="The fleet's shared activity channel webhook."
+    )
+    # This service's own activity channel: the change feed, "song added"
+    # and "feedback" go here instead of the fleet's shared activity
+    # channel. Unset or blank, they fall back to DISCORD_WEBHOOK_URL_ACTIVITY
+    # (then DISCORD_WEBHOOK_URL), so setting it up needs no other change.
+    DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY: str | None = Field(
+        default=None,
+        description="Webhook for this service's activity: data changes, songs added, feedback.",
     )
     # The change feed's switch, as api-kaianolevine-com has it: off mutes
     # the per-request "data changed" summaries without a deploy, and leaves

@@ -114,3 +114,48 @@ def test_every_channel_resolves_from_declared_settings() -> None:
     assert resolved[discord.CHANNEL_ACTIVITY] == "https://discord.test/activity"
     for channel, url in resolved.items():
         assert url is not None, channel
+
+
+def test_activity_posts_to_its_own_channel_when_set() -> None:
+    """DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY takes activity off the
+    fleet's shared channel; errors stay where they were."""
+    from mini_app_polis import discord
+
+    from api_deejaytools.config import Settings
+    from api_deejaytools.services.notifications import webhook_source
+
+    settings = Settings.model_construct(
+        DISCORD_WEBHOOK_URL="https://discord.test/fallback",
+        DISCORD_WEBHOOK_URL_ERRORS="https://discord.test/errors",
+        DISCORD_WEBHOOK_URL_ACTIVITY="https://discord.test/activity",
+        DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY="https://discord.test/deejaytools",
+    )
+    source = webhook_source(settings)
+    assert (
+        discord.webhook_url(discord.CHANNEL_ACTIVITY, source=source)
+        == "https://discord.test/deejaytools"
+    )
+    assert (
+        discord.webhook_url(discord.CHANNEL_ERRORS, source=source)
+        == "https://discord.test/errors"
+    )
+
+
+def test_activity_falls_back_to_the_shared_channel_when_unset() -> None:
+    from mini_app_polis import discord
+
+    from api_deejaytools.config import Settings
+    from api_deejaytools.services.notifications import webhook_source
+
+    for own in (None, "", "   "):
+        settings = Settings.model_construct(
+            DISCORD_WEBHOOK_URL="https://discord.test/fallback",
+            DISCORD_WEBHOOK_URL_ACTIVITY="https://discord.test/activity",
+            DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY=own,
+        )
+        assert (
+            discord.webhook_url(
+                discord.CHANNEL_ACTIVITY, source=webhook_source(settings)
+            )
+            == "https://discord.test/activity"
+        ), own

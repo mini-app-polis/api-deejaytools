@@ -3,7 +3,9 @@
 The machinery is ``mini_app_polis.activity`` and ``mini_app_polis.discord``,
 shared with the fleet's other APIs: SQLAlchemy listeners that tally what a
 request committed, a middleware that posts one change summary per request
-to the shared ``activity`` channel and every 5xx or unhandled exception to
+to the ``activity`` channel (this service's own when
+``DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY`` is set, else the fleet's shared
+one) and every 5xx or unhandled exception to
 ``errors``, announcements that go out only when their transaction commits,
 and background fault reports. Their module docstrings say what is and is not
 seen. Importing this module imports ``activity``, which is what registers
@@ -37,6 +39,10 @@ What stays here is this service's policy:
   added" and "feedback" are not events in the list and are unaffected.
 - **No machine callers.** The only caller is the web app, so a 4xx is a
   person meeting a guard and is never reported (``is_machine`` is None).
+- **Activity has its own channel.** The change feed, "song added" and
+  "feedback" post to ``DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY`` when it is
+  set, so deejaytools' activity is not mixed into the fleet's shared
+  channel; unset, they post to ``DISCORD_WEBHOOK_URL_ACTIVITY`` as before.
 - **Webhooks resolve from ``Settings``**, like every other setting,
   rather than straight from the environment. With none set,
   notifications are off: the first message dropped on each channel is
@@ -175,16 +181,19 @@ def webhook_source(settings: Settings) -> dict[str, str | None]:
     library reads.
 
     Only the channels this service posts to have a variable of their own;
-    any other channel falls back to ``DISCORD_WEBHOOK_URL``.
+    any other channel falls back to ``DISCORD_WEBHOOK_URL``. Activity goes
+    to this service's own channel (``DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY``)
+    when it is set, else to the fleet's shared one.
     """
+    own_activity = (settings.DEEJAYTOOLS_DISCORD_WEBHOOK_URL_ACTIVITY or "").strip()
     return {
         discord.FALLBACK_ENV: settings.DISCORD_WEBHOOK_URL,
         discord.CHANNEL_ENV[
             discord.CHANNEL_ERRORS
         ]: settings.DISCORD_WEBHOOK_URL_ERRORS,
-        discord.CHANNEL_ENV[
-            discord.CHANNEL_ACTIVITY
-        ]: settings.DISCORD_WEBHOOK_URL_ACTIVITY,
+        discord.CHANNEL_ENV[discord.CHANNEL_ACTIVITY]: (
+            own_activity or settings.DISCORD_WEBHOOK_URL_ACTIVITY
+        ),
     }
 
 

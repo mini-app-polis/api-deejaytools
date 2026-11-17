@@ -45,7 +45,7 @@ from ..errors import (
     success,
     success_list,
 )
-from ..models import Partner, Song, User
+from ..models import EventSongSubmission, ManagedPartnership, Partner, Song, Team, User
 from ..submissions import fetch_user_submission_rows, map_submission_row
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
@@ -97,6 +97,13 @@ class AdminUserData(BaseModel):
     created_at: int = Field(..., description="Created, epoch ms.")
     song_count: int = Field(..., description="Songs not soft-deleted.")
     partner_count: int = Field(..., description="Partners of kind 'partner'.")
+    event_count: int = Field(
+        ..., description="Events with a submission of one of their songs."
+    )
+    managed_partnership_count: int = Field(
+        ..., description="Managed partnerships not soft-deleted."
+    )
+    team_count: int = Field(..., description="Teams they own.")
 
 
 class AdminUserResponse(Envelope[AdminUserData]):
@@ -151,6 +158,30 @@ def _user_columns() -> tuple[Any, ...]:
         .where(Partner.user_id == User.id, Partner.kind == "partner")
         .scalar_subquery()
     )
+    # Distinct events their songs (not soft-deleted) are submitted to,
+    # whoever submitted them: the events they are competing at.
+    event_count = (
+        select(func.count(func.distinct(EventSongSubmission.event_id)))
+        .select_from(EventSongSubmission)
+        .join(Song, Song.id == EventSongSubmission.song_id)
+        .where(Song.user_id == User.id, Song.deleted_at.is_(None))
+        .scalar_subquery()
+    )
+    managed_count = (
+        select(func.count())
+        .select_from(ManagedPartnership)
+        .where(
+            ManagedPartnership.user_id == User.id,
+            ManagedPartnership.deleted_at.is_(None),
+        )
+        .scalar_subquery()
+    )
+    team_count = (
+        select(func.count())
+        .select_from(Team)
+        .where(Team.user_id == User.id)
+        .scalar_subquery()
+    )
     return (
         User.id,
         User.email,
@@ -160,6 +191,9 @@ def _user_columns() -> tuple[Any, ...]:
         _is_admin().label("is_admin"),
         song_count.label("song_count"),
         partner_count.label("partner_count"),
+        event_count.label("event_count"),
+        managed_count.label("managed_partnership_count"),
+        team_count.label("team_count"),
     )
 
 
@@ -173,6 +207,9 @@ def _map_user(row: Any) -> dict[str, Any]:
         "created_at": row.created_at,
         "song_count": int(row.song_count or 0),
         "partner_count": int(row.partner_count or 0),
+        "event_count": int(row.event_count or 0),
+        "managed_partnership_count": int(row.managed_partnership_count or 0),
+        "team_count": int(row.team_count or 0),
     }
 
 
@@ -188,7 +225,8 @@ async def _user_exists(session: AsyncSession, user_id: str) -> bool:
     response_model=AdminUserListResponse,
     summary="List every user",
     description=(
-        "Every account with song and partner counts, oldest first. Optional "
+        "Every account with counts of its songs, partners, events entered, "
+        "managed partnerships and teams, oldest first. Optional "
         "q searches email and names (case-insensitive); optional role filters "
         "on the role derived from the identity store. Requires "
         "deejaytools.users.read."
