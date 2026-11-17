@@ -6,8 +6,8 @@ has an optional caller: a valid, synced caller also gets
 ``has_active_checkin`` on each session, and admins and event staff read it
 fresh; anonymous responses omit that key entirely. Changes are behind
 ``deejaytools.sessions.write`` on the session's event (event-scoped,
-ADR-0012): the body's ``event_id`` for a create, the path session's for the
-rest. A session with no event, or a create without one, needs the scope
+ADR-0012), which the event's manager carries on it and its DJ does not: the
+body's ``event_id`` for a create, the path session's for the rest. A session with no event, or a create without one, needs the scope
 through a role (an admin's).
 
 One session, and the list as an anonymous caller gets it, are cached for

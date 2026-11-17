@@ -837,7 +837,7 @@ export const SessionStatusSchema = z.enum([
 
 ### POST /v1/sessions
 
-**Auth:** `deejaytools.sessions.write` on the body's `event_id`: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). Without `event_id`, through a role only
+**Auth:** `deejaytools.sessions.write` on the body's `event_id`: held through a role (an admin's, on any event) or granted on the event (its event manager; not its DJ). Without `event_id`, through a role only
 
 **Purpose:** Create a session and its division rows.
 
@@ -862,7 +862,7 @@ export const SessionStatusSchema = z.enum([
 
 ### PUT /v1/sessions/:id/divisions
 
-**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). A session with no event, or an unknown id, through a role only
+**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its event manager; not its DJ). A session with no event, or an unknown id, through a role only
 
 **Purpose:** Upsert session divisions (priority flags and run limits).
 
@@ -885,7 +885,7 @@ export const SessionStatusSchema = z.enum([
 
 ### PATCH /v1/sessions/:id/status
 
-**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). A session with no event, or an unknown id, through a role only
+**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its event manager; not its DJ). A session with no event, or an unknown id, through a role only
 
 **Purpose:** Manually set persisted session status (e.g. `cancelled`).
 
@@ -907,7 +907,7 @@ export const SessionStatusSchema = z.enum([
 
 ### PATCH /v1/sessions/:id
 
-**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). Changing `event_id` also needs the scope on the event it moves to (`null`, out of every event: through a role only); both decisions are audited
+**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its event manager; not its DJ). Changing `event_id` also needs the scope on the event it moves to (`null`, out of every event: through a role only); both decisions are audited
 
 **Purpose:** Update session metadata and time window.
 
@@ -925,7 +925,7 @@ export const SessionStatusSchema = z.enum([
 
 ### DELETE /v1/sessions/:id
 
-**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its DJ or event manager). A session with no event, or an unknown id, through a role only
+**Auth:** `deejaytools.sessions.write` on the session's event: held through a role (an admin's, on any event) or granted on the event (its event manager; not its DJ). A session with no event, or an unknown id, through a role only
 
 **Purpose:** Delete session and all queue/check-in/run data.
 
@@ -2797,7 +2797,7 @@ const moveSubmissionBody = z.object({
 
 The same list for an event's staff, outside `/v1/admin` ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
 
-**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator or event manager; not its DJ)
 
 **Purpose:** Every submission to the event, for the coordinator portal.
 
@@ -2823,7 +2823,7 @@ The same list for an event's staff, outside `/v1/admin` ([ADR-0012](./decisions/
 
 The event's registration list for its staff, outside `/v1/admin` ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)), so the event page can show how many registered entries per division are still missing music.
 
-**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator or event manager; not its DJ)
 
 **Path params:** `id` — event id
 
@@ -2845,7 +2845,7 @@ The event's registration list for its staff, outside `/v1/admin` ([ADR-0012](./d
 
 Import the event's registration list, for its staff ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
 
-**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator or event manager; not its DJ)
 
 **Path params:** `id` — event id
 
@@ -2868,7 +2868,7 @@ Import the event's registration list, for its staff ([ADR-0012](./decisions/ADR-
 
 Add-only import of the event's registration list, for its staff ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)): appends the entries not on the list yet, and never removes or changes the entries already there.
 
-**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator or event manager; not its DJ)
 
 **Path params:** `id` — event id
 
@@ -2905,7 +2905,7 @@ An entry whose division and dancers match one already on the list (case, accents
 
 Add one entry at the end of the event's registration list, unmarked: someone who registered after the list was imported, or one the import missed.
 
-**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator or event manager; not its DJ)
 
 **Path params:** `id` — event id
 
@@ -2934,7 +2934,7 @@ Add one entry at the end of the event's registration list, unmarked: someone who
 
 Mark one entry on the event's list: as `PATCH /v1/admin/event-registrations/:id`.
 
-**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator or event manager; not its DJ)
 
 **Path params:** `id` — event id; `entry_id` — entry id
 
@@ -2958,7 +2958,7 @@ Mark one entry on the event's list: as `PATCH /v1/admin/event-registrations/:id`
 
 Remove one entry from the event's list. Submissions it hid from the event's public entry list are unhidden.
 
-**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+**Auth:** `deejaytools.registrations.write` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator or event manager; not its DJ)
 
 **Path params:** `id` — event id; `entry_id` — entry id
 
@@ -2978,7 +2978,7 @@ Remove one entry from the event's list. Submissions it hid from the event's publ
 
 The staff portals' person picker ([ADR-0012](./decisions/ADR-0012-per-event-staff-roles.md)).
 
-**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator, DJ or event manager)
+**Auth:** `deejaytools.entries.read` on the event: held through a role (an admin's, on any event) or granted on the event in the path (its coordinator or event manager; not its DJ)
 
 **Purpose:** Find a person connected to the event by name. Only the event's own people are searched, never every user:
 

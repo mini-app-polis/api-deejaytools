@@ -26,7 +26,6 @@
     ],
     "DELETE /v1/events/{id}/registrations/{entry_id}": [
       "coordinator",
-      "dj",
       "event-manager",
       "admin"
     ],
@@ -51,7 +50,6 @@
       "admin"
     ],
     "DELETE /v1/sessions/{id}": [
-      "dj",
       "event-manager",
       "admin"
     ],
@@ -270,7 +268,6 @@
     ],
     "PATCH /v1/events/{id}/registrations/{entry_id}": [
       "coordinator",
-      "dj",
       "event-manager",
       "admin"
     ],
@@ -291,12 +288,10 @@
       "admin"
     ],
     "PATCH /v1/sessions/{id}": [
-      "dj",
       "event-manager",
       "admin"
     ],
     "PATCH /v1/sessions/{id}/status": [
-      "dj",
       "event-manager",
       "admin"
     ],
@@ -346,13 +341,11 @@
     ],
     "POST /v1/events/{id}/registrations": [
       "coordinator",
-      "dj",
       "event-manager",
       "admin"
     ],
     "POST /v1/events/{id}/registrations/append": [
       "coordinator",
-      "dj",
       "event-manager",
       "admin"
     ],
@@ -406,7 +399,6 @@
       "admin"
     ],
     "POST /v1/sessions": [
-      "dj",
       "event-manager",
       "admin"
     ],
@@ -439,7 +431,6 @@
     ],
     "PUT /v1/events/{id}/registrations": [
       "coordinator",
-      "dj",
       "event-manager",
       "admin"
     ],
@@ -448,7 +439,6 @@
       "admin"
     ],
     "PUT /v1/sessions/{id}/divisions": [
-      "dj",
       "event-manager",
       "admin"
     ]

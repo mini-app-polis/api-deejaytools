@@ -4,8 +4,9 @@ an event's entries and registration list, for its staff (ADR-0012).
 Reading the registration list takes event-scoped ``deejaytools.entries.read``;
 importing it (replacing it, or adding only the entries not on it yet), adding
 or removing one entry, and marking an entry take
-event-scoped ``deejaytools.registrations.write``, which every staff role
-carries on its event. Only an admin sees or sets an entry's ``note``.
+event-scoped ``deejaytools.registrations.write``, which the event's
+coordinator and event manager carry on it (its DJ reads the list but does
+not change it). Only an admin sees or sets an entry's ``note``.
 
 What ``GET /v1/admin/event-song-submissions`` and
 ``GET /v1/admin/events/{id}/registrations`` answer for one event, outside
