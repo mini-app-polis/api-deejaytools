@@ -1,3 +1,10 @@
+# [1.38.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.37.0...v1.38.0) (2026-11-17)
+
+
+### Features
+
+* **songs:** read a new song's length from its upload when it is built ([cfedd2d](https://github.com/mini-app-polis/api-deejaytools/commit/cfedd2d0ef6e01433346931430bc60580298abb0))
+
 # [1.37.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.36.0...v1.37.0) (2026-11-17)
 
 
