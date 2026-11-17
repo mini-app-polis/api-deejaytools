@@ -1,3 +1,15 @@
+# [1.36.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.35.0...v1.36.0) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.14.0 ([76dab2c](https://github.com/mini-app-polis/api-deejaytools/commit/76dab2ca7e867c9dbd830766ef58ec43b33bf3cd))
+
+
+### Features
+
+* **staff:** DJs no longer change an event's sessions or registration list ([09ab551](https://github.com/mini-app-polis/api-deejaytools/commit/09ab551bfed7b20b8e15401ffdebd85ea29a384c))
+
 # [1.35.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.34.0...v1.35.0) (2026-11-17)
 
 
