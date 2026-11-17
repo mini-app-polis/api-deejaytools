@@ -33,7 +33,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import ROLE_ADMIN, Caller, ensure_principal, require_scope
+from ..auth import ROLE_ADMIN, Caller, StaffRole, ensure_principal, require_scope
 from ..clock import now_ms
 from ..config import get_settings
 from ..database import get_db_session
@@ -45,7 +45,16 @@ from ..errors import (
     success,
     success_list,
 )
-from ..models import EventSongSubmission, ManagedPartnership, Partner, Song, Team, User
+from ..models import (
+    Event,
+    EventSongSubmission,
+    EventStaffGrant,
+    ManagedPartnership,
+    Partner,
+    Song,
+    Team,
+    User,
+)
 from ..submissions import fetch_user_submission_rows, map_submission_row
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
@@ -84,6 +93,15 @@ class SubmissionsQuery(ZodModel):
     )
 
 
+class StaffRoleData(BaseModel):
+    """One staff role a user holds on one event (ADR-0012)."""
+
+    event_id: str = Field(..., description="Event id.")
+    event_name: str = Field(..., description="The event's name.")
+    event_start_date: str = Field(..., description="The event's first day, YYYY-MM-DD.")
+    role: StaffRole = Field(..., description="coordinator, dj or event-manager.")
+
+
 class AdminUserData(BaseModel):
     """A user as the admin directory returns it."""
 
@@ -104,6 +122,13 @@ class AdminUserData(BaseModel):
         ..., description="Managed partnerships not soft-deleted."
     )
     team_count: int = Field(..., description="Teams they own.")
+    staff_roles: list[StaffRoleData] = Field(
+        ...,
+        description=(
+            "Their per-event staff roles, newest event first, then by role. "
+            "Empty when they hold none."
+        ),
+    )
 
 
 class AdminUserResponse(Envelope[AdminUserData]):
@@ -197,7 +222,42 @@ def _user_columns() -> tuple[Any, ...]:
     )
 
 
-def _map_user(row: Any) -> dict[str, Any]:
+async def _staff_roles(
+    session: AsyncSession, user_ids: list[str]
+) -> dict[str, list[dict[str, str]]]:
+    """Each user's staff roles with their events' names, in one query."""
+    if not user_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(
+                EventStaffGrant.user_id,
+                EventStaffGrant.event_id,
+                EventStaffGrant.role,
+                Event.name,
+                Event.start_date,
+            )
+            .join(Event, Event.id == EventStaffGrant.event_id)
+            .where(EventStaffGrant.user_id.in_(user_ids))
+            .order_by(
+                Event.start_date.desc(), Event.name.asc(), EventStaffGrant.role.asc()
+            )
+        )
+    ).all()
+    by_user: dict[str, list[dict[str, str]]] = {}
+    for r in rows:
+        by_user.setdefault(r.user_id, []).append(
+            {
+                "event_id": r.event_id,
+                "event_name": r.name,
+                "event_start_date": r.start_date,
+                "role": r.role,
+            }
+        )
+    return by_user
+
+
+def _map_user(row: Any, staff_roles: list[dict[str, str]]) -> dict[str, Any]:
     return {
         "id": row.id,
         "email": row.email,
@@ -210,6 +270,7 @@ def _map_user(row: Any) -> dict[str, Any]:
         "event_count": int(row.event_count or 0),
         "managed_partnership_count": int(row.managed_partnership_count or 0),
         "team_count": int(row.team_count or 0),
+        "staff_roles": staff_roles,
     }
 
 
@@ -226,7 +287,8 @@ async def _user_exists(session: AsyncSession, user_id: str) -> bool:
     summary="List every user",
     description=(
         "Every account with counts of its songs, partners, events entered, "
-        "managed partnerships and teams, oldest first. Optional "
+        "managed partnerships and teams, and its per-event staff roles, "
+        "oldest first. Optional "
         "q searches email and names (case-insensitive); optional role filters "
         "on the role derived from the identity store. Requires "
         "deejaytools.users.read."
@@ -262,7 +324,8 @@ async def list_users(
             select(*_user_columns()).where(*conditions).order_by(User.created_at.asc())
         )
     ).all()
-    return success_list([_map_user(r) for r in rows])
+    roles = await _staff_roles(session, [r.id for r in rows])
+    return success_list([_map_user(r, roles.get(r.id, [])) for r in rows])
 
 
 @router.patch(
@@ -340,7 +403,8 @@ async def update_role(
     updated = (
         await session.execute(select(*_user_columns()).where(User.id == id).limit(1))
     ).one()
-    return success(_map_user(updated))
+    roles = await _staff_roles(session, [id])
+    return success(_map_user(updated, roles.get(id, [])))
 
 
 @router.get(

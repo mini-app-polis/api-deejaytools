@@ -3195,7 +3195,9 @@ Sets the admin's marks; fields not sent are left as they are. `scratched` marks 
 
 **Purpose:** User directory with counts of each user's songs, partners,
 events entered (distinct events their songs are submitted to), managed
-partnerships and teams.
+partnerships and teams, and each user's per-event staff roles (coordinator,
+dj, event-manager), newest event first. `role` is the site-wide role only:
+`admin` or `user`.
 
 **Path params:** none
 
@@ -3226,7 +3228,15 @@ const listQuery = z.object({
       "partner_count": 2,
       "event_count": 1,
       "managed_partnership_count": 0,
-      "team_count": 1
+      "team_count": 1,
+      "staff_roles": [
+        {
+          "event_id": "…",
+          "event_name": "The Open",
+          "event_start_date": "2026-11-26",
+          "role": "dj"
+        }
+      ]
     }
   ],
   "meta": { "version": "…", "count": 1, "total": 1 }
