@@ -146,13 +146,15 @@ async def _finish(
     season: str,
     drive_file_id: str,
     drive_folder_id: str,
+    duration_ms: int | None = None,
 ) -> bool:
     """Record the file on the song and drop the staged bytes, in one transaction.
 
     That commit is when the song is added for good, so "song added" rides on
     it: posted if it commits, never if it rolls back or the song was deleted
     while it built. ``announcement`` is None when it could not be composed;
-    the song is added unannounced.
+    the song is added unannounced. ``duration_ms`` is the length the build
+    read from the bytes; None leaves it to the scheduler's song-length step.
     """
     async with maker() as db:
         song = (
@@ -168,6 +170,9 @@ async def _finish(
         song.season_year = season
         song.drive_file_id = drive_file_id
         song.drive_folder_id = drive_folder_id
+        if duration_ms is not None:
+            song.duration_ms = duration_ms
+            song.duration_checked_at = now_ms()
         song.updated_at = now_ms()
         deleted_meanwhile = song.deleted_at is not None
         dropped = (

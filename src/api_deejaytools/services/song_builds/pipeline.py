@@ -1,6 +1,11 @@
-"""The build itself: claim the upload, name the file, tag it, upload it to
-Drive (or reuse a file already uploaded for the song), and hand over to
-``completion`` to record it, or to ``failure`` when a step raises.
+"""The build itself: claim the upload, name the file, read its length, tag
+it, upload it to Drive (or reuse a file already uploaded for the song), and
+hand over to ``completion`` to record it, or to ``failure`` when a step
+raises.
+
+The length is read from the bytes being uploaded. A build that reuses a file
+already in Drive never loads them, so that song is left to the scheduler's
+song-length step (``song_lengths``), as is one whose length cannot be read.
 
 The filename is reserved under a per-slot advisory lock, so two uploads in
 flight for the same slot never get the same ``vNN``.
@@ -19,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ...database import get_sessionmaker
 from ...models import ManagedPartnership, Partner, Song, SongUpload, User
 from .. import drive
+from ..song_lengths import read_duration_ms
 from ..tagging import tag_song_bytes
 from .claims import LostClaim, _claim, _heartbeat, _update_mine
 from .completion import _compose_announcement, _finish, _share
@@ -206,6 +212,7 @@ async def _build(
             maker, song, claim, stem, file_extension(original_filename), season
         )
 
+    duration_ms: int | None = None
     if drive_file_id is None or drive_folder_id is None:
         found = await drive.find_song_file(
             key=SONG_APP_PROPERTY,
@@ -220,6 +227,7 @@ async def _build(
                         select(SongUpload.data).where(SongUpload.song_id == song.id)
                     )
                 ).scalar_one()
+            duration_ms = await asyncio.to_thread(read_duration_ms, data)
             tagged = await asyncio.to_thread(
                 tag_song_bytes,
                 data,
@@ -258,4 +266,5 @@ async def _build(
         season=season,
         drive_file_id=drive_file_id,
         drive_folder_id=drive_folder_id,
+        duration_ms=duration_ms,
     )
