@@ -2736,6 +2736,7 @@ const listQuery = z.object({
       "owner_user_id": "user_…",
       "song_label": "…",
       "partnership_label": "Ada Lovelace & Bob Jones",
+      "duration_ms": 185000,
       "submitter_email": "dancer@example.com",
       "created_at": 1710000000000
     }
@@ -2747,6 +2748,8 @@ const listQuery = z.object({
 `division` is the division the song is entered under: the submission's override, else the song's own; the partnership and song labels use it too. `round` is the rounds it is entered for (`prelims_and_finals` when none was chosen).
 
 `owner_user_id` is the song owner's user id, the `on_behalf_of_user_id` that `POST /v1/checkins` takes to check in for that song.
+
+`duration_ms` is how long the song's file plays, in milliseconds, read from the file by the scheduler ([DRIVE.md "Song lengths"](DRIVE.md#song-lengths)); `null` until it has been read, and for a file that cannot be read.
 
 **Errors:**
 

@@ -351,7 +351,8 @@ logged, and the first drop of an episode is reported to Sentry.
     is `failed` for good (retry it with
     `POST /v1/admin/drive-jobs/{id}/retry`). Retries are not posted.
   - `scheduler · sessions`, `scheduler · song builds`,
-    `scheduler · drive jobs`, `scheduler · event folder sweep`,
+    `scheduler · drive jobs`, `scheduler · song lengths`,
+    `scheduler · event folder sweep`,
     `drive jobs · claim failed`: a scheduler step
     failed. Posted once per run of failures: the next is posted only after
     the step has succeeded again.

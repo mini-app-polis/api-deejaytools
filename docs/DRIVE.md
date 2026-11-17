@@ -8,12 +8,14 @@ put it there, with different failure models:
 | **Upload pipeline** | Final chunk of `POST /v1/songs/upload/chunk` | Background task after the response is sent, its bytes staged in `song_uploads`; the scheduler resumes it after a restart ([ADR-0001](decisions/ADR-0001-durable-song-builds.md)) | Retried with backoff, `failed` after 10 attempts; a song nothing references yet is hard-deleted instead, and the user retries the upload |
 | **`drive_jobs` queue** | Event submission created, moved to another division by an admin, removed, or cascaded away; song or managed partnership deleted; admin backfill; an event's DJs and event managers granted, revoked or moved to a new folder; a partner set on a built song | Scheduler tick (`run_tick()` → `process_drive_jobs()`) | Rescheduled with backoff; `failed` after 10 attempts; admin retry endpoint |
 
-The scheduler also trashes the folders of deleted events once they are empty;
-see [Event folder sweep](#event-folder-sweep).
+The scheduler also reads each song's length from its file
+([Song lengths](#song-lengths)) and trashes the folders of deleted events once
+they are empty ([Event folder sweep](#event-folder-sweep)).
 
 Source: [`services/drive.py`](../src/api_deejaytools/services/drive.py),
 [`services/drive_jobs/`](../src/api_deejaytools/services/drive_jobs/),
 [`services/song_builds/`](../src/api_deejaytools/services/song_builds/) (the background build),
+[`services/song_lengths.py`](../src/api_deejaytools/services/song_lengths.py) (song lengths),
 [`routers/song_uploads.py`](../src/api_deejaytools/routers/song_uploads.py) (the chunk handler),
 [`submissions.py`](../src/api_deejaytools/submissions.py) (`resolve_submission_filename`),
 [`domain.py`](../src/api_deejaytools/domain.py) (`season_year_for`).
@@ -523,6 +525,30 @@ changed between the share and the unshare leaves the old one's access in place.
 - `POST /v1/admin/drive-jobs/:id/retry` returns a `failed` job to `pending` with
   `attempts = 0`, due now. It is the only way out of `failed` short of SQL.
 - `POST /v1/admin/drive-jobs/backfill-renames` after any naming-rule change.
+
+---
+
+## Song lengths
+
+Each song's length (`songs.duration_ms`) is read from its file in Drive, so
+staff can check a routine's music against its division's time limit. The
+length comes from the file's own headers (mutagen), in any format an upload
+may use.
+
+**When.** Not a job: the scheduler measures up to `LENGTH_BATCH` songs (2) on
+every tick, after the Drive jobs, and only when Drive is configured. A song is
+measured once it has a Drive file, is not deleted and has no length: those
+never tried first, oldest first, so a new upload is measured within a tick or
+two of its build, and songs uploaded before lengths were kept are measured as
+a backlog, two a tick. Each is a whole-file download inside the tick, hence
+the small batch.
+
+**Failures.** A file Drive refuses, or whose headers give no length, logs
+`song_length_download_failed` or `song_length_unreadable` and is stamped as
+tried (`duration_checked_at`). It is tried again a day later
+(`RETRY_AFTER_MS`), behind every song not tried yet, so it never holds up the
+rest. Its length stays `null`, and staff see none. A failure of the step
+itself is `scheduler · song lengths` in the errors channel.
 
 ---
 

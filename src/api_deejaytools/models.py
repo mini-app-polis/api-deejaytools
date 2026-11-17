@@ -215,6 +215,10 @@ class Song(Base):
     updated_at: Mapped[int] = mapped_column(BigInteger)
     deleted_at: Mapped[int | None] = mapped_column(BigInteger)
     managed_partnership_id: Mapped[str | None] = mapped_column(Text)
+    # Migration 015: how long the file plays, read by services/song_lengths.py;
+    # NULL until read, or when it cannot be.
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    duration_checked_at: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class EventSongSubmission(Base):

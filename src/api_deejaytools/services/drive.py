@@ -307,6 +307,17 @@ async def find_song_file(
     return (ids[0], division_id) if ids else None
 
 
+async def download_file(file_id: str) -> bytes:
+    """A file's bytes, read into memory (songs run to ~110 MiB).
+
+    The service account reads only files it created (``drive.file``), which
+    every song's upload is.
+    """
+    facade, _root = _drive()
+    downloaded = await asyncio.to_thread(facade.download_file_bytes, file_id)
+    return downloaded.data
+
+
 async def share_song_file(file_id: str, emails: Iterable[str | None]) -> ShareResult:
     """Grant ``reader`` on a file to each address, with no notification email.
 
