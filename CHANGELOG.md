@@ -1,3 +1,10 @@
+## [1.40.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.40.0...v1.40.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **drive-jobs:** fail a folder share Drive refuses instead of retrying it ([67ad61c](https://github.com/mini-app-polis/api-deejaytools/commit/67ad61c37f0ad7ebb60ca9e7ad5c1d4ee8f2102d))
+
 # [1.40.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.39.0...v1.40.0) (2026-11-17)
 
 
