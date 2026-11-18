@@ -95,6 +95,9 @@ class SongOnFileData(BaseModel):
     partnership_label: str = Field(..., description="Who the song is for.")
     division: str | None = Field(None, description="The song's division.")
     season_year: str | None = Field(None, description="The song's season year.")
+    added_at: int = Field(
+        ..., description="When it was added to deejaytools, epoch ms."
+    )
     same_division: bool = Field(
         ...,
         description=(
@@ -139,6 +142,7 @@ class _SongOnFile:
     song_label: str
     division: str | None
     season_year: str | None
+    created_at: int
     updated_at: int
 
 
@@ -315,6 +319,7 @@ def rank_candidates(
                     "partnership_label": song.label,
                     "division": song.division,
                     "season_year": song.season_year,
+                    "added_at": song.created_at,
                     "same_division": same,
                     "submitted_this_season": elsewhere,
                 },
@@ -337,6 +342,7 @@ async def _songs_on_file(session: AsyncSession) -> list[_SongOnFile]:
                 Song.routine_name,
                 Song.display_name,
                 Song.processed_filename,
+                Song.created_at,
                 Song.updated_at,
                 owner.first_name.label("owner_first"),
                 owner.last_name.label("owner_last"),
@@ -403,6 +409,7 @@ async def _songs_on_file(session: AsyncSession) -> list[_SongOnFile]:
                 ),
                 division=r.division,
                 season_year=r.season_year,
+                created_at=r.created_at,
                 updated_at=r.updated_at,
             )
         )

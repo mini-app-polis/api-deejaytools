@@ -186,6 +186,7 @@ async def test_counts_by_day_from_start_beside_earlier_editions(
         "submissions": 0,
         "days": [],
         "song_added_days": [],
+        "likely_on_file_days": [],
     }
 
 
@@ -221,3 +222,60 @@ async def test_the_events_staff_see_it_and_others_do_not(
     assert (await client.get(_url(event_id))).status_code == 401
     res = await client.get(_url("evt_none"), headers=admin.headers)
     assert res.status_code == 404
+
+
+async def test_admins_see_entries_likely_on_file_and_staff_do_not(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    dj = await person("dj")
+    dancer = await person("ada")
+    await db.execute(
+        "UPDATE users SET first_name = 'Ada', last_name = 'Lovelace' WHERE id = $1",
+        dancer.id,
+    )
+    partner = "ptn_bob"
+    await db.execute(
+        "INSERT INTO partners (id, user_id, first_name, last_name, created_at,"
+        " updated_at) VALUES ($1, $2, 'Bob', 'Jones', 1, 1)",
+        partner,
+        dancer.id,
+    )
+    event_id = await _event(client, admin, "Open", "2026-11-25", series="The Open")
+    earlier = await _event(client, admin, "Open 2025", "2025-11-26", series="The Open")
+    res = await client.put(
+        f"/v1/events/{event_id}/staff/{dj.id}/dj", headers=admin.headers
+    )
+    assert res.status_code == 200, res.text
+    # On file, not submitted here: uploaded ten days before the start.
+    await insert_song(
+        db,
+        dancer.id,
+        partner_id=partner,
+        division="Classic",
+        created_at=_ms("2026-11-15T12:00"),
+    )
+    res = await client.put(
+        f"/v1/admin/events/{event_id}/registrations",
+        json={
+            "entries": [
+                {
+                    "division": "Classic",
+                    "dancer_1": "Ada Lovelace",
+                    "dancer_2": "Bob Jones",
+                }
+            ]
+        },
+        headers=admin.headers,
+    )
+    assert res.status_code == 200, res.text
+
+    data = (await client.get(_url(event_id), headers=admin.headers)).json()["data"]
+    this, last = data["events"]
+    assert (this["id"], last["id"]) == (event_id, earlier)
+    assert this["likely_on_file_days"] == [{"day": -10, "count": 1}]
+    assert last["likely_on_file_days"] == []
+    assert this["submissions"] == 0
+
+    data = (await client.get(_url(event_id), headers=dj.headers)).json()["data"]
+    assert [e["likely_on_file_days"] for e in data["events"]] == [[], []]
