@@ -1,3 +1,10 @@
+# [1.41.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.40.2...v1.41.0) (2026-11-18)
+
+
+### Features
+
+* **registrations:** admin list of registrations missing music that likely have a song on file ([5f272a9](https://github.com/mini-app-polis/api-deejaytools/commit/5f272a9df6e38d5adaaf64d95a7c00f9352309d0))
+
 ## [1.40.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.40.1...v1.40.2) (2026-11-18)
 
 
