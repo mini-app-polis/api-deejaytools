@@ -218,7 +218,13 @@ async def _record_failure(db: AsyncSession, job: _Job, exc: Exception) -> None:
     )
     if superseded:
         line += " superseded=true"
-    if exhausted or attempts == 1:
+    # A job given up on is reported below by capturing its exception. An
+    # ERROR line as well would reach Sentry a second time, through its
+    # logging integration, as a second issue for the same failure.
+    reported = exhausted and not superseded
+    if reported:
+        logger.warning(with_log_prefix(LOG_WARNING, line))
+    elif exhausted or attempts == 1:
         logger.error(with_log_prefix(LOG_FAILURE, line))
     else:
         logger.warning(with_log_prefix(LOG_WARNING, line))
@@ -226,7 +232,7 @@ async def _record_failure(db: AsyncSession, job: _Job, exc: Exception) -> None:
     # Only giving up is reported; every retry would bury real failures. A
     # superseded run reports nothing: the run that owns the job does, and two
     # runners at the last attempt must not make two Sentry events.
-    if exhausted and not superseded:
+    if reported:
         with sentry_sdk.new_scope() as scope:
             scope.set_level("error")
             scope.set_tag("subsystem", "drive_jobs")
