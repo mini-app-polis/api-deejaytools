@@ -13,7 +13,9 @@ the entry's dancers using ``name_key``, the normalisation ``entry_key`` uses
 (case, accents and spacing ignored):
 
 - **strong**: the names are the entry's dancers exactly, in either order;
-- **possible**: only one name matches.
+- **possible**: one name is exact and the other close (a typo or a shortened
+  first name), and the divisions share a word ("Rising Star (NASDE)" and
+  "Rising Star Classic"). One shared name alone is never a candidate.
 
 An entry is left out when it is scratched, handled or linked by hand, or
 when a song already submitted to the event names its dancers exactly.
@@ -84,7 +86,9 @@ class SongOnFileData(BaseModel):
         ...,
         description=(
             "strong: the song names the entry's dancers exactly, in either "
-            "order; possible: only one of them."
+            "order; possible: one exactly and the other closely (a typo or a "
+            "shortened first name), in a division sharing a word with the "
+            "entry's."
         ),
     )
     song_label: str = Field(..., description="Structured song label.")
@@ -185,20 +189,91 @@ def _name_set(names: tuple[str, ...]) -> frozenset[tuple[str, int]]:
     return frozenset(Counter(names).items())
 
 
-def match_names(entry: tuple[str, ...], song: tuple[str, ...]) -> Match | None:
-    """How a song's names meet an entry's: strong, possible, or not at all."""
-    if not entry or not song:
-        return None
-    if _name_set(entry) == _name_set(song):
-        return "strong"
-    if set(entry) & set(song):
-        return "possible"
-    return None
+def _bare(name: str) -> str:
+    """A ``name_key`` name with punctuation dropped: letters, digits, spaces."""
+    return " ".join(re.sub(r"[^\w ]+|_", " ", name).split())
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Optimal string alignment distance: a swap of neighbours is one edit."""
+    rows = [[i] + [0] * len(b) for i in range(len(a) + 1)]
+    rows[0] = list(range(len(b) + 1))
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            rows[i][j] = min(
+                rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + cost
+            )
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                rows[i][j] = min(rows[i][j], rows[i - 2][j - 2] + 1)
+    return rows[len(a)][len(b)]
+
+
+def _similar(a: str, b: str) -> bool:
+    """The same word but for a typo: one edit, two in words of 7 or more."""
+    if a == b:
+        return True
+    longest = max(len(a), len(b))
+    if longest < 4:
+        return False
+    return _edit_distance(a, b) <= (2 if longest >= 7 else 1)
+
+
+def close_name(a: str, b: str) -> bool:
+    """Two ``name_key`` names that are the same but for a typo or a shortened
+    first name ("Kris" for "Kristen"), as the web app's look-alike match has it."""
+    pa, pb = _bare(a), _bare(b)
+    if not pa or not pb:
+        return False
+    if pa.replace(" ", "") == pb.replace(" ", ""):
+        return True
+    ta, tb = pa.split(" "), pb.split(" ")
+    if len(ta) >= 2 and len(tb) >= 2:
+        first_a, first_b = ta[0], tb[0]
+        first_ok = _similar(first_a, first_b) or (
+            min(len(first_a), len(first_b)) >= 3
+            and (first_a.startswith(first_b) or first_b.startswith(first_a))
+        )
+        return first_ok and _similar("".join(ta[1:]), "".join(tb[1:]))
+    return _similar(pa.replace(" ", ""), pb.replace(" ", ""))
 
 
 def division_key(division: str | None) -> str:
     """A division name as ``same_division`` compares it."""
     return name_key(_QUALIFIER.sub("", division or ""))
+
+
+def divisions_overlap(a: str | None, b: str | None) -> bool:
+    """Whether two division names share a word ("Rising Star (NASDE)" and
+    "Rising Star Classic"), a trailing parenthetical and punctuation aside."""
+    words_a = set(_bare(division_key(a)).split())
+    words_b = set(_bare(division_key(b)).split())
+    return bool(words_a & words_b)
+
+
+def match_names(
+    entry: tuple[str, ...],
+    song: tuple[str, ...],
+    *,
+    divisions_meet: bool = False,
+) -> Match | None:
+    """How a song's names meet an entry's: strong, possible, or not at all.
+
+    Strong: the same names, in either order. Possible: two names each, one
+    the same and the other close (a typo or a shortened first name), and
+    only when the divisions at least partly match (``divisions_meet``).
+    """
+    if not entry or not song:
+        return None
+    if _name_set(entry) == _name_set(song):
+        return "strong"
+    if not divisions_meet or len(entry) != 2 or len(song) != 2:
+        return None
+    for i in (0, 1):
+        for j in (0, 1):
+            if entry[i] == song[j] and close_name(entry[1 - i], song[1 - j]):
+                return "possible"
+    return None
 
 
 def rank_candidates(
@@ -213,7 +288,11 @@ def rank_candidates(
     wanted = division_key(entry.division)
     found = []
     for song in songs:
-        how = match_names(names, song.names)
+        how = match_names(
+            names,
+            song.names,
+            divisions_meet=divisions_overlap(entry.division, song.division),
+        )
         if how is None:
             continue
         same = bool(wanted) and division_key(song.division) == wanted

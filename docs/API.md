@@ -3279,7 +3279,7 @@ Sets the admin's marks; fields not sent are left as they are. `scratched` marks 
 }
 ```
 
-Only entries with at least one candidate, in list order. A song's names (its managed partnership's leader and follower, else its owner and partner) are compared with the entry's dancers with case, accents and spacing ignored, as `entry_key` compares them: `strong` when they are the entry's dancers exactly, in either order; `possible` when only one name matches. Left out:
+Only entries with at least one candidate, in list order. A song's names (its managed partnership's leader and follower, else its owner and partner) are compared with the entry's dancers with case, accents and spacing ignored, as `entry_key` compares them: `strong` when they are the entry's dancers exactly, in either order; `possible` when one name is exact and the other close (a typo, or a shortened first name such as "Kris" for "Kristen") and the song's division shares a word with the entry's ("Rising Star (NASDE)" and "Rising Star Classic"). One shared name alone is never a candidate, so a pro's songs with other partners are not suggested. Left out:
 
 - entries scratched, handled or linked by hand (`linked_label`);
 - entries whose dancers a song already submitted to the event names exactly;

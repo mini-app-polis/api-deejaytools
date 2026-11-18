@@ -145,28 +145,26 @@ async def test_exact_match_in_either_order_is_strong(
         assert candidate["submitted_this_season"] == []
 
 
-async def test_one_name_only_is_possible_and_ranked_after_strong(
+async def test_close_name_in_a_matching_division_is_possible_after_strong(
     client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
 ) -> None:
     admin = await person("admin", admin=True)
     owner = await person("hugo")
     await _named(db, owner.id, "Hugo", "Pro")
-    with_other = await insert_song(
-        db,
-        owner.id,
-        managed_partnership_id=await _managed(
-            db, owner.id, ("Hugo", "Pro"), ("Yu", "Kim")
-        ),
-        division="ProAm LeaderAm",
-    )
-    with_her = await insert_song(
-        db,
-        owner.id,
-        managed_partnership_id=await _managed(
-            db, owner.id, ("Hugo", "Pro"), ("Val", "Weeks")
-        ),
-        division="Showcase",
-    )
+
+    async def song(follower: tuple[str, str], division: str) -> str:
+        mp = await _managed(db, owner.id, ("Hugo", "Pro"), follower)
+        return await insert_song(
+            db, owner.id, managed_partnership_id=mp, division=division
+        )
+
+    exact = await song(("Valerie", "Weeks"), "Showcase")
+    misspelt = await song(("Valerie", "Weekes"), "ProAm LeaderAm")
+    shortened = await song(("Val", "Weeks"), "ProAm Classic")
+    # Only one name shared: another partner, never a candidate.
+    await song(("Yubin", "Kim"), "ProAm LeaderAm")
+    # Close name, but the divisions share no word.
+    await song(("Valery", "Weeks"), "Masters")
     event = await insert_event(db)
     [row] = await _import(
         client,
@@ -174,18 +172,37 @@ async def test_one_name_only_is_possible_and_ranked_after_strong(
         event,
         [
             {
-                "division": "ProAm LeaderAm",
-                "dancer_1": "Val Weeks",
+                "division": "ProAm Spotlight (Intermediate/Advanced)",
+                "dancer_1": "Valerie Weeks",
                 "dancer_2": "Hugo Pro",
             }
         ],
     )
-    found = await _songs_on_file(client, admin, event)
-    assert [(c["song_id"], c["match"]) for c in found[row["id"]]] == [
-        (with_her, "strong"),
-        (with_other, "possible"),
-    ]
-    assert found[row["id"]][1]["same_division"] is True
+    found = (await _songs_on_file(client, admin, event))[row["id"]]
+    assert found[0]["song_id"] == exact
+    assert found[0]["match"] == "strong"
+    assert {(c["song_id"], c["match"]) for c in found[1:]} == {
+        (misspelt, "possible"),
+        (shortened, "possible"),
+    }
+
+
+async def test_one_shared_name_is_not_a_candidate(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    owner = await person("hugo")
+    await _named(db, owner.id, "Hugo", "Pro")
+    mp = await _managed(db, owner.id, ("Hugo", "Pro"), ("Yubin", "Kim"))
+    await insert_song(db, owner.id, managed_partnership_id=mp, division="Classic")
+    event = await insert_event(db)
+    await _import(
+        client,
+        admin,
+        event,
+        [{"division": "Classic", "dancer_1": "Valerie Weeks", "dancer_2": "Hugo Pro"}],
+    )
+    assert await _songs_on_file(client, admin, event) == {}
 
 
 async def test_deleted_and_already_submitted_are_excluded(
