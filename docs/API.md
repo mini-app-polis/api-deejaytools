@@ -3009,7 +3009,8 @@ How far along the event's music is against earlier editions of it, for the event
         "end_date": "2026-11-29",
         "registrations": 164,
         "submissions": 2,
-        "days": [{ "day": -55, "count": 1 }, { "day": -50, "count": 1 }]
+        "days": [{ "day": -55, "count": 1 }, { "day": -50, "count": 1 }],
+        "song_added_days": [{ "day": -300, "count": 1 }, { "day": -50, "count": 1 }]
       }
     ]
   },
@@ -3017,7 +3018,7 @@ How far along the event's music is against earlier editions of it, for the event
 }
 ```
 
-`today` is today, in days from the event's `start_date` in its timezone. `days` lists only days with submissions, in order.
+`today` is today, in days from the event's `start_date` in its timezone. `days` lists only days with submissions, in order. `song_added_days` counts the same submissions by the day each one's song was added to deejaytools (`songs.created_at`, in the event's timezone), so the chart can show when the music came in beside when it was entered; a song uploaded a season earlier and reused counts on its upload day, long before day 0.
 
 **Errors:**
 
