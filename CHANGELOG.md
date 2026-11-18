@@ -1,3 +1,10 @@
+## [1.40.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.40.1...v1.40.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* **drive-jobs:** report a job given up on to Sentry once ([7169638](https://github.com/mini-app-polis/api-deejaytools/commit/716963851ca725753d0bc376acd65917e8673736))
+
 ## [1.40.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.40.0...v1.40.1) (2026-11-17)
 
 
