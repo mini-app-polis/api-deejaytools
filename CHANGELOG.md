@@ -1,3 +1,10 @@
+# [1.44.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.43.0...v1.44.0) (2026-11-18)
+
+
+### Features
+
+* **events:** submission timeline counts songs by the day added, with entries likely on file for admins ([c3b4991](https://github.com/mini-app-polis/api-deejaytools/commit/c3b49911a6431c968a62dcd915b54c01f153e6c5))
+
 # [1.43.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.42.0...v1.43.0) (2026-11-18)
 
 
