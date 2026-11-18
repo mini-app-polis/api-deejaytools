@@ -84,6 +84,9 @@
     "GET /v1/admin/events/{id}/registrations": [
       "admin"
     ],
+    "GET /v1/admin/events/{id}/registrations/songs-on-file": [
+      "admin"
+    ],
     "GET /v1/admin/songs": [
       "admin"
     ],

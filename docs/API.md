@@ -3242,6 +3242,60 @@ Sets the admin's marks; fields not sent are left as they are. `scratched` marks 
 
 ---
 
+### GET /v1/admin/events/:id/registrations/songs-on-file
+
+`routers/admin_registration_songs.py`.
+
+**Auth:** `deejaytools.registrations.read`, held through a role (admin only). Event staff never get this: a song someone has not submitted is theirs, not the event's.
+
+**Purpose:** The event's registration entries with no music in that look like they already have a song in deejaytools, so the admin can ask them to submit it (sent to one event, not yet to this one). Read only: it suggests, and never links or submits.
+
+**Path params:** `id` — event id
+
+**Query params / Request body:** none
+
+**Response:**
+
+```json
+{
+  "data": [
+    {
+      "registration_id": "…",
+      "candidates": [
+        {
+          "song_id": "…",
+          "match": "strong",
+          "song_label": "Ada Lovelace & Bob Jones Classic 2026 Routine v01",
+          "partnership_label": "Ada Lovelace & Bob Jones",
+          "division": "Classic",
+          "season_year": "2026",
+          "same_division": true,
+          "submitted_this_season": ["DCSX 2026"]
+        }
+      ]
+    }
+  ],
+  "meta": { "version": "…", "count": 1, "total": 1 }
+}
+```
+
+Only entries with at least one candidate, in list order. A song's names (its managed partnership's leader and follower, else its owner and partner) are compared with the entry's dancers with case, accents and spacing ignored, as `entry_key` compares them: `strong` when they are the entry's dancers exactly, in either order; `possible` when only one name matches. Left out:
+
+- entries scratched, handled or linked by hand (`linked_label`);
+- entries whose dancers a song already submitted to the event names exactly;
+- deleted songs, legacy songs, and songs already submitted to the event.
+
+Candidates, at most 5 per entry, are ranked strong before possible, then same division (`same_division`: the song's division is the entry's, ignoring a trailing parenthetical such as "(NASDE)"), then the event's season year, then submitted to another event of the same season (`submitted_this_season`, their names), then most recently changed.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 404 | `NOT_FOUND` | Event not found | Unknown id |
+| 500 | `INTERNAL` | … | Query failed |
+
+---
+
 ## `routers/admin_users.py` — `/v1/admin/users`
 
 ### GET /v1/admin/users
