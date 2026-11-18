@@ -518,7 +518,10 @@ async def test_exhausted_copy_is_failed_and_reported_once(
         "file_id": None,
         "attempts": 10,
     }
-    assert logs.at("error", "drive_job_exhausted")
+    # The capture is the error report; the log line stays below ERROR so
+    # Sentry's logging integration does not report it a second time.
+    assert logs.at("warning", "drive_job_exhausted")
+    assert not logs.at("error", "drive_job_exhausted")
 
 
 async def test_trash_job_soft_deletes_the_file(
