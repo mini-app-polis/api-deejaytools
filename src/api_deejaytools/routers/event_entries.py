@@ -72,6 +72,7 @@ from .admin_event_submissions import (
     AdminSubmissionListResponse,
     event_submissions_response,
 )
+from .admin_registration_songs import registration_songs
 
 logger = get_logger()
 
@@ -459,6 +460,16 @@ class TimelineEvent(BaseModel):
             "to deejaytools (uploaded), in order; days before day 0 included."
         ),
     )
+    likely_on_file_days: list[TimelineDay] = Field(
+        ...,
+        description=(
+            "Admins only, and only for the event itself (empty otherwise): its "
+            "registration entries with no music in that likely have a song on "
+            "file, each counted once by the day its best candidate song was "
+            "added (as GET /v1/admin/events/{id}/registrations/songs-on-file "
+            "finds them)."
+        ),
+    )
 
 
 class SubmissionTimeline(BaseModel):
@@ -488,8 +499,15 @@ def day_number(day: str, start_date: str) -> int:
     return (date.fromisoformat(day) - date.fromisoformat(start_date)).days
 
 
-async def submission_timeline(session: AsyncSession, event: Event) -> dict[str, Any]:
-    """``event``'s timeline: it and the earlier editions of its series."""
+async def submission_timeline(
+    session: AsyncSession, event: Event, *, likely_on_file: bool = False
+) -> dict[str, Any]:
+    """``event``'s timeline: it and the earlier editions of its series.
+
+    With ``likely_on_file`` (an admin caller), the event's entries that likely
+    have a song on file are counted too, by the day their best candidate was
+    added: a song in someone's library is theirs, so never for staff.
+    """
     events = [event]
     if event.series:
         events += (
@@ -541,6 +559,11 @@ async def submission_timeline(session: AsyncSession, event: Event) -> dict[str, 
         days[event_id][day_number(day, e.start_date)] += 1
         day = ms_to_date_in_zone(song_added_at, e.timezone)
         added[event_id][day_number(day, e.start_date)] += 1
+    likely: Counter[int] = Counter()
+    if likely_on_file:
+        for row in await registration_songs(session, event):
+            day = ms_to_date_in_zone(row["candidates"][0]["added_at"], event.timezone)
+            likely[day_number(day, event.start_date)] += 1
     return {
         "series": event.series,
         "today": day_number(today_in_zone(event.timezone), event.start_date),
@@ -556,6 +579,11 @@ async def submission_timeline(session: AsyncSession, event: Event) -> dict[str, 
                 "song_added_days": [
                     {"day": d, "count": n} for d, n in sorted(added[e.id].items())
                 ],
+                "likely_on_file_days": (
+                    [{"day": d, "count": n} for d, n in sorted(likely.items())]
+                    if e.id == event.id
+                    else []
+                ),
             }
             for e in events
         ],
@@ -572,7 +600,9 @@ async def submission_timeline(session: AsyncSession, event: Event) -> dict[str, 
         "list; and the same for the latest earlier events of its series, so "
         "staff can see how far along it is against past editions. Each entry "
         "counts once, on the day of its current submission, and again in "
-        "song_added_days on the day its song was added to deejaytools. "
+        "song_added_days on the day its song was added to deejaytools. For an "
+        "admin, likely_on_file_days also counts the event's entries with no "
+        "music in that likely have a song on file. "
         "Counts only, "
         "never who. Requires deejaytools.entries.read on the event."
     ),
@@ -585,7 +615,7 @@ async def submission_timeline(session: AsyncSession, event: Event) -> dict[str, 
 )
 async def get_submission_timeline(
     id: Annotated[str, Path(description="Event id.")],
-    _caller: Caller = Depends(
+    caller: Caller = Depends(
         require_event_scope("deejaytools.entries.read", THIS_EVENT)
     ),
     session: AsyncSession = Depends(get_db_session),
@@ -595,7 +625,9 @@ async def get_submission_timeline(
     if event is None:
         raise api_error(404, ErrorCode.NOT_FOUND, "Event not found")
     try:
-        timeline = await submission_timeline(session, event)
+        timeline = await submission_timeline(
+            session, event, likely_on_file=is_admin(caller)
+        )
     except SQLAlchemyError as exc:
         sentry_sdk.capture_exception(exc)
         logger.error(

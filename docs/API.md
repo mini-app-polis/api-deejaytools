@@ -3010,7 +3010,8 @@ How far along the event's music is against earlier editions of it, for the event
         "registrations": 164,
         "submissions": 2,
         "days": [{ "day": -55, "count": 1 }, { "day": -50, "count": 1 }],
-        "song_added_days": [{ "day": -300, "count": 1 }, { "day": -50, "count": 1 }]
+        "song_added_days": [{ "day": -300, "count": 1 }, { "day": -50, "count": 1 }],
+        "likely_on_file_days": [{ "day": -20, "count": 1 }]
       }
     ]
   },
@@ -3018,7 +3019,7 @@ How far along the event's music is against earlier editions of it, for the event
 }
 ```
 
-`today` is today, in days from the event's `start_date` in its timezone. `days` lists only days with submissions, in order. `song_added_days` counts the same submissions by the day each one's song was added to deejaytools (`songs.created_at`, in the event's timezone), so the chart can show when the music came in beside when it was entered; a song uploaded a season earlier and reused counts on its upload day, long before day 0.
+`today` is today, in days from the event's `start_date` in its timezone. `days` lists only days with submissions, in order. `song_added_days` counts the same submissions by the day each one's song was added to deejaytools (`songs.created_at`, in the event's timezone), so the chart can show when the music came in beside when it was entered; a song uploaded a season earlier and reused counts on its upload day, long before day 0. `likely_on_file_days` is for an admin only, and only on the event itself (empty for staff and for earlier editions): its registration entries with no music in that likely have a song on file, as `GET /v1/admin/events/:id/registrations/songs-on-file` finds them, each counted once on the day its best candidate song was added, so the chart can project how much music is already in deejaytools.
 
 **Errors:**
 
@@ -3270,6 +3271,7 @@ Sets the admin's marks; fields not sent are left as they are. `scratched` marks 
           "partnership_label": "Ada Lovelace & Bob Jones",
           "division": "Classic",
           "season_year": "2026",
+          "added_at": 1794000000000,
           "same_division": true,
           "submitted_this_season": ["DCSX 2026"]
         }
