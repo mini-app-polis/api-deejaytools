@@ -38,9 +38,22 @@ async def _event(
 
 
 async def _submit(
-    db: asyncpg.Connection, event_id: str, user_id: str, created_at: int
+    db: asyncpg.Connection,
+    event_id: str,
+    user_id: str,
+    created_at: int,
+    *,
+    song_added_at: int | None = None,
 ) -> None:
-    song = await insert_song(db, user_id, division="Classic", season_year="2026")
+    """A submission made at ``created_at`` of a song added at ``song_added_at``
+    (the same moment when not given)."""
+    song = await insert_song(
+        db,
+        user_id,
+        division="Classic",
+        season_year="2026",
+        created_at=song_added_at if song_added_at is not None else created_at,
+    )
     await db.execute(
         "INSERT INTO event_song_submissions (id, event_id, song_id,"
         " submitted_by_user_id, created_at) VALUES ($1, $2, $3, $4, $5)",
@@ -106,8 +119,22 @@ async def test_counts_by_day_from_start_beside_earlier_editions(
     await _event(client, admin, "Loose", "2025-11-02")
 
     await _submit(db, this_year, alice.id, _ms("2026-11-17T09:00"))
-    await _submit(db, this_year, alice.id, _ms("2026-11-17T23:30"))
-    await _submit(db, this_year, alice.id, _ms("2026-11-25T08:00"))
+    # Uploaded weeks before it was submitted.
+    await _submit(
+        db,
+        this_year,
+        alice.id,
+        _ms("2026-11-17T23:30"),
+        song_added_at=_ms("2026-10-01T12:00"),
+    )
+    # Uploaded the day before, submitted at the event.
+    await _submit(
+        db,
+        this_year,
+        alice.id,
+        _ms("2026-11-25T08:00"),
+        song_added_at=_ms("2026-11-24T20:00"),
+    )
     # 23:30 in Los Angeles is the next day in Chicago: the event's own zone counts.
     la = ZoneInfo("America/Los_Angeles")
     await _submit(db, last_year, alice.id, _ms("2025-11-18T23:30", la))
@@ -140,8 +167,15 @@ async def test_counts_by_day_from_start_beside_earlier_editions(
     assert [e["id"] for e in data["events"]] == [this_year, last_year, older]
     this, last, old = data["events"]
     assert this["days"] == [{"day": -8, "count": 2}, {"day": 0, "count": 1}]
+    assert this["song_added_days"] == [
+        {"day": -55, "count": 1},
+        {"day": -8, "count": 1},
+        {"day": -1, "count": 1},
+    ]
     assert (this["submissions"], this["registrations"]) == (3, 0)
     assert last["days"] == [{"day": -8, "count": 1}, {"day": 1, "count": 1}]
+    # Added the moment they were submitted, in the event's own zone too.
+    assert last["song_added_days"] == last["days"]
     assert (last["submissions"], last["registrations"]) == (2, 2)
     assert old == {
         "id": older,
@@ -151,6 +185,7 @@ async def test_counts_by_day_from_start_beside_earlier_editions(
         "registrations": 0,
         "submissions": 0,
         "days": [],
+        "song_added_days": [],
     }
 
 

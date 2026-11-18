@@ -48,7 +48,7 @@ from ..errors import (
     success,
     success_list,
 )
-from ..models import Event, EventRegistration, EventSongSubmission
+from ..models import Event, EventRegistration, EventSongSubmission, Song
 from ..services import change_feed
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
@@ -452,6 +452,13 @@ class TimelineEvent(BaseModel):
     )
     submissions: int = Field(..., description="Its submissions, every day together.")
     days: list[TimelineDay] = Field(..., description="Days with submissions, in order.")
+    song_added_days: list[TimelineDay] = Field(
+        ...,
+        description=(
+            "The same submissions counted by the day each one's song was added "
+            "to deejaytools (uploaded), in order; days before day 0 included."
+        ),
+    )
 
 
 class SubmissionTimeline(BaseModel):
@@ -516,17 +523,24 @@ async def submission_timeline(session: AsyncSession, event: Event) -> dict[str, 
     )
     made = (
         await session.execute(
-            select(EventSongSubmission.event_id, EventSongSubmission.created_at).where(
-                EventSongSubmission.event_id.in_(ids)
+            select(
+                EventSongSubmission.event_id,
+                EventSongSubmission.created_at,
+                Song.created_at,
             )
+            .join(Song, Song.id == EventSongSubmission.song_id)
+            .where(EventSongSubmission.event_id.in_(ids))
         )
     ).all()
     by_event = {e.id: e for e in events}
     days: dict[str, Counter[int]] = {e.id: Counter() for e in events}
-    for event_id, created_at in made:
+    added: dict[str, Counter[int]] = {e.id: Counter() for e in events}
+    for event_id, submitted_at, song_added_at in made:
         e = by_event[event_id]
-        day = ms_to_date_in_zone(created_at, e.timezone)
+        day = ms_to_date_in_zone(submitted_at, e.timezone)
         days[event_id][day_number(day, e.start_date)] += 1
+        day = ms_to_date_in_zone(song_added_at, e.timezone)
+        added[event_id][day_number(day, e.start_date)] += 1
     return {
         "series": event.series,
         "today": day_number(today_in_zone(event.timezone), event.start_date),
@@ -539,6 +553,9 @@ async def submission_timeline(session: AsyncSession, event: Event) -> dict[str, 
                 "registrations": registered.get(e.id, 0),
                 "submissions": sum(days[e.id].values()),
                 "days": [{"day": d, "count": n} for d, n in sorted(days[e.id].items())],
+                "song_added_days": [
+                    {"day": d, "count": n} for d, n in sorted(added[e.id].items())
+                ],
             }
             for e in events
         ],
@@ -554,7 +571,9 @@ async def submission_timeline(session: AsyncSession, event: Event) -> dict[str, 
         "start_date (day 0) in its timezone, with the size of its registration "
         "list; and the same for the latest earlier events of its series, so "
         "staff can see how far along it is against past editions. Each entry "
-        "counts once, on the day of its current submission. Counts only, "
+        "counts once, on the day of its current submission, and again in "
+        "song_added_days on the day its song was added to deejaytools. "
+        "Counts only, "
         "never who. Requires deejaytools.entries.read on the event."
     ),
     responses={
