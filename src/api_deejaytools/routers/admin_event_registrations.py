@@ -64,15 +64,16 @@ OptionalText200 = Annotated[str, trimmed(max_length=200)]
 Note = Annotated[str, trimmed(max_length=1000)]
 
 
+def name_key(value: str | None) -> str:
+    """``value`` with case, accents and spacing ignored, as ``entry_key`` compares."""
+    decomposed = unicodedata.normalize("NFKD", value or "")
+    bare = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return " ".join(bare.casefold().split())
+
+
 def entry_key(division: str, dancer_1: str, dancer_2: str | None) -> str:
     """An entry's identity across imports: case, accents and spacing ignored."""
-
-    def norm(value: str | None) -> str:
-        decomposed = unicodedata.normalize("NFKD", value or "")
-        bare = "".join(c for c in decomposed if not unicodedata.combining(c))
-        return " ".join(bare.casefold().split())
-
-    return "|".join((norm(division), norm(dancer_1), norm(dancer_2)))
+    return "|".join((name_key(division), name_key(dancer_1), name_key(dancer_2)))
 
 
 class RegistrationItem(ZodModel):
