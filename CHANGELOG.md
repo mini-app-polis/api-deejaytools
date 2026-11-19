@@ -1,3 +1,10 @@
+## [1.44.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.44.0...v1.44.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* **feedback:** name the signed-in sender in the feedback email ([1bb0c54](https://github.com/mini-app-polis/api-deejaytools/commit/1bb0c543c18f5431c1b13e1f6e3c4fe3690c97c9))
+
 # [1.44.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.43.0...v1.44.0) (2026-11-18)
 
 
