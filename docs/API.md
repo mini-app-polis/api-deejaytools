@@ -2276,7 +2276,7 @@ Also from global middleware: `413 payload_too_large` for a request body over 11 
 
 **Auth:** public. A bearer token is read, never required: when it verifies, the sender's user id is kept with the feedback; no token or a bad one is anonymous.
 
-**Purpose:** Submit site feedback. It is saved to `site_feedback` first, then emailed through Brevo when `BREVO_API_KEY`, `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL` are all set.
+**Purpose:** Submit site feedback. It is saved to `site_feedback` first, then emailed through Brevo when `BREVO_API_KEY`, `FEEDBACK_FROM_EMAIL` and `FEEDBACK_TO_EMAIL` are all set. The email names a signed-in sender by their name and email from `users`, with the user id after them (just the id when no such user is on file).
 
 **Path params / Query params:** none
 

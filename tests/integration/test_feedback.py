@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import asyncpg
@@ -463,4 +463,32 @@ async def test_a_signed_in_sender_is_recorded(
     (row,) = await _rows(db)
     assert row["user_id"] == "user_feedback"
     _, payload = _sent(brevo)
+    # No users row for this id: the id as it is.
     assert "Signed in as: user_feedback\n" in payload["textContent"]
+
+
+async def test_a_signed_in_sender_is_named_in_the_email(
+    client: httpx.AsyncClient,
+    brevo: respx.Router,
+    monkeypatch: pytest.MonkeyPatch,
+    person: Callable,
+    db: asyncpg.Connection,
+) -> None:
+    _key(monkeypatch, "BREVO_API_KEY", "key")
+    ada = await person("ada")
+    await db.execute(
+        "UPDATE users SET first_name = 'Ada', last_name = 'Lovelace',"
+        " email = 'ada@example.com' WHERE id = $1",
+        ada.id,
+    )
+    res = await client.post(
+        URL,
+        json={"type": "general", "subject": "s", "message": "m"},
+        headers=ada.headers,
+    )
+    assert res.status_code == 201, res.text
+    _, payload = _sent(brevo)
+    assert (
+        f"Signed in as: Ada Lovelace <ada@example.com> ({ada.id})\n"
+        in payload["textContent"]
+    )
