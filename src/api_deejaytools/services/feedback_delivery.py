@@ -30,7 +30,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..clock import now_ms
 from ..config import get_settings
-from ..models import SiteFeedback
+from ..domain import full_name
+from ..models import SiteFeedback, User
 from . import notifications
 
 logger = get_logger()
@@ -77,8 +78,32 @@ def _iso(ms: int) -> str:
     return at.strftime("%Y-%m-%dT%H:%M:%S.") + f"{at.microsecond // 1000:03d}Z"
 
 
-def email_body(row: SiteFeedback) -> str:
-    """The plain-text email for one piece of feedback."""
+def signed_in_as(user_id: str | None, user: User | None) -> str:
+    """Who sent it, for the email: their name and email from ``users`` with
+    the id after them, the bare id when no such user is on file, or that
+    nobody was signed in."""
+    if user_id is None:
+        return "Not signed in"
+    if user is None:
+        return user_id
+    name = full_name(user.first_name, user.last_name) or (user.display_name or "")
+    who = " ".join(
+        part for part in (name, f"<{user.email}>" if user.email else "") if part
+    )
+    return f"{who} ({user_id})" if who else user_id
+
+
+async def _signed_in_as(db: AsyncSession, row: SiteFeedback) -> str:
+    """``signed_in_as`` for ``row``, looking its sender up in ``users``."""
+    user = await db.get(User, row.user_id) if row.user_id is not None else None
+    return signed_in_as(row.user_id, user)
+
+
+def email_body(row: SiteFeedback, signed_in: str | None = None) -> str:
+    """The plain-text email for one piece of feedback. ``signed_in`` is who
+    sent it (``signed_in_as``); without it, the stored id as it is."""
+    if signed_in is None:
+        signed_in = signed_in_as(row.user_id, None)
     text = (
         f"\n{RULE}\nFEEDBACK DETAILS\n{RULE}\n"
         f"Type:    {row.type}\n"
@@ -87,7 +112,7 @@ def email_body(row: SiteFeedback) -> str:
         f"\n{RULE}\nCONTACT\n{RULE}\n"
         f"Name:  {row.contact_name if row.contact_name is not None else 'Not provided'}\n"  # noqa: E501
         f"Email: {row.contact_email if row.contact_email is not None else 'Not provided'}\n"  # noqa: E501
-        f"Signed in as: {row.user_id if row.user_id is not None else 'Not signed in'}\n"  # noqa: E501
+        f"Signed in as: {signed_in}\n"
         f"\n{RULE}\nMETADATA\n{RULE}\n"
         f"Submitted: {_iso(row.created_at)}\n"
         f"Reference: {row.id}\n"
@@ -97,12 +122,14 @@ def email_body(row: SiteFeedback) -> str:
     return text[1:-1]
 
 
-def _payload(row: SiteFeedback, sender: str, recipient: str) -> dict[str, Any]:
+def _payload(
+    row: SiteFeedback, sender: str, recipient: str, signed_in: str
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "sender": {"name": SENDER_NAME, "email": sender},
         "to": [{"email": recipient}],
         "subject": f"[DeejayTools Feedback] {row.type}: {row.subject}",
-        "textContent": email_body(row),
+        "textContent": email_body(row, signed_in),
     }
     screenshot = row.screenshot or None
     content = screenshot.split(",")[1] if screenshot and "," in screenshot else None
@@ -117,7 +144,7 @@ def _payload(row: SiteFeedback, sender: str, recipient: str) -> dict[str, Any]:
     return payload
 
 
-async def _send(row: SiteFeedback) -> str | None:
+async def _send(row: SiteFeedback, signed_in: str) -> str | None:
     """Email ``row`` through Brevo. None when sent, else why not.
 
     Never raises. A refusal or an unreachable Brevo is reported to Sentry
@@ -134,7 +161,7 @@ async def _send(row: SiteFeedback) -> str | None:
             res = await client.post(
                 BREVO_URL,
                 headers={"api-key": key, "Content-Type": "application/json"},
-                json=_payload(row, sender, recipient),
+                json=_payload(row, sender, recipient, signed_in),
             )
     except httpx.HTTPError as exc:
         sentry_sdk.capture_exception(exc)
@@ -194,7 +221,7 @@ async def deliver(db: AsyncSession, row: SiteFeedback) -> bool:
     """
     if not configured():
         return False
-    failure = await _send(row)
+    failure = await _send(row, await _signed_in_as(db, row))
     _record(row, failure, now_ms())
     await db.commit()
     return failure is None
@@ -230,7 +257,7 @@ async def process_pending_feedback(
     )
     emailed = 0
     for row in rows:
-        failure = await _send(row)
+        failure = await _send(row, await _signed_in_as(db, row))
         _record(row, failure, now_ms())
         emailed += failure is None
     await db.commit()
