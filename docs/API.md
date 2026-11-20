@@ -1984,6 +1984,87 @@ const listQuery = z.object({
 
 ---
 
+## `routers/registration_reminders.py` — `/v1/registration-reminders`
+
+The caller's own entries on events' registration lists with no music in yet, for the notice on My Content.
+
+### GET /v1/registration-reminders
+
+**Auth:** `deejaytools.submissions.read`
+
+**Purpose:** Tell a dancer an event's registration list names them but no song is in for that entry, with the song of theirs they likely mean to send.
+
+**Path params / Query params / Request body:** none
+
+**Response:**
+
+```json
+{
+  "data": [
+    {
+      "registration_id": "…",
+      "event_id": "…",
+      "event_name": "The Open 2026",
+      "event_start_date": "2026-11-26",
+      "event_status": "upcoming",
+      "division": "Classic (NASDE)",
+      "dancer_1": "Ada Lovelace",
+      "dancer_2": "Bob Jones",
+      "song": {
+        "song_id": "…",
+        "match": "strong",
+        "song_label": "Ada Lovelace & Bob Jones Classic 2026 Routine v01",
+        "partnership_label": "Ada Lovelace & Bob Jones",
+        "division": "Classic",
+        "season_year": "2026",
+        "added_at": 1794000000000,
+        "same_division": true,
+        "submitted_this_season": ["DCSX 2026"]
+      }
+    }
+  ],
+  "meta": { "version": "…", "count": 1, "total": 1 }
+}
+```
+
+By event start date, then list order. An entry is the caller's when its dancers are exactly one of the caller's pairs, in either order, with case, accents and spacing ignored: the caller with a partner in their address book, the caller with the owner of a partner row linked to them, one of their managed partnerships, or the names of one of their own or shared songs. One shared name is never a match. Left out:
+
+- events that are completed;
+- entries scratched, handled or linked by hand (`linked_label`);
+- entries whose dancers a song already submitted to the event names exactly;
+- entries the caller dismissed (`POST …/:id/dismiss`).
+
+`song` is the caller's best strong candidate not yet submitted to the event, ranked as `GET /v1/admin/events/:id/registrations/songs-on-file` ranks them, or `null` when they have none on file. Never a `possible` match, and never anyone else's song.
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 500 | `INTERNAL` | … | Query failed |
+
+---
+
+### POST /v1/registration-reminders/:id/dismiss
+
+**Auth:** `deejaytools.submissions.write`
+
+**Purpose:** "Not me": the caller says the entry is not theirs, and their reminders leave it out from then on (stored in `registration_reminder_dismissals`). Other people's reminders are unaffected. Idempotent.
+
+**Path params:** `id` — registration entry id
+
+**Request body:** none
+
+**Response:** **204**
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 404 | `NOT_FOUND` | Registration not found | Unknown id |
+| 500 | `INTERNAL` | … | Write failed |
+
+---
+
 ## `routers/songs.py`, `routers/song_uploads.py` — `/v1/songs`
 
 Schemas:

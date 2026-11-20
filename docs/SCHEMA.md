@@ -62,6 +62,8 @@ Explicit overrides:
 | `event_staff_grants` | `user_id` | `users.id` | `CASCADE` |
 | `event_registrations` | `event_id` | `events.id` | `CASCADE` |
 | `event_song_submissions` | `hidden_by_registration_id` | `event_registrations.id` | `SET NULL` |
+| `registration_reminder_dismissals` | `registration_id` | `event_registrations.id` | `CASCADE` |
+| `registration_reminder_dismissals` | `user_id` | `users.id` | `CASCADE` |
 
 ### PostgreSQL enums
 
@@ -777,7 +779,7 @@ Who is on an event's staff, and as what ([ADR-0012](decisions/ADR-0012-per-event
 
 ### `event_registrations`
 
-An event's registration list, as an admin imported it (`PUT /v1/admin/events/:id/registrations`), for the admin page that shows who has not submitted music yet. Optional per event. Nothing else reads it.
+An event's registration list, as an admin imported it (`PUT /v1/admin/events/:id/registrations`), for the admin page that shows who has not submitted music yet, and for each dancer's own reminders (`GET /v1/registration-reminders`). Optional per event.
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
@@ -802,6 +804,27 @@ An event's registration list, as an admin imported it (`PUT /v1/admin/events/:id
 | `event_id` | `events.id` | CASCADE |
 
 **Indexes:** `idx_event_registrations_event` on `(event_id, position)`
+
+---
+
+### `registration_reminder_dismissals`
+
+Migration 018. A dancer saying a registration entry is not theirs ("Not me" on My Content): their `GET /v1/registration-reminders` leaves it out from then on; nobody else's are affected. A re-import keeps an unchanged entry's id, so the dismissal outlives it.
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `registration_id` | `text` | NO | — | PK (with `user_id`) |
+| `user_id` | `text` | NO | — | PK (with `registration_id`) |
+| `created_at` | `bigint` | NO | — | Epoch ms |
+
+**Foreign keys:**
+
+| Column | → Table | onDelete |
+|--------|---------|----------|
+| `registration_id` | `event_registrations.id` | CASCADE |
+| `user_id` | `users.id` | CASCADE |
+
+**Indexes:** `idx_registration_reminder_dismissals_user` on `(user_id)`
 
 ---
 

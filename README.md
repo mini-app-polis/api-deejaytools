@@ -192,6 +192,9 @@ UPDATE_PERMISSIONS=1 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:
 - `migrations/016_activity_feed.sql` adds `activity_feed`: the Discord change
   feed's outbox, one row per change, written in the change's own
   transaction and posted by the scheduler, one message per person.
+- `migrations/018_registration_reminder_dismissals.sql` adds
+  `registration_reminder_dismissals`: a dancer's "Not me" on a registration
+  entry their My Content reminders named, so it is left out for them.
 - `scripts/apply_migrations.py` applies pending files on every deploy,
   tracked in `schema_migrations`, before the app starts.
 - `scripts/backfill_principals.py` runs next, on every deploy: it writes this
