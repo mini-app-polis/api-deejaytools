@@ -225,6 +225,14 @@
       "event-manager",
       "admin"
     ],
+    "GET /v1/registration-reminders": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
     "GET /v1/runs": [
       "dj",
       "event-manager",
@@ -405,6 +413,22 @@
     "POST /v1/queue/withdraw": [
       "dj",
       "event-manager",
+      "admin"
+    ],
+    "POST /v1/registration-reminders/{id}/confirm": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
+    "POST /v1/registration-reminders/{id}/dismiss": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
       "admin"
     ],
     "POST /v1/sessions": [

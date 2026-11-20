@@ -169,6 +169,18 @@ def _e(
         ),
         (
             _e(
+                "event_registrations",
+                SUMMARY,
+                event_id="e1",
+                kind="not-me",
+                dancer_1="A",
+                dancer_2="B",
+                division="Classic",
+            ),
+            "📋 said they are not A & B (Classic) on The Open's registration list",
+        ),
+        (
+            _e(
                 "event_staff_grants",
                 CREATED,
                 event_id="e1",

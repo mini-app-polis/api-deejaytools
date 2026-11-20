@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse
 from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -135,7 +135,7 @@ class RegistrationSongsResponse(Envelope[list[RegistrationSongsData]]):
 
 
 @dataclass(frozen=True)
-class _SongOnFile:
+class SongOnFile:
     song_id: str
     names: tuple[str, ...]
     label: str
@@ -188,7 +188,7 @@ def entry_names(dancer_1: str, dancer_2: str | None) -> tuple[str, ...]:
     return tuple(k for k in (name_key(dancer_1), name_key(dancer_2)) if k)
 
 
-def _name_set(names: tuple[str, ...]) -> frozenset[tuple[str, int]]:
+def name_set(names: tuple[str, ...]) -> frozenset[tuple[str, int]]:
     """``names`` in any order: equal for the same names, either way round."""
     return frozenset(Counter(names).items())
 
@@ -269,7 +269,7 @@ def match_names(
     """
     if not entry or not song:
         return None
-    if _name_set(entry) == _name_set(song):
+    if name_set(entry) == name_set(song):
         return "strong"
     if not divisions_meet or len(entry) != 2 or len(song) != 2:
         return None
@@ -282,7 +282,7 @@ def match_names(
 
 def rank_candidates(
     entry: EventRegistration,
-    songs: list[_SongOnFile],
+    songs: list[SongOnFile],
     *,
     season_year: str,
     submitted: dict[str, list[str]],
@@ -329,8 +329,14 @@ def rank_candidates(
     return [data for _, data in found[:MAX_CANDIDATES]]
 
 
-async def _songs_on_file(session: AsyncSession) -> list[_SongOnFile]:
-    """Every song that could be submitted: not deleted, not legacy."""
+async def songs_on_file(
+    session: AsyncSession, *where: ColumnElement[bool]
+) -> list[SongOnFile]:
+    """Every song that could be submitted: not deleted, not legacy.
+
+    ``where`` narrows it further; ``Partner`` is joined on ``Song.partner_id``,
+    so ``song_records.shared_with`` applies.
+    """
     owner = aliased(User, name="song_owner")
     managed = aliased(ManagedPartnership, name="managed_partnership")
     rows = (
@@ -360,7 +366,7 @@ async def _songs_on_file(session: AsyncSession) -> list[_SongOnFile]:
             .outerjoin(owner, owner.id == Song.user_id)
             .outerjoin(Partner, Partner.id == Song.partner_id)
             .outerjoin(managed, managed.id == Song.managed_partnership_id)
-            .where(Song.deleted_at.is_(None))
+            .where(Song.deleted_at.is_(None), *where)
         )
     ).all()
     songs = []
@@ -394,7 +400,7 @@ async def _songs_on_file(session: AsyncSession) -> list[_SongOnFile]:
             division=r.division,
         )
         songs.append(
-            _SongOnFile(
+            SongOnFile(
                 song_id=r.id,
                 names=names,
                 label=label,
@@ -416,7 +422,7 @@ async def _songs_on_file(session: AsyncSession) -> list[_SongOnFile]:
     return songs
 
 
-def _event_season(season_year: str | None, start_date: str) -> str:
+def event_season(season_year: str | None, start_date: str) -> str:
     return season_year or season_year_from_date_string(start_date)
 
 
@@ -441,7 +447,7 @@ async def registration_songs(
     if not open_entries:
         return []
 
-    season = _event_season(event.season_year, event.start_date)
+    season = event_season(event.season_year, event.start_date)
     in_event: set[str] = set()
     submitted: dict[str, list[str]] = defaultdict(list)
     for song_id, event_id, name, season_year, start_date in (
@@ -457,20 +463,20 @@ async def registration_songs(
     ).all():
         if event_id == event.id:
             in_event.add(song_id)
-        elif _event_season(season_year, start_date) == season:
+        elif event_season(season_year, start_date) == season:
             if name not in submitted[song_id]:
                 submitted[song_id].append(name)
     for names in submitted.values():
         names.sort()
 
-    songs = await _songs_on_file(session)
+    songs = await songs_on_file(session)
     # Who already has music in: the names of every song submitted here.
-    covered = {_name_set(s.names) for s in songs if s.song_id in in_event}
+    covered = {name_set(s.names) for s in songs if s.song_id in in_event}
     available = [s for s in songs if s.song_id not in in_event]
 
     out = []
     for entry in open_entries:
-        if _name_set(entry_names(entry.dancer_1, entry.dancer_2)) in covered:
+        if name_set(entry_names(entry.dancer_1, entry.dancer_2)) in covered:
             continue
         candidates = rank_candidates(
             entry, available, season_year=season, submitted=submitted

@@ -141,6 +141,24 @@ class EventRegistration(Base):
     updated_at: Mapped[int] = mapped_column(BigInteger)
 
 
+class RegistrationReminderDismissal(Base):
+    """A person saying a registration entry is not theirs ("Not me").
+
+    This service's own table (migration 018): their registration reminders
+    leave the entry out from then on. Gone with the entry or the person.
+    """
+
+    __tablename__ = "registration_reminder_dismissals"
+
+    registration_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("event_registrations.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[int] = mapped_column(BigInteger)
+
+
 class Partner(Base):
     """An entry in a user's address book of dance partners and placeholders."""
 

@@ -408,6 +408,8 @@ async def _registration(e: Entry, look: Lookups) -> str | None:
         marks = _registration_marks(f)
         return f"📋 marked {_dancers(f)} at {event}: {marks}" if marks else None
     if e.op == SUMMARY:
+        if f.get("kind") == "not-me":
+            return f"📋 said they are not {_dancers(f)} on {event}'s registration list"
         added, removed = f.get("added", 0), f.get("removed", 0)
         if f.get("kind") == "append":
             skipped = f.get("skipped", 0)
