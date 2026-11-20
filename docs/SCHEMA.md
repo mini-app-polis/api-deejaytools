@@ -790,7 +790,7 @@ An event's registration list, as an admin imported it (`PUT /v1/admin/events/:id
 | `dancer_1` | `text` | NO | — | First dancer, or a team's name |
 | `dancer_2` | `text` | YES | — | Second dancer |
 | `entry_key` | `text` | NO | — | `(division, dancer_1, dancer_2)` normalized (case, accents, spacing): what a re-import matches on to keep the marks below |
-| `linked_label` | `text` | YES | — | A submission's partnership label the admin linked it to by hand |
+| `linked_label` | `text` | YES | — | A submission's partnership label it is linked to by hand: by an admin or event staff, or by the dancer confirming a possible match on My Content (`POST /v1/registration-reminders/:id/confirm`) |
 | `handled` | `boolean` | NO | `false` | Marked as needing no submission here |
 | `scratched` | `boolean` | NO | `false` | Migration 010. Signed up but no longer competing; its submissions stay, hidden from the public entry list through `event_song_submissions.hidden_by_registration_id` |
 | `note` | `text` | YES | — | Admin note |

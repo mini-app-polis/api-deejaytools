@@ -415,6 +415,14 @@
       "event-manager",
       "admin"
     ],
+    "POST /v1/registration-reminders/{id}/confirm": [
+      "dancer",
+      "coordinator",
+      "dj",
+      "event-manager",
+      "other-event-staff",
+      "admin"
+    ],
     "POST /v1/registration-reminders/{id}/dismiss": [
       "dancer",
       "coordinator",

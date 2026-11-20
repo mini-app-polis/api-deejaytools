@@ -315,3 +315,139 @@ async def test_not_me_dismisses_for_the_caller_only(
 
     res = await client.post(f"{URL}/nope/dismiss", headers=ada.headers)
     assert res.status_code == 404
+
+
+async def _ada_and_kristen(db: asyncpg.Connection, person: Callable) -> tuple[Any, str]:
+    ada = await person("ada")
+    await _named(db, ada.id, "Ada", "Lovelace")
+    kristen = await _partner(db, ada.id, "Kristen", "Wallace")
+    return ada, kristen
+
+
+async def test_a_near_name_is_a_possible_match_to_confirm(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    ada, kristen = await _ada_and_kristen(db, person)
+    song = await insert_song(db, ada.id, partner_id=kristen, division="Classic")
+    event = await insert_event(db, **FUTURE)
+    [row] = await _import(
+        client,
+        admin,
+        event,
+        [
+            {
+                "division": "Classic",
+                "dancer_1": "Ada Lovelace",
+                "dancer_2": "Kris Wallace",
+            }
+        ],
+    )
+    [reminder] = await _reminders(client, ada)
+    assert reminder["match"] == "possible"
+    assert reminder["partnership_label"] == "Ada Lovelace & Kristen Wallace"
+    assert reminder["has_music"] is False
+    assert reminder["song"]["song_id"] == song
+
+    res = await client.post(f"{URL}/{row['id']}/confirm", headers=ada.headers)
+    assert res.status_code == 204, res.text
+    linked = await db.fetchval(
+        "SELECT linked_label FROM event_registrations WHERE id = $1", row["id"]
+    )
+    assert linked == "Ada Lovelace & Kristen Wallace"
+    # Now theirs: still no music in, so an exact reminder with the song.
+    [reminder] = await _reminders(client, ada)
+    assert reminder["match"] == "exact"
+    assert reminder["song"]["song_id"] == song
+    # Once that song is in, the linked entry is settled.
+    await _submit(db, event, song, ada.id)
+    assert await _reminders(client, ada) == []
+
+
+async def test_a_possible_match_with_music_in_is_settled_by_confirming(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    ada, kristen = await _ada_and_kristen(db, person)
+    song = await insert_song(db, ada.id, partner_id=kristen, division="Classic")
+    event = await insert_event(db, **FUTURE)
+    await _submit(db, event, song, ada.id)
+    [row] = await _import(
+        client,
+        admin,
+        event,
+        [
+            {
+                "division": "Classic",
+                "dancer_1": "Kris Wallace",
+                "dancer_2": "Ada Lovelace",
+            }
+        ],
+    )
+    [reminder] = await _reminders(client, ada)
+    assert reminder["match"] == "possible"
+    assert reminder["has_music"] is True
+    assert reminder["song"] is None
+
+    res = await client.post(f"{URL}/{row['id']}/confirm", headers=ada.headers)
+    assert res.status_code == 204, res.text
+    assert await _reminders(client, ada) == []
+
+
+async def test_only_a_possible_match_of_the_callers_can_be_confirmed(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    ada, _ = await _ada_and_kristen(db, person)
+    zed = await person("zed")
+    event = await insert_event(db, **FUTURE)
+    exact, possible = await _import(
+        client,
+        admin,
+        event,
+        [
+            {
+                "division": "Classic",
+                "dancer_1": "Ada Lovelace",
+                "dancer_2": "Kristen Wallace",
+            },
+            {
+                "division": "Novice",
+                "dancer_1": "Ada Lovelace",
+                "dancer_2": "Kris Wallace",
+            },
+        ],
+    )
+    for entry_id, who in ((exact["id"], ada), (possible["id"], zed), ("nope", ada)):
+        res = await client.post(f"{URL}/{entry_id}/confirm", headers=who.headers)
+        assert res.status_code == 404, res.text
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM event_registrations"
+            " WHERE event_id = $1 AND linked_label IS NOT NULL",
+            event,
+        )
+        == 0
+    )
+
+
+async def test_an_entry_an_admin_linked_to_the_callers_label_is_theirs(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    ada, _ = await _ada_and_kristen(db, person)
+    event = await insert_event(db, **FUTURE)
+    [row] = await _import(
+        client,
+        admin,
+        event,
+        [{"division": "Classic", "dancer_1": "A. Lovelace", "dancer_2": "K. Wallace"}],
+    )
+    assert await _reminders(client, ada) == []
+    await db.execute(
+        "UPDATE event_registrations SET linked_label = $2 WHERE id = $1",
+        row["id"],
+        "ada lovelace & KRISTEN WALLACE",
+    )
+    [reminder] = await _reminders(client, ada)
+    assert (reminder["match"], reminder["song"]) == ("exact", None)

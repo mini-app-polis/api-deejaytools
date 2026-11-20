@@ -1986,13 +1986,13 @@ const listQuery = z.object({
 
 ## `routers/registration_reminders.py` — `/v1/registration-reminders`
 
-The caller's own entries on events' registration lists with no music in yet, for the notice on My Content.
+The caller's own entries on events' registration lists with no music in yet, or that only nearly name them, for the notice on My Content.
 
 ### GET /v1/registration-reminders
 
 **Auth:** `deejaytools.submissions.read`
 
-**Purpose:** Tell a dancer an event's registration list names them but no song is in for that entry, with the song of theirs they likely mean to send.
+**Purpose:** Tell a dancer an event's registration list names them but no song is in for that entry, with the song of theirs they likely mean to send; and let them confirm an entry whose spelling of a name is off.
 
 **Path params / Query params / Request body:** none
 
@@ -2009,12 +2009,15 @@ The caller's own entries on events' registration lists with no music in yet, for
       "event_status": "upcoming",
       "division": "Classic (NASDE)",
       "dancer_1": "Ada Lovelace",
-      "dancer_2": "Bob Jones",
+      "dancer_2": "Kris Wallace",
+      "match": "possible",
+      "partnership_label": "Ada Lovelace & Kristen Wallace",
+      "has_music": false,
       "song": {
         "song_id": "…",
         "match": "strong",
-        "song_label": "Ada Lovelace & Bob Jones Classic 2026 Routine v01",
-        "partnership_label": "Ada Lovelace & Bob Jones",
+        "song_label": "Ada Lovelace & Kristen Wallace Classic 2026 Routine v01",
+        "partnership_label": "Ada Lovelace & Kristen Wallace",
         "division": "Classic",
         "season_year": "2026",
         "added_at": 1794000000000,
@@ -2027,20 +2030,41 @@ The caller's own entries on events' registration lists with no music in yet, for
 }
 ```
 
-By event start date, then list order. An entry is the caller's when its dancers are exactly one of the caller's pairs, in either order, with case, accents and spacing ignored: the caller with a partner in their address book, the caller with the owner of a partner row linked to them, one of their managed partnerships, or the names of one of their own or shared songs. One shared name is never a match. Left out:
+By event start date, then list order. The caller's pairs are: the caller with a partner in their address book, the owner of a partner row linked to the caller (with that row's names), one of their managed partnerships, and the names of one of their own or shared songs, each with the partnership label its songs carry (`partnership_label`). Names compare with case, accents and spacing ignored. An entry is the caller's:
 
-- events that are completed;
-- entries scratched, handled or linked by hand (`linked_label`);
-- entries whose dancers a song already submitted to the event names exactly;
-- entries the caller dismissed (`POST …/:id/dismiss`).
+- `exact`: its dancers are exactly one of the caller's pairs, in either order, or it is linked (`linked_label`) to one of their labels. Left out once music is in: a song submitted to the event names its dancers exactly, or carries its linked label.
+- `possible`: one name is exact and the other close (a typo, or a shortened first name such as "Kris" for "Kristen"), as the admin's look-alike match has it. One shared name alone is never a match. Shown until the caller confirms (`POST …/:id/confirm`) or dismisses it; `has_music` is true when that partnership already has a song in the event, so confirming settles it.
 
-`song` is the caller's best strong candidate not yet submitted to the event, ranked as `GET /v1/admin/events/:id/registrations/songs-on-file` ranks them, or `null` when they have none on file. Never a `possible` match, and never anyone else's song.
+Left out: events that are completed; entries scratched, handled, or linked to a label that is not the caller's; entries the caller dismissed (`POST …/:id/dismiss`).
+
+`song` is the caller's best strong candidate not yet submitted to the event, ranked as `GET /v1/admin/events/:id/registrations/songs-on-file` ranks them (for a linked or possible entry, by its pair's own names), or `null` when they have none on file or music is already in. Never anyone else's song.
 
 **Errors:**
 
 | Status | Code | Message | Trigger |
 |--------|------|---------|---------|
 | 500 | `INTERNAL` | … | Query failed |
+
+---
+
+### POST /v1/registration-reminders/:id/confirm
+
+**Auth:** `deejaytools.submissions.write`
+
+**Purpose:** "That's me": the caller says a `possible` entry is theirs. It is linked to their `partnership_label` (`event_registrations.linked_label`), as an admin's link on the Registrations page would, so their music counts for it there and on the event page.
+
+**Path params:** `id` — registration entry id
+
+**Request body:** none
+
+**Response:** **204**
+
+**Errors:**
+
+| Status | Code | Message | Trigger |
+|--------|------|---------|---------|
+| 404 | `NOT_FOUND` | No possible registration match to confirm | Not one of the caller's `possible` reminders (an exact one, someone else's, or an unknown id) |
+| 500 | `INTERNAL` | … | Write failed |
 
 ---
 
