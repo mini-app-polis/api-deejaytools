@@ -1,3 +1,11 @@
+# [1.45.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.44.1...v1.45.0) (2026-11-20)
+
+
+### Features
+
+* **registrations:** let dancers confirm a possible registration match as theirs ([bb2b879](https://github.com/mini-app-polis/api-deejaytools/commit/bb2b879c6553533fd541de70b657e4517180bcbb))
+* **registrations:** remind dancers of their registrations with no music in ([b3917ed](https://github.com/mini-app-polis/api-deejaytools/commit/b3917ed5d620df4ed11f210b0ecc44639ffa8985))
+
 ## [1.44.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.44.0...v1.44.1) (2026-11-19)
 
 
