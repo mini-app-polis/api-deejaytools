@@ -1,3 +1,15 @@
+# [1.46.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.45.1...v1.46.0) (2026-11-23)
+
+
+### Bug Fixes
+
+* **deps:** bump miniapppolis-common-utils to 9.14.3 ([5c4ed8e](https://github.com/mini-app-polis/api-deejaytools/commit/5c4ed8e4a9e5e00d869e0a85c8d60e3f64b7bde1))
+
+
+### Features
+
+* **drive:** trash test files outside production instead of leaving them in _deprecated ([77e81a0](https://github.com/mini-app-polis/api-deejaytools/commit/77e81a039bc42f688aa37d14c8f9e98695095fdd))
+
 ## [1.45.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.45.0...v1.45.1) (2026-11-23)
 
 
