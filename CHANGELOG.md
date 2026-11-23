@@ -1,3 +1,10 @@
+## [1.46.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.46.0...v1.46.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **drive:** skip Drive shares to Clerk test addresses instead of failing the job ([8e8b358](https://github.com/mini-app-polis/api-deejaytools/commit/8e8b3581803d50150e5e9712f3220ab6d7181939))
+
 # [1.46.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.45.1...v1.46.0) (2026-11-23)
 
 
