@@ -1,3 +1,10 @@
+## [1.45.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.45.0...v1.45.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **deps:** bump the minor-and-patch group with 5 updates ([74ad584](https://github.com/mini-app-polis/api-deejaytools/commit/74ad5844e950b91550a728e76d6bc79afb941aee))
+
 # [1.45.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.44.1...v1.45.0) (2026-11-20)
 
 
