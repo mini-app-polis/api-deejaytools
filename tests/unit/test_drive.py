@@ -230,6 +230,24 @@ async def test_share_delegates_to_the_facade(svc: FakeDriveService) -> None:
     assert perm["sendNotificationEmail"] is False
 
 
+async def test_share_leaves_out_clerk_test_addresses(svc: FakeDriveService) -> None:
+    result = await drive.share_song_file(
+        "file_1", ["E2E-Dancer+Clerk_Test@deejaytools.com", "a@b.co"]
+    )
+    assert result.shared == ["a@b.co"]
+    assert result.failed == []
+    (perm,) = svc.ops("permissions.create")
+    assert perm["body"]["emailAddress"] == "a@b.co"
+
+
+async def test_share_to_only_test_addresses_calls_drive_not_at_all(
+    svc: FakeDriveService,
+) -> None:
+    result = await drive.share_with_reader("folder_1", "e2e-staff+clerk_test@x.com")
+    assert (result.shared, result.failed) == ([], [])
+    assert svc.ops("permissions.create") == []
+
+
 # --- event folder access ---------------------------------------------------------
 
 

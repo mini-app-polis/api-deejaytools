@@ -87,9 +87,10 @@ async def _run_share_folder_job(db: AsyncSession, job: _Job) -> None:
     """Share the event's folder with one of its DJs or event managers.
 
     Nothing to do when they hold neither role (an unshare is, or was,
-    queued) or the event is gone. The folder is created if missing and
-    recorded on the job (``file_id``): that is what an unshare takes access
-    away from, wherever the event's folder is by then.
+    queued), the event is gone, or their address is a Clerk test address
+    (the e2e and contract suites', which Drive always refuses). The folder is
+    created if missing and recorded on the job (``file_id``): that is what an
+    unshare takes access away from, wherever the event's folder is by then.
     """
     event_id, user_id = _event_folder_fields(job)
     if not await _holds_folder_role(db, event_id, user_id):
@@ -114,6 +115,15 @@ async def _run_share_folder_job(db: AsyncSession, job: _Job) -> None:
         return
     email = await _share_email(db, job, user_id)
     await db.commit()
+    if drive.is_test_address(email):
+        logger.info(
+            with_log_prefix(
+                LOG_SUCCESS,
+                f"drive_folder_share_skipped job={job.id} event={event_id} "
+                f"user={user_id} reason=test_address",
+            )
+        )
+        return
 
     season, name = event_folder_path(event.name, event.season_year, event.start_date)
     folder_id = await drive.ensure_event_folder(season_year=season, event_name=name)
