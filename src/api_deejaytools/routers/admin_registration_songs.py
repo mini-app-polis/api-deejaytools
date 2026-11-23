@@ -136,6 +136,10 @@ class RegistrationSongsResponse(Envelope[list[RegistrationSongsData]]):
 
 @dataclass(frozen=True)
 class SongOnFile:
+    """One live song, loaded once and matched against every entry: its
+    dancers' names for matching, its partnership and structured labels for
+    the response, and its division, season and times for ranking."""
+
     song_id: str
     names: tuple[str, ...]
     label: str
@@ -423,6 +427,8 @@ async def songs_on_file(
 
 
 def event_season(season_year: str | None, start_date: str) -> str:
+    """The season an event or submission falls in: its own ``season_year``,
+    or else the season of its ``start_date``."""
     return season_year or season_year_from_date_string(start_date)
 
 
