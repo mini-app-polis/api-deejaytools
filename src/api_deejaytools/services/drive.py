@@ -38,6 +38,15 @@ This module is the only user of ``ensure_folder`` in this process, so nothing
 else fills or relies on that cache.
 A folder this module trashes (``trash_folders``) is dropped from the cache
 at once.
+
+**Test files.** Outside production every file this process creates is a test
+file (development is contract-suite runs and manual testing, not real users).
+Each upload and event copy it makes carries the appProperty
+``deejaytools_test_file=1``, and ``soft_delete`` puts the file in the Drive
+trash instead of ``_deprecated``. ``trash_test_files`` trashes every tagged
+file still in the tree, for the ones a test run never deleted
+(``scripts/trash_test_drive_files.py``). Production tags nothing and keeps
+moving deleted files to ``_deprecated``.
 """
 
 from __future__ import annotations
@@ -70,6 +79,7 @@ __all__ = [
     "NOT_CONFIGURED_MESSAGE",
     "SUBMISSION_APP_PROPERTY",
     "ShareResult",
+    "TEST_FILE_APP_PROPERTY",
     "clear_drive_folder_cache",
     "copy_song_to_event_folder",
     "drive_configured",
@@ -84,6 +94,7 @@ __all__ = [
     "share_with_reader",
     "soft_delete",
     "trash_folders",
+    "trash_test_files",
     "upload_song_file",
 ]
 
@@ -101,6 +112,11 @@ SUBMISSION_APP_PROPERTY = "deejaytools_submission_id"
 It is how a copy job finds a copy an earlier run already made, so overlapping
 runs and a copy followed by a failed DB write do not duplicate it.
 """
+
+TEST_FILE_APP_PROPERTY = "deejaytools_test_file"
+"""Drive appProperty, valued ``1``, on every file a non-production process
+creates: how test files are told apart from real users' wherever they sit."""
+_TEST_FILE_VALUE = "1"
 
 FOLDER_CACHE_TTL_SECONDS = 60 * 60
 
@@ -143,6 +159,20 @@ def _config() -> _DriveConfig:
         raise DriveNotConfiguredError()
     email, key = account
     return _DriveConfig(email, key, root)
+
+
+def _marks_test_files() -> bool:
+    """Whether files this process creates are test files: everywhere but
+    production. Tests replace it to pick a side."""
+    return get_settings().ENVIRONMENT.lower() != "production"
+
+
+def _with_test_tag(app_properties: dict[str, str] | None) -> dict[str, str] | None:
+    """``app_properties`` plus the test-file tag when this process makes test
+    files; unchanged otherwise."""
+    if not _marks_test_files():
+        return app_properties
+    return {**(app_properties or {}), TEST_FILE_APP_PROPERTY: _TEST_FILE_VALUE}
 
 
 def drive_configured() -> bool:
@@ -280,7 +310,7 @@ async def upload_song_file(
         filename=filename,
         content=data,
         mime_type=mime_type,
-        app_properties=app_properties,
+        app_properties=_with_test_tag(app_properties),
         # Songs run to ~110 MiB; the single-request upload is for <= 5 MB.
         resumable=True,
     )
@@ -336,10 +366,15 @@ async def share_song_file(file_id: str, emails: Iterable[str | None]) -> ShareRe
 async def soft_delete(file_id: str) -> None:
     """Move a file into ``<root>/_deprecated``, removing all its current parents.
 
-    Nothing is permanently deleted or put in the Drive trash. ``_deprecated``
-    is created if missing. (docs/DRIVE.md "softDeleteOnDrive".)
+    Nothing is permanently deleted. ``_deprecated`` is created if missing.
+    (docs/DRIVE.md "softDeleteOnDrive".) Outside production the file goes to
+    the Drive trash instead (recoverable), so test runs leave nothing in
+    ``_deprecated``.
     """
     facade, root = _drive()
+    if _marks_test_files():
+        await asyncio.to_thread(facade.trash_file, file_id)
+        return
     deprecated_id = await _ensure_folder(facade, root, DEPRECATED_FOLDER)
     await asyncio.to_thread(
         facade.move_file,
@@ -433,7 +468,7 @@ async def copy_song_to_event_folder(
             source_file_id,
             parent_folder_id=destination_id,
             name=filename,
-            app_properties={SUBMISSION_APP_PROPERTY: submission_id},
+            app_properties=_with_test_tag({SUBMISSION_APP_PROPERTY: submission_id}),
         )
     except Exception:
         clear_drive_folder_cache()
@@ -614,3 +649,33 @@ async def trash_folders(folder_ids: list[str]) -> None:
         for key, cached in list(FOLDER_CACHE.items()):
             if cached in trashed:
                 FOLDER_CACHE.pop(key, None)
+
+
+async def trash_test_files(*, dry_run: bool = False) -> list[str]:
+    """Every untrashed file tagged ``deejaytools_test_file=1`` anywhere under
+    the root, ``_deprecated`` included, moved to the Drive trash
+    (recoverable); their ids. With ``dry_run`` nothing is trashed.
+
+    Only tagged files are touched, so real users' files are left alone even
+    when production shares the root. Folders are not trashed here; the event
+    folder sweep trashes event folders once they hold nothing.
+    """
+    facade, root = _drive()
+    found: list[str] = []
+    pending = [root]
+    while pending:
+        folder = pending.pop()
+        found.extend(
+            await asyncio.to_thread(
+                facade.find_files_by_app_property,
+                folder,
+                key=TEST_FILE_APP_PROPERTY,
+                value=_TEST_FILE_VALUE,
+            )
+        )
+        children = await asyncio.to_thread(facade.get_all_subfolders, folder)
+        pending.extend(child.id for child in children)
+    if not dry_run:
+        for file_id in found:
+            await asyncio.to_thread(facade.trash_file, file_id)
+    return found

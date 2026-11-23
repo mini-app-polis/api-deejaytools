@@ -22,3 +22,13 @@ def _fresh_drive_clients() -> None:
     from api_deejaytools.services import drive
 
     drive.reset_drive_clients()
+
+
+@pytest.fixture(autouse=True)
+def _drive_as_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drive files are real users' unless a test says otherwise: no test-file
+    tag, and deletes go to ``_deprecated``. ENVIRONMENT is not production
+    here, which would make every file a test file."""
+    from api_deejaytools.services import drive
+
+    monkeypatch.setattr(drive, "_marks_test_files", lambda: False)
