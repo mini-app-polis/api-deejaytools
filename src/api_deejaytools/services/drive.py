@@ -85,6 +85,7 @@ __all__ = [
     "drive_configured",
     "empty_folder_tree",
     "ensure_event_folder",
+    "is_test_address",
     "list_event_folders",
     "move_event_copy",
     "remove_reader",
@@ -112,6 +113,11 @@ SUBMISSION_APP_PROPERTY = "deejaytools_submission_id"
 It is how a copy job finds a copy an earlier run already made, so overlapping
 runs and a copy followed by a failed DB write do not duplicate it.
 """
+
+TEST_ADDRESS_MARKER = "+clerk_test@"
+"""What marks a Clerk test address (``name+clerk_test@domain``): the e2e and
+contract suites' accounts. No Google account sits behind one, so Drive
+refuses every share to it (``invalidSharingRequest``)."""
 
 TEST_FILE_APP_PROPERTY = "deejaytools_test_file"
 """Drive appProperty, valued ``1``, on every file a non-production process
@@ -348,18 +354,26 @@ async def download_file(file_id: str) -> bytes:
     return downloaded.data
 
 
+def is_test_address(email: str | None) -> bool:
+    """Whether ``email`` is a Clerk test address (``TEST_ADDRESS_MARKER``)."""
+    return TEST_ADDRESS_MARKER in (email or "").lower()
+
+
 async def share_song_file(file_id: str, emails: Iterable[str | None]) -> ShareResult:
     """Grant ``reader`` on a file to each address, with no notification email.
 
     Addresses are trimmed, lowercased, de-duplicated and checked against
-    ``^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$`` by the facade. Per-address failures
-    come back in ``ShareResult.failed`` and are never raised; the caller logs
-    them (``song_drive_share_partial_failure``).
+    ``^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$`` by the facade. Clerk test addresses
+    (``is_test_address``) are left out: Drive would only refuse them.
+    Per-address failures come back in ``ShareResult.failed`` and are never
+    raised; the caller logs them (``song_drive_share_partial_failure``).
     """
     facade, _root = _drive()
     # Materialized here: a generator consumed in the worker thread would run
     # caller code off the event loop.
-    addresses = list(emails)
+    addresses = [email for email in emails if not is_test_address(email)]
+    if not addresses:
+        return ShareResult(shared=[], failed=[])
     return await asyncio.to_thread(facade.share_with_readers, file_id, addresses)
 
 

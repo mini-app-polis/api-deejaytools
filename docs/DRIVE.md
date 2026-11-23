@@ -515,7 +515,11 @@ propagate as job failures.
    is gone → success, nothing done (an unshare is, or was, queued).
 2. Their `users.email` is empty → the job is **refused**: `failed` at once, with
    `last_error` naming the user id. The same for an address Drive cannot share
-   with. The admin retry runs it again once the address is fixed.
+   with. The admin retry runs it again once the address is fixed. A Clerk
+   test address (`+clerk_test@`, the e2e and contract suites' accounts, which
+   Drive always refuses) → success, nothing shared, logged
+   `drive_folder_share_skipped reason=test_address`. Song shares leave those
+   addresses out the same way.
 3. Resolve the event's folder, `<root>/<season>/Events/<event name>/`, as a copy
    does (season = the event's `season_year`, else from its `start_date`),
    creating it if missing; on an error the folder cache is cleared.

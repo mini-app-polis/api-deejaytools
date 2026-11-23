@@ -442,6 +442,29 @@ async def test_an_address_drive_refuses_fails_the_job_at_once(
     )
 
 
+async def test_a_clerk_test_address_is_skipped_not_failed(
+    client: httpx.AsyncClient,
+    person: Callable[..., Any],
+    db: asyncpg.Connection,
+    session: AsyncSession,
+    real_drive: FakeDriveService,
+) -> None:
+    admin = await person("admin", admin=True)
+    dj = await person("dj")
+    event_id = await _event(client, admin)
+    await _grant(client, admin, event_id, dj.id, "dj")
+    await db.execute(
+        "UPDATE users SET email = 'e2e-staff+clerk_test@deejaytools.com' WHERE id = $1",
+        dj.id,
+    )
+
+    result = await drive_jobs.process_drive_jobs(session)
+    assert result == {"claimed": 1, "succeeded": 1, "failed": 0}
+    row = await db.fetchrow("SELECT status, file_id FROM drive_jobs")
+    assert (row["status"], row["file_id"]) == ("done", None)
+    assert real_drive.ops("permissions.create") == []
+
+
 async def test_a_drive_failure_is_retried_like_any_job(
     client: httpx.AsyncClient,
     person: Callable[..., Any],
