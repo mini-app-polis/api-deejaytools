@@ -247,6 +247,16 @@ def _fresh_drive_clients() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _drive_as_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drive files are real users' unless a test says otherwise: no test-file
+    tag, and deletes go to ``_deprecated``. ENVIRONMENT is not production
+    here, which would make every file a test file."""
+    from api_deejaytools.services import drive
+
+    monkeypatch.setattr(drive, "_marks_test_files", lambda: False)
+
+
+@pytest.fixture(autouse=True)
 async def _fresh_rate_limit_window(database: str) -> None:
     """Each test starts with empty rate-limit windows.
 

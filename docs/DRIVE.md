@@ -273,7 +273,30 @@ same way, queueing `trash` jobs for their own files and their event copies.
 **`soft_delete(file_id)`** moves the file into `<root>/_deprecated/`: it
 finds or creates that folder, reads the file's current parents, and updates the
 file adding `_deprecated` and removing **all** current parents. Nothing is
-permanently deleted or moved to the Drive trash.
+permanently deleted or moved to the Drive trash. Outside production it moves
+the file to the Drive trash instead ([Test files](#test-files)).
+
+### Test files
+
+Outside production (`ENVIRONMENT` anything but `production`) every file the
+API creates is a test file: development is contract-suite runs and manual
+testing, not real users. So that testing cleans up after itself:
+
+- Every upload and event copy also carries the appProperty
+  `deejaytools_test_file=1`, alongside its song or submission tag.
+- `soft_delete` moves the file to the **Drive trash** (`trashed = true`,
+  recoverable) instead of `_deprecated`.
+- `scripts/trash_test_drive_files.py` (`--dry-run` lists only) trashes every
+  untrashed file tagged `deejaytools_test_file=1` anywhere under the root,
+  `_deprecated` included: what a test run created and never deleted. Only
+  tagged files are touched, so real users' files are safe even if
+  production shares the root.
+
+Production tags nothing and keeps `_deprecated`, so a real user's deleted song
+can be recovered. Folders are not trashed by either; the
+[event folder sweep](#event-folder-sweep) trashes event folders once nothing
+untrashed is left in them. Files created before the tag existed carry no tag
+and are not found by the script.
 
 ---
 
@@ -298,7 +321,7 @@ Table: [`drive_jobs`](./SCHEMA.md#drive_jobs). Admin endpoints:
 | `copy` | `submission_id` | Copies the song's Drive file into the event folder and records the copy's id on the submission |
 | `rename` | `submission_id` | Re-applies the current naming rule to an existing copy |
 | `move` | `submission_id` | Moves an existing copy into the folder its submission's division and round now name, out of every other folder, and renames it by the current naming rule |
-| `trash` | `file_id` | Moves a file (an event copy, or a deleted song's own file) into `_deprecated` (`soft_delete`) |
+| `trash` | `file_id` | Moves a file (an event copy, or a deleted song's own file) into `_deprecated` (`soft_delete`), or outside production into the Drive trash |
 | `share_event_folder` | `event_id`, `user_id` | Shares the event's folder, `<root>/<season>/Events/<event name>/` (created if missing), with the person's `users.email` as a reader, and records the folder's id in `file_id` |
 | `unshare_event_folder` | `event_id`, `user_id` | Removes the person's reader permission from every folder a share for them on the event recorded |
 | `share_song` | `file_id` | Gives the partner of the live song whose Drive file it is reader access to the file, by the partner's email. Reads the song's partner when it runs; nothing to do when there is none or it has no email |

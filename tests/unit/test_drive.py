@@ -21,6 +21,8 @@ from ..drive_fakes import FakeDriveService, fake_facade
 
 ROOT = "root"
 NOT_CONFIGURED = "Google Drive environment variables are not configured"
+# The real switch, before conftest's autouse fixture replaces it.
+MARKS_TEST_FILES = drive._marks_test_files
 
 
 class Clock:
@@ -501,6 +503,103 @@ async def test_soft_delete_reuses_an_existing_deprecated_folder(
     await drive.soft_delete(b)
     assert svc.files_by_id[a]["parents"] == svc.files_by_id[b]["parents"]
     assert len([c for c in svc.ops("files.create")]) == 1
+
+
+# --- test files ---------------------------------------------------------------
+
+
+@pytest.fixture
+def test_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    """This process makes test files, as outside production."""
+    monkeypatch.setattr(drive, "_marks_test_files", lambda: True)
+
+
+@pytest.mark.parametrize(
+    ("environment", "expected"),
+    [
+        ("production", False),
+        ("PRODUCTION", False),
+        ("development", True),
+        ("local", True),
+        ("test", True),
+    ],
+)
+def test_files_are_test_files_everywhere_but_production(
+    monkeypatch: pytest.MonkeyPatch, environment: str, expected: bool
+) -> None:
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
+    assert MARKS_TEST_FILES() is expected
+
+
+async def test_a_test_upload_carries_the_test_tag(
+    svc: FakeDriveService, test_files: None
+) -> None:
+    file_id, _ = await drive.upload_song_file(
+        b"bytes",
+        filename="f.mp3",
+        mime_type="audio/mpeg",
+        season_year="2027",
+        division="Classic",
+        app_properties={"deejaytools_song_id": "song_1"},
+    )
+    assert svc.files_by_id[file_id]["appProperties"] == {
+        "deejaytools_song_id": "song_1",
+        "deejaytools_test_file": "1",
+    }
+
+
+async def test_a_test_event_copy_carries_both_tags(
+    svc: FakeDriveService, test_files: None
+) -> None:
+    await drive.copy_song_to_event_folder(
+        "src",
+        submission_id="sub_1",
+        filename="f.mp3",
+        season_year="2027",
+        event_name="E",
+        division="Classic",
+    )
+    (copy,) = svc.ops("files.copy")
+    assert copy["body"]["appProperties"] == {
+        "deejaytools_submission_id": "sub_1",
+        "deejaytools_test_file": "1",
+    }
+
+
+async def test_a_test_soft_delete_goes_to_the_trash_not_deprecated(
+    svc: FakeDriveService, test_files: None
+) -> None:
+    file_id = svc.add_file("song.mp3", ["p1"])
+    await drive.soft_delete(file_id)
+    assert svc.trashed(file_id)
+    assert svc.files_by_id[file_id]["parents"] == ["p1"]
+    assert svc.folder_id(ROOT, "_deprecated") is None
+
+
+async def test_trash_test_files_trashes_only_tagged_files_anywhere(
+    svc: FakeDriveService,
+) -> None:
+    tag = {"deejaytools_test_file": "1"}
+    division = svc.add_path(ROOT, "2027", "Classic")
+    finals = svc.add_path(ROOT, "2027", "Events", "E", "Classic", "Finals")
+    deprecated = svc.add_path(ROOT, "_deprecated")
+    tagged = [
+        svc.add_file("a.mp3", [division], app_properties=tag),
+        svc.add_file("b.mp3", [finals], app_properties=tag),
+        svc.add_file("c.mp3", [deprecated], app_properties=tag),
+    ]
+    real = [
+        svc.add_file("real.mp3", [division], app_properties={"x": "1"}),
+        svc.add_file("old.mp3", [deprecated]),
+    ]
+
+    assert sorted(await drive.trash_test_files(dry_run=True)) == sorted(tagged)
+    assert not any(svc.trashed(f) for f in tagged + real)
+
+    assert sorted(await drive.trash_test_files()) == sorted(tagged)
+    assert all(svc.trashed(f) for f in tagged)
+    assert not any(svc.trashed(f) for f in real)
+    assert not any(svc.trashed(f) for f in (division, finals, deprecated))
 
 
 async def test_rename_is_a_noop_when_the_name_matches(svc: FakeDriveService) -> None:
