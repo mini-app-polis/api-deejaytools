@@ -1,3 +1,10 @@
+# [1.47.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.46.2...v1.47.0) (2026-11-24)
+
+
+### Features
+
+* let the service sleep when idle in development ([ecd9daa](https://github.com/mini-app-polis/api-deejaytools/commit/ecd9daaf395a8f94f0af2962f97c6cf8acd8aa77))
+
 ## [1.46.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.46.1...v1.46.2) (2026-11-24)
 
 
