@@ -1,3 +1,10 @@
+## [1.46.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.46.1...v1.46.2) (2026-11-24)
+
+
+### Performance Improvements
+
+* run 2 uvicorn workers and cap malloc arenas to cut memory ([fb39efa](https://github.com/mini-app-polis/api-deejaytools/commit/fb39efa1bb0b655f9ebe0325808f8760cc27721c))
+
 ## [1.46.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.46.0...v1.46.1) (2026-11-23)
 
 
