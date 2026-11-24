@@ -12,9 +12,15 @@
 # for the `&&` and $PORT.
 #
 # uvicorn reads its worker count from WEB_CONCURRENCY, which defaults here to
-# the 4 CPUs .railway/railway.ts allows. Change it with that setting, and
-# resize the pool in database.py with it (docs/OPERATIONS.md, "Workers and
-# database connections").
+# 2: the event load test peaked under one vCPU, and every worker is a process
+# that holds its own memory, which Railway bills by the minute. Change it with
+# that setting, and resize the pool in database.py with it
+# (docs/OPERATIONS.md, "Workers and database connections").
+#
+# MALLOC_ARENA_MAX caps glibc's per-thread malloc arenas. Song uploads are
+# assembled, tagged and sent in worker threads (asyncio.to_thread), and each
+# thread's arena kept the freed buffers, so a worker's memory only grew
+# between deploys (docs/OPERATIONS.md, "Memory").
 
 FROM python:3.14-slim-bookworm@sha256:3fe1a0b6c2d6b2ebb572906cdabeca75aeb558c0c17db5ffefbcf8094871c32b
 
@@ -25,7 +31,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
     PYTHONUNBUFFERED=1 \
-    WEB_CONCURRENCY=4 \
+    WEB_CONCURRENCY=2 \
+    MALLOC_ARENA_MAX=2 \
     PATH="/app/.venv/bin:${PATH}"
 
 # Dependencies first, so a code-only change reuses this layer. The version

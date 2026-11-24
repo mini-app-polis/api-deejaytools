@@ -35,20 +35,39 @@ fail in the browser.
 
 ## Workers and database connections
 
-The container runs `WEB_CONCURRENCY` uvicorn workers, 4 by default: one per
-CPU of the 4 Railway allows (`.railway/railway.ts`). Set `WEB_CONCURRENCY` on
-the service to change it. Each worker is its own process with its own
-database engine, response cache and rate-limit windows, and its own
-scheduler (safe to run more than once).
+The container runs `WEB_CONCURRENCY` uvicorn workers, 2 by default (the
+Dockerfile). The event load test (Capacity, below) peaked at 0.83 vCPU with
+about 99% of reads answered at the edge, so two workers carry an event with
+room to spare, and every extra worker is a process whose memory Railway
+bills around the clock. Set `WEB_CONCURRENCY` on the service to change it,
+up to one per CPU of the 4 Railway allows (`.railway/railway.ts`). Each
+worker is its own process with its own database engine, response cache and
+rate-limit windows, and its own scheduler (safe to run more than once).
 
 Each engine holds at most `pool_size` 8 + `max_overflow` 4 = 12
 connections (`src/api_deejaytools/database.py`), and each worker also holds
-one connection of its own for the cache bus (below), so 4 workers use at
-most 52. Railway Postgres allows 100 connections by default, which leaves
-about 50 for the crons, migrations (one connection at deploy) and operator
-sessions. Keep workers x 13 at or below 60 against a 100-connection limit:
-if you raise `WEB_CONCURRENCY`, lower the pool in `database.py` to match, and
-if the database's limit changes, recompute the same sum.
+one connection of its own for the cache bus (below), so 2 workers use at
+most 26, and 4 would use 52. Railway Postgres allows 100 connections by
+default, which leaves room for the crons, migrations (one connection at
+deploy) and operator sessions. Keep workers x 13 at or below 60 against a
+100-connection limit: if you raise `WEB_CONCURRENCY`, lower the pool in
+`database.py` to match, and if the database's limit changes, recompute the
+same sum.
+
+## Memory
+
+Memory is most of the service's Railway bill: Railway charges for what the
+container holds, every minute, whether or not it is busy. An idle worker
+holds about 165 MB.
+
+A song upload is assembled in memory (up to 100 MB), tagged and sent to
+Drive in worker threads (`asyncio.to_thread`). glibc gives each thread its
+own malloc arena and keeps freed memory in it, which is the likely reason
+the service grew from 0.66 GB after a deploy to 4.1 GB in November 2026,
+while its CPU stayed near idle. The Dockerfile sets `MALLOC_ARENA_MAX=2`
+so the threads share two arenas and freed buffers are reused. A worker that
+still grows upload after upload points at the assembly itself, which would
+then need to stream from the chunk files instead.
 
 ## Response cache across workers
 
@@ -185,8 +204,8 @@ apart.
 | | dev | prod |
 | --- | --- | --- |
 | API service | 1 Railway replica, 4 vCPU / 4 GB limit | 1 Railway replica, 4 vCPU / 4 GB limit |
-| uvicorn workers | `WEB_CONCURRENCY`, default 4 | same |
-| Database connections | `pool_size` 8 + `max_overflow` 4 per worker, plus 1 cache-bus connection each (at most 52) | same |
+| uvicorn workers | `WEB_CONCURRENCY`, default 2 | same |
+| Database connections | `pool_size` 8 + `max_overflow` 4 per worker, plus 1 cache-bus connection each (at most 26) | same |
 | Response cache | queues 3 s, sessions 5 s, shared across workers | same |
 | Cloudflare | edge cache on the anonymous public reads; a per-IP ceiling on everything else (infra `cloudflare_rules.tf`) | same rules |
 
