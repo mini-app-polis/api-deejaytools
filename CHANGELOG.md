@@ -1,3 +1,10 @@
+# [1.48.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.47.0...v1.48.0) (2026-11-24)
+
+
+### Features
+
+* **uploads:** refuse a chunked upload whose assembled size differs from total_bytes ([ad99939](https://github.com/mini-app-polis/api-deejaytools/commit/ad99939e6c9dd56767affe14195d0572fcde9b1c))
+
 # [1.47.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.46.2...v1.47.0) (2026-11-24)
 
 
