@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from functools import lru_cache
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -9,7 +10,9 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
+from . import idle
 from .config import get_settings
 
 
@@ -26,17 +29,27 @@ def async_url(database_url: str) -> str:
     return database_url
 
 
-@lru_cache(maxsize=1)
-def _get_engine(database_url: str) -> AsyncEngine:
-    return create_async_engine(
-        async_url(database_url),
-        pool_pre_ping=True,
+def _pool_options() -> dict[str, Any]:
+    if idle.enabled(get_settings()):
+        # A pooled connection left open keeps Railway from sleeping the
+        # service, so each request connects and closes (idle.py).
+        return {"poolclass": NullPool}
+    return {
+        "pool_pre_ping": True,
         # Each uvicorn worker has its own engine, so the database sees
         # workers x (pool_size + max_overflow) connections, plus one per
         # worker for the cache bus. Sized for 4 workers: 4 x 13 = 52
         # (docs/OPERATIONS.md, "Workers and database connections").
-        pool_size=8,
-        max_overflow=4,
+        "pool_size": 8,
+        "max_overflow": 4,
+    }
+
+
+@lru_cache(maxsize=1)
+def _get_engine(database_url: str) -> AsyncEngine:
+    return create_async_engine(
+        async_url(database_url),
+        **_pool_options(),
         # No prepared-statement caches, in asyncpg or in SQLAlchemy's adapter.
         # A cached statement pins the type ids it was planned with, so a
         # schema rebuilt under a running service (what the conformance suite

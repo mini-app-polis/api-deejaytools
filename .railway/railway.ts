@@ -117,6 +117,8 @@ export default defineRailway((ctx) => {
       // The scheduler's pace, and its off switch.
       TICK_INTERVAL_MS: preserve(),
       DISABLE_SCHEDULER: preserve(),
+      // Unset in production, where the service never sleeps (idle.py).
+      SLEEP_WHEN_IDLE: preserve(),
     },
   });
 
