@@ -215,6 +215,14 @@ class Settings(BaseSettings):
         default=False,
         description="'1' turns the in-process scheduler off; any other value leaves it on.",
     )
+    SLEEP_WHEN_IDLE: bool | None = Field(
+        default=None,
+        description=(
+            "Hold no database connection and no background work while idle, so "
+            "Railway can sleep the service (idle.py). Unset: on in development "
+            "only."
+        ),
+    )
 
     @field_validator("DISABLE_SCHEDULER", mode="before")
     @classmethod

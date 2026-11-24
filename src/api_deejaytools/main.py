@@ -20,7 +20,7 @@ from mini_app_polis.request_metrics import RequestMetricsMiddleware
 from mini_app_polis.sentry import init_sentry
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 
-from . import __version__, cache_bus
+from . import __version__, cache_bus, idle
 from .cache import drop_local
 from .config import get_settings
 from .errors import ignore_client_disconnects, install_error_handlers
@@ -104,7 +104,8 @@ async def lifespan(_app: FastAPI):
         with_log_prefix(
             LOG_START,
             f"api-deejaytools starting (env={settings.ENVIRONMENT}, "
-            f"sentry={'on' if sentry_on else 'off'})",
+            f"sentry={'on' if sentry_on else 'off'}, "
+            f"sleep_when_idle={'on' if idle.enabled(settings) else 'off'})",
         )
     )
     # One line per setting; a value only for names on SETTINGS_ALLOWLIST.
@@ -112,7 +113,11 @@ async def lifespan(_app: FastAPI):
     # Off under DISABLE_SCHEDULER=1 and ENVIRONMENT=test (services/scheduler.py).
     scheduler = start_scheduler(settings)
     # Drops other workers' cached reads when this one writes (cache_bus.py).
-    cache_bus.start(settings.DEEJAYTOOLS_DATABASE_URL, drop_local)
+    cache_bus.start(
+        settings.DEEJAYTOOLS_DATABASE_URL,
+        drop_local,
+        quiet=lambda: idle.quiet(settings),
+    )
     yield
     await cache_bus.stop()
     if scheduler is not None:
@@ -163,6 +168,10 @@ def _build_app() -> FastAPI:
     # 503 included) with the fault detail the error middleware recorded.
     # Importing notifications registered the listeners that do the tally.
     app.middleware("http")(notifications.activity_middleware)
+
+    # Every request tells the background work the service is in use, so it
+    # holds off only while nobody is (idle.py).
+    app.add_middleware(idle.ActivityMiddleware)
 
     # Outermost, so its clock covers everything the client waits for.
     app.add_middleware(

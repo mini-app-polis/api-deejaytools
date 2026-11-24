@@ -7,7 +7,9 @@ minute (``activity_feed``), then drains one batch of the Drive job queue,
 measures a few songs' lengths (``song_lengths``), and at most once per ``EVENT_FOLDER_SWEEP_INTERVAL_SECONDS`` trashes the
 emptied folders of deleted events (``drive_jobs.sweep_event_folders``).
 The background loop runs a pass at startup and then every ``TICK_INTERVAL_MS``
-(default 30 s); ``GET /internal/tick`` runs the same pass on demand.
+(default 30 s); ``GET /internal/tick`` runs the same pass on demand. While
+the service may sleep and nobody is using it, the loop skips its passes
+(idle.py).
 
 **When the loop runs.** Never with ``DISABLE_SCHEDULER=1`` (only
 ``"1"`` counts), and never when ``ENVIRONMENT`` is
@@ -37,6 +39,7 @@ from mini_app_polis.logger import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from .. import idle
 from ..config import Settings, get_settings
 from ..database import get_sessionmaker
 from . import (
@@ -282,8 +285,11 @@ class Scheduler:
         self,
         interval_ms: int,
         tick: Callable[[], Awaitable[None]] | None = None,
+        quiet: Callable[[], bool] = lambda: False,
     ) -> None:
         self.interval_ms = interval_ms
+        #: True while passes should be skipped: the service may sleep (idle.py).
+        self._quiet = quiet
         # Looked up per call, not bound here, so the pass is always the
         # module's current run_tick.
         self._tick = tick if tick is not None else (lambda: run_tick())
@@ -310,7 +316,7 @@ class Scheduler:
     def _fire(self) -> None:
         # Not awaited by the loop, so the interval keeps its cadence and a
         # slow pass is what the overlap guard sees.
-        if self._running:
+        if self._running or self._quiet():
             return
         self._tick_task = asyncio.create_task(self.tick_once())
 
@@ -361,6 +367,6 @@ def start_scheduler(settings: Settings | None = None) -> Scheduler | None:
             )
         )
         return None
-    scheduler = Scheduler(settings.TICK_INTERVAL_MS)
+    scheduler = Scheduler(settings.TICK_INTERVAL_MS, quiet=lambda: idle.quiet(settings))
     scheduler.start()
     return scheduler

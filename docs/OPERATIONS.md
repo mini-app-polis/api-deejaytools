@@ -69,6 +69,27 @@ so the threads share two arenas and freed buffers are reused. A worker that
 still grows upload after upload points at the assembly itself, which would
 then need to stream from the chunk files instead.
 
+## Sleeping when idle
+
+Development is unused most of the time, and an always-on service is billed
+for its memory around the clock. Railway's Serverless setting (on the
+service) stops a service once it has sent nothing for 5 to 10 minutes and
+boots it again on the next request, which waits for the boot and may get a
+502. Anything that reaches the database on its own counts as sending, so
+`src/api_deejaytools/idle.py` keeps the service quiet while nobody uses it:
+
+- the engine holds no connection between requests (`NullPool`);
+- once a worker has had no request for 3 minutes, its scheduler skips its
+  passes and its cache bus closes its connection; the next request makes
+  both carry on, and the bus drops the worker's cache when it reconnects.
+
+It is on when `SLEEP_WHEN_IDLE` is unset and `ENVIRONMENT` is
+`development`, and `SLEEP_WHEN_IDLE` turns it on or off anywhere. Production
+leaves it unset, so it is off there, and production's Serverless setting
+stays off. Work the scheduler had not reached when the service slept (a
+Drive job, a status change) waits for the next request; `GET /internal/tick`
+runs a pass on demand.
+
 ## Response cache across workers
 
 Each worker caches the hot public reads (`src/api_deejaytools/cache.py`:

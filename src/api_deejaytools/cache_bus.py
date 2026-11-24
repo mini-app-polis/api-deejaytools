@@ -13,6 +13,11 @@ which ignores its own.
 If the connection is lost the cache falls back to its TTL alone until the
 connection is back; on reconnecting the worker drops its whole cache, since it
 may have missed notifications while it was away.
+
+While the service may sleep and this worker has had no request for a while
+(idle.py), the bus closes its connection, since the connection alone keeps
+Railway from sleeping the service, and reconnects at the next request,
+dropping the whole cache as after any lost connection.
 """
 
 from __future__ import annotations
@@ -42,6 +47,8 @@ CLOSE_TIMEOUT_SECONDS = 2.0
 #: Notifications queued while the connection is down beyond this are dropped:
 #: the other workers fall back to the TTL for them.
 MAX_PENDING = 1000
+#: How often a bus closed for quiet checks whether a request has come.
+QUIET_POLL_SECONDS = 1.0
 
 Invalidate = Callable[[list[str]], None]
 
@@ -49,9 +56,16 @@ Invalidate = Callable[[list[str]], None]
 class CacheBus:
     """One worker's end of the invalidation channel."""
 
-    def __init__(self, dsn: str, invalidate: Invalidate) -> None:
+    def __init__(
+        self,
+        dsn: str,
+        invalidate: Invalidate,
+        quiet: Callable[[], bool] = lambda: False,
+    ) -> None:
         self._dsn = dsn
         self._invalidate = invalidate
+        #: True while the connection should be closed: the service may sleep.
+        self._quiet = quiet
         self.origin = uuid.uuid4().hex
         self._pending: asyncio.Queue[list[str]] = asyncio.Queue(maxsize=MAX_PENDING)
         self._task: asyncio.Task[None] | None = None
@@ -110,6 +124,8 @@ class CacheBus:
         attempt = 0
         first = True
         while True:
+            while self._quiet():
+                await asyncio.sleep(QUIET_POLL_SECONDS)
             try:
                 conn = await asyncpg.connect(
                     self._dsn,
@@ -170,6 +186,9 @@ class CacheBus:
                     raise asyncpg.InterfaceError("connection terminated")
                 if not get.done():
                     get.cancel()
+                    if self._quiet():
+                        logger.info("cache_bus: idle, closing until the next request")
+                        return
                     await conn.execute("SELECT 1")
                     continue
                 await conn.execute(
@@ -182,10 +201,12 @@ class CacheBus:
 _bus: CacheBus | None = None
 
 
-def start(dsn: str, invalidate: Invalidate) -> CacheBus:
+def start(
+    dsn: str, invalidate: Invalidate, quiet: Callable[[], bool] = lambda: False
+) -> CacheBus:
     """Start this worker's bus (from the app's lifespan)."""
     global _bus
-    _bus = CacheBus(dsn, invalidate)
+    _bus = CacheBus(dsn, invalidate, quiet)
     _bus.start()
     return _bus
 
