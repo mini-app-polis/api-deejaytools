@@ -315,6 +315,71 @@ async def test_missing_chunk_is_409(
     }
 
 
+# --- total_bytes ---------------------------------------------------------------------
+
+
+async def test_an_upload_matching_its_total_bytes_succeeds(
+    client: httpx.AsyncClient, person: Callable, fake_drive: FakeDrive
+) -> None:
+    alice = await person("alice")
+    upload_id = str(uuid.uuid4())
+    size = str(len(MP3))
+    half = len(MP3) // 2
+    first = await _send(client, alice, upload_id, 0, 2, MP3[:half], total_bytes=size)
+    assert first.json()["data"] == {"received": True, "complete": False}
+    last = await _send(client, alice, upload_id, 1, 2, MP3[half:], total_bytes=size)
+    assert last.status_code == 200, last.text
+    assert last.json()["data"]["complete"] is True
+
+
+async def test_an_upload_smaller_than_its_total_bytes_saves_nothing(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    fake_drive: FakeDrive,
+) -> None:
+    alice = await person("alice")
+    upload_id = str(uuid.uuid4())
+    # A chunk cut short on the way in: the file picked was a byte longer.
+    res = await _send(
+        client, alice, upload_id, 0, 1, MP3, total_bytes=str(len(MP3) + 1)
+    )
+    assert res.status_code == 400
+    assert res.json()["error"] == {
+        "code": "BAD_REQUEST",
+        "message": "The uploaded file didn't arrive complete. Please retry the upload.",
+    }
+    assert await db.fetchval("SELECT count(*) FROM songs") == 0
+    assert await db.fetchval("SELECT count(*) FROM song_uploads") == 0
+    assert fake_drive.uploads == []
+
+    # The staged chunks went with it: the same upload starts again from scratch.
+    again = await _send(client, alice, upload_id, 0, 1, MP3, total_bytes=str(len(MP3)))
+    assert again.status_code == 200, again.text
+    assert await db.fetchval("SELECT count(*) FROM songs") == 1
+
+
+async def test_an_upload_without_total_bytes_is_unchanged(
+    client: httpx.AsyncClient, person: Callable, fake_drive: FakeDrive
+) -> None:
+    alice = await person("alice")
+    song = await _upload(client, alice)
+    assert song["id"]
+
+
+@pytest.mark.parametrize("value", ["", "-1", "1.5", "abc", "12 3"])
+async def test_a_total_bytes_that_is_not_a_size_is_refused(
+    client: httpx.AsyncClient, person: Callable, fake_drive: FakeDrive, value: str
+) -> None:
+    alice = await person("alice")
+    res = await _send(client, alice, str(uuid.uuid4()), 0, 1, MP3, total_bytes=value)
+    assert res.status_code == 400, value
+    assert res.json()["error"] == {
+        "code": "BAD_REQUEST",
+        "message": "Invalid total_bytes",
+    }
+
+
 # --- retried chunks -----------------------------------------------------------------
 
 

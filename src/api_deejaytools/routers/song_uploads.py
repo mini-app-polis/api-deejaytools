@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from mini_app_polis.logger import LOG_FAILURE, get_logger, with_log_prefix
+from mini_app_polis.logger import LOG_FAILURE, LOG_WARNING, get_logger, with_log_prefix
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,6 +87,8 @@ MAX_UPLOADS_IN_PROGRESS = 3
 _UUID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
 )
+#: total_bytes: a non-negative integer, digits only.
+_DIGITS = re.compile(r"[0-9]+")
 
 
 class ChunkReceived(BaseModel):
@@ -221,7 +223,10 @@ def _is_int(value: float) -> bool:
     description=(
         "Chunked upload, multipart/form-data. Each chunk is staged; the final "
         "one is assembled, checked by its magic bytes and becomes a song, "
-        "returned at once. Tagging, the Drive upload and the Drive fields "
+        "returned at once. An optional total_bytes, the size of the file "
+        "picked, is checked against the assembled file on the final chunk: a "
+        "mismatch is 400 and nothing is saved. Tagging, the Drive upload and "
+        "the Drive fields "
         "follow in the background; the song is removed again if that fails "
         "and nothing references it yet. Requires deejaytools.songs.write; "
         "on_behalf_of_user_id also needs deejaytools.delegation.act: through "
@@ -311,6 +316,9 @@ async def _upload_chunk(
     round_sent = _trimmed_or_none(form, "round")
     chunk = form.get("chunk")
     chunk_file = chunk if isinstance(chunk, UploadFile) else None
+    # The size of the file the dancer picked, when the client sends it: the
+    # assembled file must match it, or a chunk was cut short on the way in.
+    total_bytes_raw = form.get("total_bytes")
 
     if not _UUID.fullmatch(upload_id):
         raise bad_request("Invalid upload_id")
@@ -324,6 +332,13 @@ async def _upload_chunk(
         raise bad_request("chunk_index out of range")
     if chunk_file is None:
         raise bad_request("Missing chunk field")
+    total_bytes: int | None = None
+    if total_bytes_raw is not None:
+        if not isinstance(total_bytes_raw, str) or not _DIGITS.fullmatch(
+            js_trim(total_bytes_raw)
+        ):
+            raise bad_request("Invalid total_bytes")
+        total_bytes = int(js_trim(total_bytes_raw))
     if submit_to_event and not (on_behalf_of and event_id):
         raise bad_request("submit_to_event needs on_behalf_of_user_id and event_id")
     if round_sent is not None:
@@ -553,6 +568,17 @@ async def _upload_chunk(
         return b"".join((upload_dir / name).read_bytes() for name in names)
 
     assembled = await asyncio.to_thread(assemble)
+    if total_bytes is not None and len(assembled) != total_bytes:
+        logger.warning(
+            with_log_prefix(
+                LOG_WARNING,
+                f"upload_size_mismatch user={caller.user_id} upload={upload_id} "
+                f"expected={total_bytes} assembled={len(assembled)}",
+            )
+        )
+        raise bad_request(
+            "The uploaded file didn't arrive complete. Please retry the upload."
+        )
     if len(assembled) > MAX_ASSEMBLED_BYTES:
         raise bad_request("File exceeds 100 MB limit")
     mime_type = detect_audio_format(assembled)

@@ -2287,6 +2287,7 @@ it.
 | `upload_id` | UUID string | yes | Groups chunks |
 | `chunk_index` | integer | yes | 0-based |
 | `total_chunks` | integer | yes | 1–30 |
+| `total_bytes` | integer | no | The size in bytes of the file the dancer picked. When sent, the final chunk's assembled file must be exactly this size, or nothing is saved. Send the same value on every chunk |
 | `original_filename` | string | no | Defaults to `"song.mp3"` when omitted or empty |
 | `mime_type` | string | no | Ignored. The format comes from the assembled file's magic bytes |
 | `division` | string | yes | |
@@ -2338,6 +2339,7 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 400 | `BAD_REQUEST` | Invalid total_chunks (max 30) | Not an integer in 1–30 |
 | 400 | `BAD_REQUEST` | chunk_index out of range | `chunk_index >= total_chunks` |
 | 400 | `BAD_REQUEST` | Missing chunk field | `chunk` absent or not a file |
+| 400 | `BAD_REQUEST` | Invalid total_bytes | `total_bytes` sent but not a non-negative integer (digits only; empty is refused) |
 | 400 | `BAD_REQUEST` | submit_to_event needs on_behalf_of_user_id and event_id | `submit_to_event` without either |
 | 400 | `BAD_REQUEST` | round needs submit_to_event | `round` without `submit_to_event` |
 | 400 | `BAD_REQUEST` | Invalid round | `round` not one of the three |
@@ -2365,6 +2367,7 @@ In this response `processed_filename`, `season_year`, `drive_file_id` and `drive
 | 409 | `ENTITY_SLOT_TAKEN` | This entity already has a song submitted for … | `submit_to_event`: the entity already has a song in that division at the event, in a round that overlaps. Nothing is saved |
 | 500 | `CHUNK_ERROR` | Failed to read uploaded chunks | Upload directory can't be listed (directory is left in place) |
 | 409 | `CHUNK_MISSING` | Expected N chunks but only received M. Please retry the upload. | Chunk count ≠ `total_chunks` |
+| 400 | `BAD_REQUEST` | The uploaded file didn't arrive complete. Please retry the upload. | `total_bytes` sent and the assembled file's size differs: a chunk was cut short on the way in. No song, upload or submission is saved, no build starts, and the staged chunks are removed |
 | 400 | `BAD_REQUEST` | File exceeds 100 MB limit | Assembled size > 110 MiB |
 | 400 | `UNSUPPORTED_FORMAT` | That file doesn't look like a supported audio format. Please upload an MP3, WAV, FLAC, or M4A. | Magic-byte check |
 | 500 | `INTERNAL` | … | Unhandled error (e.g. song insert) |
