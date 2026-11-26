@@ -10,6 +10,8 @@ file, reading the song's partner when it runs.
 
 from __future__ import annotations
 
+import re
+
 from mini_app_polis.logger import LOG_SUCCESS, LOG_WARNING, get_logger, with_log_prefix
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,17 +31,38 @@ from .job import DriveJobRefused, _Job, _missing_field
 logger = get_logger()
 
 
+def _has_reason(error: Exception, reason: str) -> bool:
+    """Whether Drive gave ``reason`` for ``error``, in its details or, when it
+    has none, its message."""
+    details = getattr(error, "error_details", None)
+    if isinstance(details, list) and any(
+        isinstance(d, dict) and d.get("reason") == reason for d in details
+    ):
+        return True
+    return reason.lower() in str(error).lower()
+
+
 def _is_refused_recipient(error: Exception) -> bool:
     """Whether Drive refused the recipient itself (``invalidSharingRequest``:
     no Google account for the address while the share sends no email, or a
     domain policy). Retrying cannot change that answer."""
-    details = getattr(error, "error_details", None)
-    if isinstance(details, list) and any(
-        isinstance(d, dict) and d.get("reason") == "invalidSharingRequest"
-        for d in details
-    ):
-        return True
-    return "invalidsharingrequest" in str(error).lower()
+    return _has_reason(error, "invalidSharingRequest")
+
+
+_CHILD_FILE = re.compile(r"child file ([\w-]+)")
+
+
+def _foreign_child(error: Exception) -> str | None:
+    """The file Drive names when it refuses to share a folder because the
+    folder holds a file the app did not create (``appNotAuthorizedToChild``:
+    the app's ``drive.file`` scope reaches only its own files, and sharing a
+    folder changes everything in it). "unknown" when Drive does not name it;
+    None for any other error. Retrying cannot change that answer until the
+    file is moved out of the folder."""
+    if not _has_reason(error, "appNotAuthorizedToChild"):
+        return None
+    found = _CHILD_FILE.search(str(error))
+    return found.group(1) if found else "unknown"
 
 
 async def _holds_folder_role(db: AsyncSession, event_id: str, user_id: str) -> bool:
@@ -134,6 +157,14 @@ async def _run_share_folder_job(db: AsyncSession, job: _Job) -> None:
             raise DriveJobRefused(
                 f"{job.kind}: Drive refuses to share the event folder with the "
                 f"address of user {user_id} (invalidSharingRequest)"
+            )
+        child = _foreign_child(error)
+        if child is not None:
+            raise DriveJobRefused(
+                f"{job.kind}: Drive refuses to share event folder {folder_id}: "
+                f"it holds file {child}, which deejaytools did not create and "
+                "so may not share (appNotAuthorizedToChild). Move that file "
+                "out of the folder, then retry the job"
             )
         raise error
     if not result.shared:

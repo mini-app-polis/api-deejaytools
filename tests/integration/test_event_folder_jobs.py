@@ -442,6 +442,34 @@ async def test_an_address_drive_refuses_fails_the_job_at_once(
     )
 
 
+async def test_a_folder_holding_a_file_deejaytools_did_not_create_fails_at_once(
+    client: httpx.AsyncClient,
+    person: Callable[..., Any],
+    db: asyncpg.Connection,
+    session: AsyncSession,
+    real_drive: FakeDriveService,
+) -> None:
+    admin = await person("admin", admin=True)
+    dj = await person("dj")
+    event_id = await _event(client, admin)
+    await _grant(client, admin, event_id, dj.id, "dj")
+    refusal = RuntimeError(
+        "HttpError 403: The user has not granted the app 414682266593 write "
+        "access to the child file 1gtnWqod5H_1m6rEzE4CVtoklRF-z1GbA, which "
+        "would be affected by the operation on the parent."
+    )
+    refusal.error_details = [{"reason": "appNotAuthorizedToChild"}]  # type: ignore[attr-defined]
+    real_drive.fail_share = refusal
+
+    result = await drive_jobs.process_drive_jobs(session)
+    assert result == {"claimed": 1, "succeeded": 0, "failed": 1}
+    row = await db.fetchrow("SELECT status, attempts, last_error FROM drive_jobs")
+    # Failed, not retried: only moving the file out can change Drive's answer.
+    assert (row["status"], row["attempts"]) == ("failed", 1)
+    assert "holds file 1gtnWqod5H_1m6rEzE4CVtoklRF-z1GbA" in row["last_error"]
+    assert "appNotAuthorizedToChild" in row["last_error"]
+
+
 async def test_a_clerk_test_address_is_skipped_not_failed(
     client: httpx.AsyncClient,
     person: Callable[..., Any],
