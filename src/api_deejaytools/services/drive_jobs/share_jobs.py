@@ -29,17 +29,22 @@ from .job import DriveJobRefused, _Job, _missing_field
 logger = get_logger()
 
 
+def _has_reason(error: Exception, reason: str) -> bool:
+    """Whether Drive gave ``reason`` for ``error``, in its details or, when it
+    has none, its message."""
+    details = getattr(error, "error_details", None)
+    if isinstance(details, list) and any(
+        isinstance(d, dict) and d.get("reason") == reason for d in details
+    ):
+        return True
+    return reason.lower() in str(error).lower()
+
+
 def _is_refused_recipient(error: Exception) -> bool:
     """Whether Drive refused the recipient itself (``invalidSharingRequest``:
     no Google account for the address while the share sends no email, or a
     domain policy). Retrying cannot change that answer."""
-    details = getattr(error, "error_details", None)
-    if isinstance(details, list) and any(
-        isinstance(d, dict) and d.get("reason") == "invalidSharingRequest"
-        for d in details
-    ):
-        return True
-    return "invalidsharingrequest" in str(error).lower()
+    return _has_reason(error, "invalidSharingRequest")
 
 
 async def _holds_folder_role(db: AsyncSession, event_id: str, user_id: str) -> bool:

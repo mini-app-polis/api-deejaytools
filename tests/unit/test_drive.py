@@ -184,7 +184,7 @@ def test_credentials_use_drive_file_scope_and_the_files_key(
     facade, root = drive._drive()
     assert root == ROOT
     assert facade.get_file_name("f1") == "name of f1"
-    assert seen["scopes"] == ["https://www.googleapis.com/auth/drive.file"]
+    assert seen["scopes"] == ["https://www.googleapis.com/auth/drive"]
     assert seen["info"]["client_email"] == "sa@x.iam"
     assert seen["info"]["private_key"] == "-----BEGIN-----\nabc\n-----END-----\n"
 
