@@ -217,9 +217,12 @@ once per process.
      removed, case kept (`ProAm LeaderAm` → `ProAmLeaderAm`).
    - Empty segments are dropped. If the partnership segment is empty the
      sanitized user id is used, then the literal `user`.
-   - Extension: from the **original filename** (text after the last dot, if the
-     dot is neither first nor last), non-alphanumerics removed, lowercased. No
-     extension in the original → none on the output, whatever the detected format.
+   - Extension: from the **detected format** (step 4): `mp3`, `wav`, `flac` or
+     `m4a`, whatever the original filename says. DJ software picks how to read a
+     file's tags by its extension, so an MP3 named `.m4a` would show none. Only
+     for an upload recorded with any other MIME type does it come from the
+     original filename (text after the last dot, if the dot is neither first nor
+     last, non-alphanumerics removed, lowercased; none without one).
 
    Example: `AliceTester_PatPartner_Classic_2027_BlueMonday_v01.mp3`.
 6. **Tag** the bytes: title, artist, year — see [AUDIO-TAGGING.md](./AUDIO-TAGGING.md).

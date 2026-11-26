@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ...database import get_sessionmaker
 from ...models import ManagedPartnership, Partner, Song, SongUpload, User
 from .. import drive
+from ..audio_format import extension_for
 from ..song_lengths import read_duration_ms
 from ..tagging import tag_song_bytes
 from .claims import LostClaim, _claim, _heartbeat, _update_mine
@@ -208,8 +209,9 @@ async def _build(
             routine_name=song.routine_name,
             personal_descriptor=song.personal_descriptor,
         )
+        extension = extension_for(mime_type) or file_extension(original_filename)
         processed_filename = await _reserve_filename(
-            maker, song, claim, stem, file_extension(original_filename), season
+            maker, song, claim, stem, extension, season
         )
 
     duration_ms: int | None = None

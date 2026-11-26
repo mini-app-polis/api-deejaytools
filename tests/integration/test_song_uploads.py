@@ -186,6 +186,30 @@ async def test_chunks_assemble_out_of_order_and_build(
     assert shared_file == "file-1" and emails[0].startswith("alice.")
 
 
+async def test_the_file_is_named_for_its_bytes_not_its_original_extension(
+    client: httpx.AsyncClient,
+    person: Callable,
+    db: asyncpg.Connection,
+    fake_drive: FakeDrive,
+) -> None:
+    alice = await person("alice")
+    # An MP3 named .m4a, as a converter left it.
+    song = await _upload(
+        client, alice, MP3, original_filename="routine.m4a", mime_type="audio/mp4"
+    )
+    await song_builds.wait_for_builds()
+
+    [upload] = fake_drive.uploads
+    assert upload["filename"].endswith("_v01.mp3")
+    assert upload["mime_type"] == "audio/mpeg"
+    row = await db.fetchrow(
+        "SELECT original_filename, processed_filename FROM songs WHERE id = $1",
+        song["id"],
+    )
+    assert row["original_filename"] == "routine.m4a"
+    assert row["processed_filename"] == upload["filename"]
+
+
 async def test_a_build_records_the_length_it_reads_from_the_upload(
     client: httpx.AsyncClient,
     person: Callable,

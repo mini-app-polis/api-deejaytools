@@ -110,8 +110,11 @@ space), not prepended to the file.
   `TCON` genre, `TYER` year (if set), and `COMM` (`eng`, empty description) only
   when provenance is non-empty. Nothing from the old `id3 ` tag survives except
   as provenance.
-- If the file has an `id3 ` chunk, it is replaced in place (every one, if
-  there are several); otherwise the new chunk is appended after the last chunk.
+- Every existing `id3 ` chunk is dropped, and the new one goes **just before the
+  `data` chunk** (after the last chunk when there is no `data` chunk). Ahead of
+  the audio, DJ software finds it without walking whatever an editor wrote after
+  the audio: VirtualDJ misses an `id3 ` chunk that follows Pro Tools' odd-length
+  `DGDA` chunk and its pad byte, though the file is valid RIFF.
 - All other chunks (`fmt `, `data`, `LIST`/`INFO`, `bext`, …) are copied
   through unchanged, padded to even length. The RIFF size header is rewritten.
 - Provenance reads `TIT2`, `TPE1`, `TALB` from the existing `id3 ` chunk (the
@@ -120,7 +123,8 @@ space), not prepended to the file.
 - **Oversized last chunk:** a chunk whose declared size runs past the end of the
   file (a truncated file, or a streaming writer that left the `data` size at
   `0xFFFFFFFF`) is kept with the bytes actually present and re-written with its
-  real length, so the audio survives. The new `id3 ` chunk goes after it.
+  real length, so the audio survives. The new `id3 ` chunk goes before it when
+  it is the `data` chunk, as always, else after it.
 - Fewer than 8 bytes left over after the last whole chunk are dropped.
 
 ### FLAC — Vorbis comments
