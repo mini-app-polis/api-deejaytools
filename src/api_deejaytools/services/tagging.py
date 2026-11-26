@@ -174,9 +174,12 @@ def _read_riff_chunks(data: bytes) -> list[tuple[bytes, bytes]]:
 def _tag_wav(data: bytes, title: str, artist: str, year: str | None) -> bytes:
     """Write a fresh ID3v2.3 tag as the RIFF ``id3 `` chunk.
 
-    Every existing ``id3 `` chunk is replaced in place, or the new one is
-    appended after the last chunk. Provenance comes from the last ``id3 ``
-    chunk; an unreadable one contributes nothing.
+    Every existing ``id3 `` chunk is dropped and the new one goes just before
+    the ``data`` chunk (after the last chunk when there is none). Ahead of the
+    audio, DJ software finds it without walking whatever an editor wrote after
+    the audio: VirtualDJ misses an ``id3 `` chunk that follows Pro Tools'
+    odd-length ``DGDA`` chunk and its pad byte. Provenance comes from the last
+    ``id3 `` chunk; an unreadable one contributes nothing.
     """
     if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
         raise ValueError("not a RIFF/WAVE file")
@@ -194,11 +197,13 @@ def _tag_wav(data: bytes, title: str, artist: str, year: str | None) -> bytes:
     new_tag = _render_id3(tags)
 
     payloads = [
-        (chunk_id, new_tag if chunk_id == b"id3 " else payload)
-        for chunk_id, payload in chunks
+        (chunk_id, payload) for chunk_id, payload in chunks if chunk_id != b"id3 "
     ]
-    if not any(chunk_id == b"id3 " for chunk_id, _ in chunks):
-        payloads.append((b"id3 ", new_tag))
+    at = next(
+        (i for i, (chunk_id, _) in enumerate(payloads) if chunk_id == b"data"),
+        len(payloads),
+    )
+    payloads.insert(at, (b"id3 ", new_tag))
 
     body = bytearray(b"WAVE")
     for chunk_id, payload in payloads:

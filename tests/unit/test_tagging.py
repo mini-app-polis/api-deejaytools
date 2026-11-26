@@ -361,7 +361,7 @@ def test_wav_keeps_the_audio_when_the_data_chunk_declared_size_overruns() -> Non
     audio = bytes([0x7F]) * 100
     result = tag_wav(wav_with_overrunning_data(1000, audio))
     chunks = walk_chunks(result)
-    assert [cid for cid, _ in chunks] == [b"fmt ", b"data", b"id3 "]
+    assert [cid for cid, _ in chunks] == [b"fmt ", b"id3 ", b"data"]
     assert chunk(result, b"data") == audio
     assert struct.unpack_from("<I", result, 4)[0] == len(result) - 8
     assert read_mp3_title(chunk(result, b"id3 ")) == "New Title"
@@ -372,8 +372,26 @@ def test_wav_keeps_the_audio_of_a_streamed_wav_with_data_size_0xffffffff() -> No
     list_chunk = b"LIST" + bytes([4, 0, 0, 0]) + b"INFO"
     result = tag_wav(wav_with_overrunning_data(0xFFFFFFFF, audio, [list_chunk]))
     chunks = walk_chunks(result)
-    assert [cid for cid, _ in chunks] == [b"fmt ", b"LIST", b"data", b"id3 "]
+    assert [cid for cid, _ in chunks] == [b"fmt ", b"LIST", b"id3 ", b"data"]
     assert chunk(result, b"data") == audio
+    assert struct.unpack_from("<I", result, 4)[0] == len(result) - 8
+
+
+def test_wav_puts_the_tag_before_the_audio_ahead_of_an_editors_trailing_chunks() -> (
+    None
+):
+    # Pro Tools' layout: its own chunks after the audio, one of odd length,
+    # and an earlier tag at the end, behind them.
+    audio = bytes([0x11]) * 6
+    data_chunk = b"data" + struct.pack("<I", len(audio)) + audio
+    dgda = b"DGDA" + struct.pack("<I", 5) + b"\x01\x02\x03\x04\x05" + b"\x00"
+    old = b"id3 " + struct.pack("<I", 10) + bytes(10)
+    result = tag_wav(riff(b"WAVE" + FMT_CHUNK + data_chunk + dgda + old))
+    chunks = walk_chunks(result)
+    assert [cid for cid, _ in chunks] == [b"fmt ", b"id3 ", b"data", b"DGDA"]
+    assert chunk(result, b"data") == audio
+    assert chunk(result, b"DGDA") == b"\x01\x02\x03\x04\x05"
+    assert read_mp3_title(chunk(result, b"id3 ")) == "New Title"
     assert struct.unpack_from("<I", result, 4)[0] == len(result) - 8
 
 
