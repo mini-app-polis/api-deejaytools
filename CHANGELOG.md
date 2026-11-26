@@ -1,3 +1,11 @@
+## [1.48.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.48.1...v1.48.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **drive:** fail a folder share at once when the folder holds a file deejaytools did not create ([130185e](https://github.com/mini-app-polis/api-deejaytools/commit/130185e6a119d6003fe86d07e29715820a57f5bb))
+* **drive:** use the drive scope so a folder holding files deejaytools did not create can still be shared ([b4b6ee7](https://github.com/mini-app-polis/api-deejaytools/commit/b4b6ee7d5e59e532c2b3f2f86ca4454392a918fe))
+
 ## [1.48.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.48.0...v1.48.1) (2026-11-26)
 
 
