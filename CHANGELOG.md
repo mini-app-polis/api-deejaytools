@@ -1,3 +1,11 @@
+## [1.48.3](https://github.com/mini-app-polis/api-deejaytools/compare/v1.48.2...v1.48.3) (2026-11-26)
+
+
+### Bug Fixes
+
+* **tagging:** write a WAV's id3 chunk before the audio so DJ software finds it past an editor's trailing chunks ([85a27f5](https://github.com/mini-app-polis/api-deejaytools/commit/85a27f5330f1d263b72510410b582c8e88fd2457))
+* **uploads:** name the processed file with the extension its bytes call for, not the original's ([f704133](https://github.com/mini-app-polis/api-deejaytools/commit/f7041333504eddf785904b78d3e8d22f2c29b68b))
+
 ## [1.48.2](https://github.com/mini-app-polis/api-deejaytools/compare/v1.48.1...v1.48.2) (2026-11-26)
 
 
