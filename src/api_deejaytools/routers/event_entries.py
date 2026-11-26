@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import Caller, EventRef, is_admin, require_event_scope
 from ..clock import now_ms
 from ..database import get_db_session
-from ..domain import ms_to_date_in_zone, today_in_zone
+from ..domain import ms_to_date_in_zone, song_entity_key, today_in_zone
 from ..errors import (
     Envelope,
     ErrorCode,
@@ -50,6 +50,7 @@ from ..errors import (
 )
 from ..models import Event, EventRegistration, EventSongSubmission, Song
 from ..services import change_feed
+from ..submissions import effective_division
 from ..validation import ZodModel
 from ..zod_coerce import js_trim
 from ..zod_types import zod_body
@@ -433,12 +434,12 @@ MAX_EARLIER_EDITIONS = 5
 
 
 class TimelineDay(BaseModel):
-    """Submissions made on one day, counted from the event's first day."""
+    """Entries counted on one day, counted from the event's first day."""
 
     day: int = Field(
         ..., description="Days from the event's start_date (day 0), in its timezone."
     )
-    count: int = Field(..., description="Submissions made that day.")
+    count: int = Field(..., description="Entries counted that day.")
 
 
 class TimelineEvent(BaseModel):
@@ -452,12 +453,26 @@ class TimelineEvent(BaseModel):
         ..., description="Entries on its registration list, not scratched; 0: no list."
     )
     submissions: int = Field(..., description="Its submissions, every day together.")
-    days: list[TimelineDay] = Field(..., description="Days with submissions, in order.")
+    entries: int = Field(
+        ...,
+        description=(
+            "Entries with music in: its submissions with one per competing "
+            "entity and division, however many rounds it has songs for."
+        ),
+    )
+    days: list[TimelineDay] = Field(
+        ...,
+        description=(
+            "Its entries with music in, each counted once, on the day of its "
+            "first submission; days with none left out, in order."
+        ),
+    )
     song_added_days: list[TimelineDay] = Field(
         ...,
         description=(
-            "The same submissions counted by the day each one's song was added "
-            "to deejaytools (uploaded), in order; days before day 0 included."
+            "The same entries counted by the day the first of their songs was "
+            "added to deejaytools (uploaded), in order; days before day 0 "
+            "included."
         ),
     )
     likely_on_file_days: list[TimelineDay] = Field(
@@ -543,17 +558,36 @@ async def submission_timeline(
         await session.execute(
             select(
                 EventSongSubmission.event_id,
-                EventSongSubmission.created_at,
-                Song.created_at,
+                EventSongSubmission.created_at.label("submitted_at"),
+                EventSongSubmission.division.label("submission_division"),
+                Song.created_at.label("song_added_at"),
+                Song.division.label("song_division"),
+                Song.user_id,
+                Song.partner_id,
+                Song.managed_partnership_id,
             )
             .join(Song, Song.id == EventSongSubmission.song_id)
             .where(EventSongSubmission.event_id.in_(ids))
         )
     ).all()
+    # One entry per competing entity and division: an entry with a song for
+    # each round (Classic at The Open) is still one entry, so it counts once,
+    # at its first submission and its first song added.
+    submitted: Counter[str] = Counter()
+    first: dict[tuple[str, str, str], tuple[int, int]] = {}
+    for sub in made:
+        submitted[sub.event_id] += 1
+        entry = (
+            sub.event_id,
+            song_entity_key(sub.user_id, sub.partner_id, sub.managed_partnership_id),
+            effective_division(sub.submission_division, sub.song_division),
+        )
+        at, added_at = first.get(entry, (sub.submitted_at, sub.song_added_at))
+        first[entry] = (min(at, sub.submitted_at), min(added_at, sub.song_added_at))
     by_event = {e.id: e for e in events}
     days: dict[str, Counter[int]] = {e.id: Counter() for e in events}
     added: dict[str, Counter[int]] = {e.id: Counter() for e in events}
-    for event_id, submitted_at, song_added_at in made:
+    for (event_id, _, _), (submitted_at, song_added_at) in first.items():
         e = by_event[event_id]
         day = ms_to_date_in_zone(submitted_at, e.timezone)
         days[event_id][day_number(day, e.start_date)] += 1
@@ -574,7 +608,8 @@ async def submission_timeline(
                 "start_date": e.start_date,
                 "end_date": e.end_date,
                 "registrations": registered.get(e.id, 0),
-                "submissions": sum(days[e.id].values()),
+                "submissions": submitted[e.id],
+                "entries": sum(days[e.id].values()),
                 "days": [{"day": d, "count": n} for d, n in sorted(days[e.id].items())],
                 "song_added_days": [
                     {"day": d, "count": n} for d, n in sorted(added[e.id].items())
@@ -595,12 +630,14 @@ async def submission_timeline(
     response_model=SubmissionTimelineResponse,
     summary="An event's submissions by day, beside its series",
     description=(
-        "How many submissions the event has had on each day, counted from its "
-        "start_date (day 0) in its timezone, with the size of its registration "
-        "list; and the same for the latest earlier events of its series, so "
-        "staff can see how far along it is against past editions. Each entry "
-        "counts once, on the day of its current submission, and again in "
-        "song_added_days on the day its song was added to deejaytools. For an "
+        "How many entries the event has had music in for on each day, counted "
+        "from its start_date (day 0) in its timezone, with the size of its "
+        "registration list; and the same for the latest earlier events of its "
+        "series, so staff can see how far along it is against past editions. "
+        "Each entry (competing entity and division) counts once, on the day of "
+        "its first submission, however many rounds it has songs for, and again "
+        "in song_added_days on the day its first song was added to deejaytools. "
+        "For an "
         "admin, likely_on_file_days also counts the event's entries with no "
         "music in that likely have a song on file. "
         "Counts only, "

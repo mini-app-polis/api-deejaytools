@@ -2026,7 +2026,7 @@
           "event-entries"
         ],
         "summary": "An event's submissions by day, beside its series",
-        "description": "How many submissions the event has had on each day, counted from its start_date (day 0) in its timezone, with the size of its registration list; and the same for the latest earlier events of its series, so staff can see how far along it is against past editions. Each entry counts once, on the day of its current submission, and again in song_added_days on the day its song was added to deejaytools. For an admin, likely_on_file_days also counts the event's entries with no music in that likely have a song on file. Counts only, never who. Requires deejaytools.entries.read on the event.",
+        "description": "How many entries the event has had music in for on each day, counted from its start_date (day 0) in its timezone, with the size of its registration list; and the same for the latest earlier events of its series, so staff can see how far along it is against past editions. Each entry (competing entity and division) counts once, on the day of its first submission, however many rounds it has songs for, and again in song_added_days on the day its first song was added to deejaytools. For an admin, likely_on_file_days also counts the event's entries with no music in that likely have a song on file. Counts only, never who. Requires deejaytools.entries.read on the event.",
         "operationId": "get_submission_timeline_v1_events__id__submission_timeline_get",
         "parameters": [
           {
@@ -13150,7 +13150,7 @@
           "count": {
             "type": "integer",
             "title": "Count",
-            "description": "Submissions made that day."
+            "description": "Entries counted that day."
           }
         },
         "type": "object",
@@ -13159,7 +13159,7 @@
           "count"
         ],
         "title": "TimelineDay",
-        "description": "Submissions made on one day, counted from the event's first day."
+        "description": "Entries counted on one day, counted from the event's first day."
       },
       "TimelineEvent": {
         "properties": {
@@ -13193,13 +13193,18 @@
             "title": "Submissions",
             "description": "Its submissions, every day together."
           },
+          "entries": {
+            "type": "integer",
+            "title": "Entries",
+            "description": "Entries with music in: its submissions with one per competing entity and division, however many rounds it has songs for."
+          },
           "days": {
             "items": {
               "$ref": "#/components/schemas/TimelineDay"
             },
             "type": "array",
             "title": "Days",
-            "description": "Days with submissions, in order."
+            "description": "Its entries with music in, each counted once, on the day of its first submission; days with none left out, in order."
           },
           "song_added_days": {
             "items": {
@@ -13207,7 +13212,7 @@
             },
             "type": "array",
             "title": "Song Added Days",
-            "description": "The same submissions counted by the day each one's song was added to deejaytools (uploaded), in order; days before day 0 included."
+            "description": "The same entries counted by the day the first of their songs was added to deejaytools (uploaded), in order; days before day 0 included."
           },
           "likely_on_file_days": {
             "items": {
@@ -13226,6 +13231,7 @@
           "end_date",
           "registrations",
           "submissions",
+          "entries",
           "days",
           "song_added_days",
           "likely_on_file_days"
