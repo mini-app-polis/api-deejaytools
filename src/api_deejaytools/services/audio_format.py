@@ -11,6 +11,24 @@ from typing import Literal
 
 DetectedAudioFormat = Literal["audio/mpeg", "audio/wav", "audio/flac", "audio/mp4"]
 
+#: The extension a file of each detected format is stored with.
+EXTENSIONS: dict[str, str] = {
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+    "audio/flac": "flac",
+    "audio/mp4": "m4a",
+}
+
+
+def extension_for(mime_type: str | None) -> str | None:
+    """The extension for a detected format's MIME type; None for any other.
+
+    DJ software picks how to read a file's tags by its extension, so an MP3
+    uploaded as ``.m4a`` would show none: the bytes decide, as they do the
+    format.
+    """
+    return EXTENSIONS.get(mime_type or "")
+
 
 def detect_audio_format(data: bytes) -> DetectedAudioFormat | None:
     """Return the canonical MIME type for ``data``, or ``None`` if not recognised.

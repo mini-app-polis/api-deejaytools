@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from api_deejaytools.services.audio_format import detect_audio_format
+from api_deejaytools.services.audio_format import detect_audio_format, extension_for
 
 
 def test_detects_mp3_with_id3v2_header() -> None:
@@ -39,3 +39,12 @@ def test_returns_none_for_too_short_buffer() -> None:
 
 def test_returns_none_for_a_pdf() -> None:
     assert detect_audio_format(b"%PDF-1.4" + bytes(20)) is None
+
+
+def test_each_detected_format_has_its_extension_and_nothing_else_does() -> None:
+    assert extension_for("audio/mpeg") == "mp3"
+    assert extension_for("audio/wav") == "wav"
+    assert extension_for("audio/flac") == "flac"
+    assert extension_for("audio/mp4") == "m4a"
+    assert extension_for("application/octet-stream") is None
+    assert extension_for(None) is None
