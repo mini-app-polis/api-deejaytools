@@ -1,3 +1,10 @@
+## [1.48.1](https://github.com/mini-app-polis/api-deejaytools/compare/v1.48.0...v1.48.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **timeline:** count entries, not songs, so an entry with a song per round counts once ([ab3a74e](https://github.com/mini-app-polis/api-deejaytools/commit/ab3a74e417155f701606ac70ca470162588a64db))
+
 # [1.48.0](https://github.com/mini-app-polis/api-deejaytools/compare/v1.47.0...v1.48.0) (2026-11-24)
 
 
