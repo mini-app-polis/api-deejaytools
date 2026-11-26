@@ -213,6 +213,8 @@ When `TICK_SECRET` is **unset** (an empty value counts as unset), the route refu
 
 **Purpose:** Upsert the Clerk user into `users` after first sign-in, and provision their principal with the `deejaytools-dancer` role, in one transaction.
 
+In the same transaction, every unlinked partner row (`kind = 'partner'`) in another user's book whose email is the caller's stored email (trimmed, any case) is linked to the caller (`linked_user_id`), so songs a partner added before the caller had an account are shared with them from then on. Rows already linked keep their link; nothing is linked when the email, ignoring case, belongs to more than one account.
+
 **Path params / Query params:** none
 
 **Request body:**
@@ -1534,7 +1536,7 @@ const patchBody = z.object({
 
 **Auth:** `deejaytools.partners.write`
 
-**Purpose:** Create a partner record.
+**Purpose:** Create a partner record. When the email is an account's `users.email` (trimmed, any case), other than the caller's own and held by no other account, the row is linked to that account (`linked_user_id`): the caller's songs with this partner are shared with it (`shared_with_me`). Otherwise `linked_user_id` is `null`.
 
 **Path params / Query params:** none
 
@@ -1609,7 +1611,7 @@ const patchBody = z.object({
 
 **Auth:** `deejaytools.partners.write`
 
-**Purpose:** Update partner fields.
+**Purpose:** Update partner fields. An `email` that differs from the stored one relinks the row by the same rule as create: to the account the new email is, or to none (a cleared email unlinks it). Sending the stored email again, or changing other fields only, keeps the link.
 
 **Path params:** `id`
 

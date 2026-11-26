@@ -114,7 +114,7 @@
           "auth"
         ],
         "summary": "Create or refresh the caller's user record",
-        "description": "Upserts the caller's users row and provisions their principal (deejaytools-dancer) in one transaction. The email stored is the session token's email claim; the body's email is used only when the token carries none. On conflict only email and updated_at change; names are user-managed after creation. Authenticated-only: a verified credential, no scope.",
+        "description": "Upserts the caller's users row and provisions their principal (deejaytools-dancer) in one transaction. The email stored is the session token's email claim; the body's email is used only when the token carries none. On conflict only email and updated_at change; names are user-managed after creation. Unlinked partner rows in other users' books whose email is the caller's are linked to the caller's account. Authenticated-only: a verified credential, no scope.",
         "operationId": "sync_v1_auth_sync_post",
         "parameters": [
           {
@@ -3160,7 +3160,7 @@
           "partners"
         ],
         "summary": "Create a partner",
-        "description": "Names are trimmed; a blank email is stored as null. Requires deejaytools.partners.write.",
+        "description": "Names are trimmed; a blank email is stored as null. A partner whose email is an account's is linked to that account, which shares the caller's songs with this partner with it. Requires deejaytools.partners.write.",
         "operationId": "create_partner_v1_partners_post",
         "parameters": [
           {
@@ -3420,7 +3420,7 @@
           "partners"
         ],
         "summary": "Update a partner",
-        "description": "Only the fields sent change; names are trimmed and may not be blank. With nothing to change the partner is returned untouched. Requires deejaytools.partners.write.",
+        "description": "Only the fields sent change; names are trimmed and may not be blank. With nothing to change the partner is returned untouched. A changed email relinks the partner to the account that email is, or unlinks it when none is. Requires deejaytools.partners.write.",
         "operationId": "patch_partner_v1_partners__id__patch",
         "parameters": [
           {

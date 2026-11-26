@@ -27,6 +27,7 @@ from ..errors import (
     success_list,
 )
 from ..models import Checkin, Pair, Partner, QueueEntry, Song
+from ..partner_links import account_for_email
 from ..services import change_feed
 from ..validation import Email, NonEmptyStr, ZodModel
 from ..zod_coerce import js_trim
@@ -251,7 +252,9 @@ async def list_partners(
     response_model=PartnerResponse,
     summary="Create a partner",
     description=(
-        "Names are trimmed; a blank email is stored as null. Requires "
+        "Names are trimmed; a blank email is stored as null. A partner whose "
+        "email is an account's is linked to that account, which shares the "
+        "caller's songs with this partner with it. Requires "
         "deejaytools.partners.write."
     ),
     responses=AUTH,
@@ -264,6 +267,7 @@ async def create_partner(
     """Create a partner."""
     now = now_ms()
     partner_id = str(uuid.uuid4())
+    email = js_trim(body.email or "") or None
     session.add(
         Partner(
             id=partner_id,
@@ -271,7 +275,10 @@ async def create_partner(
             first_name=js_trim(body.first_name),
             last_name=js_trim(body.last_name),
             partner_role=body.partner_role,
-            email=js_trim(body.email or "") or None,
+            email=email,
+            linked_user_id=await account_for_email(
+                session, email, owner_id=caller.user_id
+            ),
             created_at=now,
             updated_at=now,
         )
@@ -346,8 +353,9 @@ async def get_partner(
     summary="Update a partner",
     description=(
         "Only the fields sent change; names are trimmed and may not be blank. "
-        "With nothing to change the partner is returned untouched. Requires "
-        "deejaytools.partners.write."
+        "With nothing to change the partner is returned untouched. A changed "
+        "email relinks the partner to the account that email is, or unlinks "
+        "it when none is. Requires deejaytools.partners.write."
     ),
     responses={
         **AUTH,
@@ -378,7 +386,12 @@ async def patch_partner(
     if body.partner_role is not None:
         row.partner_role = body.partner_role
     if "email" in sent:
-        row.email = js_trim(body.email or "") or None
+        email = js_trim(body.email or "") or None
+        if email != row.email:
+            row.email = email
+            row.linked_user_id = await account_for_email(
+                session, email, owner_id=caller.user_id
+            )
     row.updated_at = now_ms()
     await session.commit()
     return success(map_partner(row))
