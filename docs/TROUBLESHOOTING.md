@@ -127,7 +127,7 @@ drive_work_skipped: Google Drive is not configured; song builds and Drive jobs s
 
 **Symptom:** Song builds fail with a Google API **403** / **404** (e.g. "File not found", "Insufficient permissions") when creating subfolders or uploading under `GOOGLE_DRIVE_PARENT_FOLDER_ID`.
 
-**Cause:** The parent folder exists in your personal Drive but the **service account email** was never granted access. The API uses the `drive.file` scope.
+**Cause:** The parent folder exists in your personal Drive but the **service account email** was never granted access. The API uses the `drive` scope, which reaches only what is shared with the service account.
 
 **Fix:**
 

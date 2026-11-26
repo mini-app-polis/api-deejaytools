@@ -36,9 +36,13 @@ either field) the call fails with
 boot, so an unconfigured deployment fails per upload (build retried, or an
 unreferenced song deleted) and per job (retried, then `failed`).
 
-**Scope:** `https://www.googleapis.com/auth/drive.file`. The service account can
-only see and modify files **it created**. Copy, rename, move and trash therefore only
-work on files that came through `upload_song_file` (or copies of them).
+**Scope:** `https://www.googleapis.com/auth/drive`. The service account sees and
+changes what is shared with it: the root folder and everything below it, whoever
+put a file there. That matters for sharing: sharing a folder changes everything
+in it, and a DJ's VirtualDJ writes its own files beside the songs in a synced
+event folder, so a narrower scope (`drive.file`, its own files only) would have
+Drive refuse the share (`appNotAuthorizedToChild`). Nothing outside the root is
+shared with the service account, so it reaches nothing else.
 
 Every call passes `supportsAllDrives: true` (and `includeItemsFromAllDrives: true`
 on list), so the root may be in a shared drive.
@@ -608,8 +612,8 @@ event folder; nothing is deleted permanently. Each trashed folder is dropped
 from the folder cache, so a later copy or share for an event of the same name
 creates a fresh folder.
 
-The service account sees only files it created (`drive.file` scope), so a file
-another account put in the folder is not seen by the check.
+A file another account put in the folder (a DJ's VirtualDJ files, say) counts
+like any other, so that folder is kept.
 
 **When.** Not a job: a deleted event leaves no row to hang one on, and the
 sweep has to wait for the copies' `trash` jobs anyway. The scheduler runs it on

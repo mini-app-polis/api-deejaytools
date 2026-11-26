@@ -17,8 +17,10 @@ Season year, division, event name and round subfolder go through
 ``sanitize_folder_name``; ``Events`` and ``_deprecated`` are literal.
 
 Credentials are the deejaytools service account's, from three
-environment variables, with the ``drive.file`` scope only: the account sees
-and changes nothing but files it created. If any of the three is missing or
+environment variables, with the ``drive`` scope: the account sees and changes
+what is shared with it, the root folder and everything below it, whoever put
+a file there (a DJ's VirtualDJ writes its own files beside the songs, and an
+event folder holding one still has to be shared). If any of the three is missing or
 empty, every operation raises ``DriveNotConfiguredError`` with the message
 ``Google Drive environment variables are not configured`` before touching
 the network (nothing checks this at boot).
@@ -100,7 +102,7 @@ __all__ = [
 ]
 
 NOT_CONFIGURED_MESSAGE = "Google Drive environment variables are not configured"
-DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 _TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 EVENTS_FOLDER = "Events"
@@ -346,8 +348,7 @@ async def find_song_file(
 async def download_file(file_id: str) -> bytes:
     """A file's bytes, read into memory (songs run to ~110 MiB).
 
-    The service account reads only files it created (``drive.file``), which
-    every song's upload is.
+    Every song's upload is below the root, which the service account reaches.
     """
     facade, _root = _drive()
     downloaded = await asyncio.to_thread(facade.download_file_bytes, file_id)
@@ -588,9 +589,8 @@ class Subfolder:
 async def list_subfolders(folder_id: str) -> list[Subfolder]:
     """The untrashed folders directly inside ``folder_id``, by name.
 
-    Only lists; nothing is created. The service account sees only folders it
-    created (``drive.file``), which every folder below the root is. Drive
-    errors propagate.
+    Only lists; nothing is created. Every folder below the root is listed,
+    whoever created it. Drive errors propagate.
     """
     facade, _root = _drive()
     children = await asyncio.to_thread(facade.get_all_subfolders, folder_id)
@@ -630,9 +630,8 @@ async def empty_folder_tree(folder_id: str) -> list[str] | None:
     """The folder and every folder below it, deepest first, when none of them
     holds an untrashed file; None as soon as one does.
 
-    Anything that is not a folder counts as a file, whoever put it there.
-    The service account sees only files it created (``drive.file``), so a
-    file another account added is not seen.
+    Anything that is not a folder counts as a file, whoever put it there (a
+    DJ's VirtualDJ files included), so such a folder is kept.
     """
     facade, _root = _drive()
     folders: list[str] = []
