@@ -44,13 +44,14 @@ async def _submit(
     created_at: int,
     *,
     song_added_at: int | None = None,
+    division: str = "Classic",
 ) -> None:
     """A submission made at ``created_at`` of a song added at ``song_added_at``
     (the same moment when not given)."""
     song = await insert_song(
         db,
         user_id,
-        division="Classic",
+        division=division,
         season_year="2026",
         created_at=song_added_at if song_added_at is not None else created_at,
     )
@@ -101,6 +102,8 @@ async def test_counts_by_day_from_start_beside_earlier_editions(
 ) -> None:
     admin = await person("admin", admin=True)
     alice = await person("alice")
+    bob = await person("bob")
+    cy = await person("cy")
     this_year = await _event(
         client, admin, "Open 2026", "2026-11-25", series="The Open"
     )
@@ -123,7 +126,7 @@ async def test_counts_by_day_from_start_beside_earlier_editions(
     await _submit(
         db,
         this_year,
-        alice.id,
+        bob.id,
         _ms("2026-11-17T23:30"),
         song_added_at=_ms("2026-10-01T12:00"),
     )
@@ -131,14 +134,14 @@ async def test_counts_by_day_from_start_beside_earlier_editions(
     await _submit(
         db,
         this_year,
-        alice.id,
+        cy.id,
         _ms("2026-11-25T08:00"),
         song_added_at=_ms("2026-11-24T20:00"),
     )
     # 23:30 in Los Angeles is the next day in Chicago: the event's own zone counts.
     la = ZoneInfo("America/Los_Angeles")
     await _submit(db, last_year, alice.id, _ms("2025-11-18T23:30", la))
-    await _submit(db, last_year, alice.id, _ms("2025-11-27T10:00", la))
+    await _submit(db, last_year, bob.id, _ms("2025-11-27T10:00", la))
     res = await client.put(
         f"/v1/admin/events/{last_year}/registrations",
         json={
@@ -172,11 +175,11 @@ async def test_counts_by_day_from_start_beside_earlier_editions(
         {"day": -8, "count": 1},
         {"day": -1, "count": 1},
     ]
-    assert (this["submissions"], this["registrations"]) == (3, 0)
+    assert (this["submissions"], this["entries"], this["registrations"]) == (3, 3, 0)
     assert last["days"] == [{"day": -8, "count": 1}, {"day": 1, "count": 1}]
     # Added the moment they were submitted, in the event's own zone too.
     assert last["song_added_days"] == last["days"]
-    assert (last["submissions"], last["registrations"]) == (2, 2)
+    assert (last["submissions"], last["entries"], last["registrations"]) == (2, 2, 2)
     assert old == {
         "id": older,
         "name": "Open 2024",
@@ -184,10 +187,47 @@ async def test_counts_by_day_from_start_beside_earlier_editions(
         "end_date": "2024-11-27",
         "registrations": 0,
         "submissions": 0,
+        "entries": 0,
         "days": [],
         "song_added_days": [],
         "likely_on_file_days": [],
     }
+
+
+async def test_an_entry_with_a_song_for_each_round_counts_once(
+    client: httpx.AsyncClient, person: Callable, db: asyncpg.Connection
+) -> None:
+    admin = await person("admin", admin=True)
+    alice = await person("alice")
+    event_id = await _event(client, admin, "Open", "2026-11-25", series="The Open")
+    # Prelims song, uploaded weeks ahead and submitted a week out; then the
+    # finals song, uploaded the day before and submitted on the day.
+    await _submit(
+        db,
+        event_id,
+        alice.id,
+        _ms("2026-11-17T09:00"),
+        song_added_at=_ms("2026-10-01T12:00"),
+    )
+    await _submit(
+        db,
+        event_id,
+        alice.id,
+        _ms("2026-11-25T08:00"),
+        song_added_at=_ms("2026-11-24T20:00"),
+    )
+    # Another division is another entry.
+    await _submit(db, event_id, alice.id, _ms("2026-11-20T09:00"), division="Showcase")
+
+    data = (await client.get(_url(event_id), headers=admin.headers)).json()["data"]
+    (this,) = data["events"]
+    assert (this["submissions"], this["entries"]) == (3, 2)
+    # Counted at its first submission and its first song added.
+    assert this["days"] == [{"day": -8, "count": 1}, {"day": -5, "count": 1}]
+    assert this["song_added_days"] == [
+        {"day": -55, "count": 1},
+        {"day": -5, "count": 1},
+    ]
 
 
 async def test_an_event_in_no_series_is_alone(
@@ -275,7 +315,7 @@ async def test_admins_see_entries_likely_on_file_and_staff_do_not(
     assert (this["id"], last["id"]) == (event_id, earlier)
     assert this["likely_on_file_days"] == [{"day": -10, "count": 1}]
     assert last["likely_on_file_days"] == []
-    assert this["submissions"] == 0
+    assert (this["submissions"], this["entries"]) == (0, 0)
 
     data = (await client.get(_url(event_id), headers=dj.headers)).json()["data"]
     assert [e["likely_on_file_days"] for e in data["events"]] == [[], []]

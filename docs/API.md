@@ -3100,7 +3100,7 @@ How far along the event's music is against earlier editions of it, for the event
 
 **Query params / Request body:** none
 
-**Purpose:** The event's submissions per day, counted from its `start_date` (day 0) in its own timezone, with the size of its registration list (entries not scratched; 0 when no list was imported). When the event has a `series`, the same for the latest five earlier events of that series (matched case-insensitively, `start_date` before this one's), newest first. Each submission counts once, on the day it was made: the app keeps only an entry's current submission, so an entry that replaced its music counts on the day of its latest version.
+**Purpose:** The event's entries with music in, per day, counted from its `start_date` (day 0) in its own timezone, with the size of its registration list (entries not scratched; 0 when no list was imported). When the event has a `series`, the same for the latest five earlier events of that series (matched case-insensitively, `start_date` before this one's), newest first. An entry is a competing entity (the song's managed partnership, else partner, else owner) in a division: it counts once, on the day of its first submission, however many rounds it has songs for (Classic at The Open has one per round), so the counts compare with the registration list, which has one entry per couple and division. The app keeps only an entry's current submission per round, so one that replaced its music counts on the day of its latest version.
 
 **Response:**
 
@@ -3116,7 +3116,8 @@ How far along the event's music is against earlier editions of it, for the event
         "start_date": "2026-11-25",
         "end_date": "2026-11-29",
         "registrations": 164,
-        "submissions": 2,
+        "submissions": 3,
+        "entries": 2,
         "days": [{ "day": -55, "count": 1 }, { "day": -50, "count": 1 }],
         "song_added_days": [{ "day": -300, "count": 1 }, { "day": -50, "count": 1 }],
         "likely_on_file_days": [{ "day": -20, "count": 1 }]
@@ -3127,7 +3128,7 @@ How far along the event's music is against earlier editions of it, for the event
 }
 ```
 
-`today` is today, in days from the event's `start_date` in its timezone. `days` lists only days with submissions, in order. `song_added_days` counts the same submissions by the day each one's song was added to deejaytools (`songs.created_at`, in the event's timezone), so the chart can show when the music came in beside when it was entered; a song uploaded a season earlier and reused counts on its upload day, long before day 0. `likely_on_file_days` is for an admin only, and only on the event itself (empty for staff and for earlier editions): its registration entries with no music in that likely have a song on file, as `GET /v1/admin/events/:id/registrations/songs-on-file` finds them, each counted once on the day its best candidate song was added, so the chart can project how much music is already in deejaytools.
+`today` is today, in days from the event's `start_date` in its timezone. `submissions` counts every submission; `entries` counts the entries they make up. `days` lists only days on which entries got their first music, in order. `song_added_days` counts the same entries by the day the first of their songs was added to deejaytools (`songs.created_at`, in the event's timezone), so the chart can show when the music came in beside when it was entered; a song uploaded a season earlier and reused counts on its upload day, long before day 0. `likely_on_file_days` is for an admin only, and only on the event itself (empty for staff and for earlier editions): its registration entries with no music in that likely have a song on file, as `GET /v1/admin/events/:id/registrations/songs-on-file` finds them, each counted once on the day its best candidate song was added, so the chart can project how much music is already in deejaytools.
 
 **Errors:**
 
