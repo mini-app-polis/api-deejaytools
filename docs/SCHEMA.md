@@ -161,7 +161,7 @@ Per-user address book of dance partners and placeholder entities (solo/team/othe
 | `partner_role` | `partner_role` | NO | `follower` | `leader` or `follower`; used when building processed filenames and pair labels |
 | `kind` | `text` | NO | `partner` | Discriminator: `partner`, `solo`, `team`, or `other`. Non-`partner` rows are single-name placeholders (portal uploads); excluded from partner counts in admin APIs |
 | `email` | `text` | YES | — | Optional contact email |
-| `linked_user_id` | `text` | YES | — | Optional link to another `users` row if partner has an account |
+| `linked_user_id` | `text` | YES | — | The account whose email is the row's (trimmed, any case); set by the API on create, email change and that account's sign-in (migration 019 for earlier rows). Shares the owner's songs with this partner with that account |
 | `created_at` | `bigint` | NO | — | Epoch ms |
 | `updated_at` | `bigint` | NO | — | Epoch ms |
 

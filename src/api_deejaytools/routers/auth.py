@@ -38,6 +38,7 @@ from ..errors import (
     user_not_synced,
 )
 from ..models import User
+from ..partner_links import link_rows_to_account
 from ..staff import event_roles_for
 from ..validation import Email, ZodModel
 from ..zod_coerce import js_trim
@@ -177,6 +178,8 @@ def _email_for(subject: VerifiedSubject, body_email: str) -> str:
         "session token's email claim; the body's email is used only when the "
         "token carries none. On conflict only email and "
         "updated_at change; names are user-managed after creation. "
+        "Unlinked partner rows in other users' books whose email is the "
+        "caller's are linked to the caller's account. "
         "Authenticated-only: a verified credential, no scope."
     ),
     responses={
@@ -248,6 +251,9 @@ async def sync(
     if row is None:
         raise api_error(500, ErrorCode.INTERNAL, "Failed to load user")
     await provision_principal(subject, session)
+    # Partners added under this email before the account existed, or before
+    # it had this email, are linked to it now.
+    await link_rows_to_account(session, row.id, row.email)
     await session.commit()
 
     principal = await resolve_principal(subject, session)
